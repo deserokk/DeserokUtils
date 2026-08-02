@@ -68,6 +68,9 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 	/// </summary>
 	public ulong FiredTargetId { get; private set; }
 
+	/// <summary>Who the placeholders pointed at when the watch was armed. See WatchContext.</summary>
+	public WatchContext? Context { get; private set; }
+
 	private DateTime armedAt = DateTime.MinValue;
 
 	/// <summary>True when the arm is live and has not aged out.</summary>
@@ -152,7 +155,8 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		return result;
 	}
 
-	public void Arm(uint id, string name) {
+	public void Arm(uint id, string name, WatchContext context) {
+		this.Context = context;
 		// Arming REPLACES any previous arm. That is what makes a double-press clean: every run of
 		// a macro starts from a known state instead of inheriting the last one's result.
 		this.Armed = true;
@@ -173,6 +177,7 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.LastResult = false;
 		this.Attempts = 0;
 		this.FiredTargetId = 0;
+		this.Context = null;
 		this.WatchedId = 0;
 		this.WatchedName = string.Empty;
 		this.armedAt = DateTime.MinValue;

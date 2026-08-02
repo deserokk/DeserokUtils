@@ -31,6 +31,8 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IChatGui Chat { get; private set; } = null!;
 	internal static IObjectTable Objects { get; private set; } = null!;
 	internal static IDataManager Data { get; private set; } = null!;
+	internal static ITargetManager Targets { get; private set; } = null!;
+	internal static IPartyList Party { get; private set; } = null!;
 	internal static IGameInteropProvider Interop { get; private set; } = null!;
 	internal static IPluginLog Log { get; private set; } = null!;
 
@@ -47,6 +49,8 @@ public sealed class Plugin: IDalamudPlugin {
 		IChatGui chat,
 		IObjectTable objects,
 		IDataManager data,
+		ITargetManager targets,
+		IPartyList party,
 		IGameInteropProvider interop,
 		IPluginLog log) {
 
@@ -54,6 +58,8 @@ public sealed class Plugin: IDalamudPlugin {
 		Chat = chat;
 		Objects = objects;
 		Data = data;
+		Targets = targets;
+		Party = party;
 		Interop = interop;
 		Log = log;
 
@@ -127,7 +133,12 @@ public sealed class Plugin: IDalamudPlugin {
 			return;
 		}
 
-		this.watcher.Arm(id.Value, name);
+		// Snapshot the placeholders NOW. A fallback macro resolves in well under a second, but by
+		// the time it reaches a later line the mouse has moved -- so reading <mo> at check time
+		// answers "where is the cursor now", not "who did the spell go to".
+		WatchContext context = WatchContext.Capture();
+		this.watcher.Arm(id.Value, name, context);
+		Diag($"armed {name} (id {id.Value}) | {context.Summary()}");
 		Log.Debug($"CastWatch: armed {name} (id {id.Value})");
 	}
 
@@ -161,7 +172,10 @@ public sealed class Plugin: IDalamudPlugin {
 		bool lastResult = this.watcher.LastResult;
 		bool fired = this.watcher.Fired;
 		int attempts = this.watcher.Attempts;
-		string firedOn = DescribeTarget(this.watcher.FiredTargetId);
+		// Describe against the SNAPSHOT, so the answer is "it went to your mouseover" or "it fell
+		// through to <2>" -- which is the thing a fallback macro cannot tell you on its own.
+		string firedOn = this.watcher.Context?.Describe(this.watcher.FiredTargetId)
+			?? DescribeTarget(this.watcher.FiredTargetId);
 		this.watcher.Disarm();
 
 		// ⚠ DIAGNOSTIC. Reports every input to the decision, so "it ran anyway" separates into
