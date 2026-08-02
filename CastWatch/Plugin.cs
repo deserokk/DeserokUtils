@@ -70,7 +70,7 @@ public sealed class Plugin: IDalamudPlugin {
 			HelpMessage = "/watch <action name> -- arm a watch for that action. Put it on line 1, above the /ac.",
 		});
 		Commands.AddHandler("/ifwatch", new CommandInfo(this.OnIfWatch) {
-			HelpMessage = "/ifwatch -- continue the macro only if the watched action went off (or is being cast); otherwise cancel it.",
+			HelpMessage = "/ifwatch [command] -- with a command, run it only if the watched action went off. Bare, cancel the macro if it did not.",
 		});
 		Commands.AddHandler("/castwatch", new CommandInfo(this.OnToggleVerbose) {
 			HelpMessage = "/castwatch -- toggle CastWatch's diagnostic output.",
@@ -146,6 +146,17 @@ public sealed class Plugin: IDalamudPlugin {
 	// ── /ifwatch ─────────────────────────────────────────────────────────────────────────────
 
 	private void OnIfWatch(string command, string arguments) {
+		// ⭐⭐ TWO FORMS, and the inline one is better:
+		//
+		//   /ifwatch /echo Raising <t>     <- run this line only if it went off
+		//   /ifwatch                       <- cancel the macro if it did not
+		//
+		// The inline form has no following line to suppress, so the cancel race cannot exist at
+		// all. deserok's idea, and it is structurally simpler than the thing it replaces rather
+		// than a workaround for it. The bare form stays because a multi-line follow-up still needs
+		// it.
+		string payload = arguments.Trim();
+
 		// ⚠ Four outcomes, and they must NOT look alike:
 		//   nothing armed      -> a macro-authoring bug (line 1 is missing). Say so; do NOT cancel.
 		//   arm expired        -> also say so; do NOT cancel.
@@ -190,6 +201,19 @@ public sealed class Plugin: IDalamudPlugin {
 
 		if (pass) {
 			Log.Debug($"CastWatch: {watched} passed ({(casting ? "casting" : "fired")})");
+			if (payload.Length > 0) {
+				// ⭐ QUEUED on purpose, unlike the cancel. This path has nothing to outrun, and the
+				// chatbox pipeline is what expands <t> / <mo> / <2> -- so the user's own
+				// placeholders behave exactly as they would on an ordinary macro line.
+				Diag($"passed -> running: {payload}");
+				SendToChatbox(payload);
+			}
+			return;
+		}
+
+		if (payload.Length > 0) {
+			// Nothing to cancel: the line simply never runs. This is the whole point of the form.
+			Diag($"did not go off -> suppressed: {payload}");
 			return;
 		}
 
