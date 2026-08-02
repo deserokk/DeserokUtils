@@ -99,9 +99,19 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				// together with the ORIGINAL's return value. Without this, "it passed anyway"
 				// cannot be told apart from "the hook never ran" or "the hook matched the wrong
 				// id" -- three different bugs with one symptom.
+				// ⚠ targetId is reported so the NEXT question is answered by the same test rather
+				// than a second one: does UseAction see the target you picked, or the target after
+				// the game redirects it? Aurora self-redirects on an invalid target, so if the id
+				// here is your enemy rather than you, a "not self" filter would be reading the
+				// wrong thing and the whole target-class idea needs a different signal.
+				ulong selfId = Plugin.Objects.LocalPlayer?.GameObjectId ?? 0;
+				string who = targetId == selfId ? "SELF"
+					: targetId is 0 or 0xE0000000 ? "none"
+					: $"0x{targetId:X}";
+
 				Plugin.Diag($"UseAction type={actionType} id={actionId}"
 					+ (adjusted != actionId ? $" (adj {adjusted})" : "")
-					+ $" returned {result}"
+					+ $" target={who} returned {result}"
 					+ (match ? $"  <== MATCHES {this.WatchedName}" : ""));
 
 				if (match) {
