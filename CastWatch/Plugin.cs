@@ -160,14 +160,18 @@ public sealed class Plugin: IDalamudPlugin {
 		bool sawAttempt = this.watcher.SawAttempt;
 		bool lastResult = this.watcher.LastResult;
 		bool fired = this.watcher.Fired;
+		int attempts = this.watcher.Attempts;
+		string firedOn = DescribeTarget(this.watcher.FiredTargetId);
 		this.watcher.Disarm();
 
 		// ⚠ DIAGNOSTIC. Reports every input to the decision, so "it ran anyway" separates into
 		// distinct causes: no attempt seen at all (hook dead or wrong id), attempt seen and
 		// UseAction returned true on a cast that visibly failed (wrong signal), or a correct
 		// cancel that arrived too late to stop the next line (timing).
-		Diag($"{watched}: sawAttempt={sawAttempt} useActionReturned={lastResult}"
-			+ $" fired={fired} casting={casting} -> {(pass ? "PASS" : "CANCEL")}");
+		Diag($"{watched}: attempts={attempts} lastReturned={lastResult}"
+			+ $" fired={fired}{(fired ? $" on {firedOn}" : "")} casting={casting}"
+			+ $" -> {(pass ? "PASS" : "CANCEL")}"
+			+ (sawAttempt ? "" : "  [no attempt seen at all]"));
 
 		if (pass) {
 			Log.Debug($"CastWatch: {watched} passed ({(casting ? "casting" : "fired")})");
@@ -185,6 +189,26 @@ public sealed class Plugin: IDalamudPlugin {
 	/// Name -> action id, matching how the name reads on the hotbar. Restricted to player actions
 	/// so a watch cannot silently bind to some internal ability that shares a name.
 	/// </summary>
+	/// <summary>
+	/// Resolve a requested-target id to something readable. Answers the question a repeat-macro
+	/// raises: /ac Aurora &lt;mo&gt; x7 then &lt;2&gt; x6 fires on whichever resolved first, and by
+	/// the time the macro reaches its echo line, &lt;mo&gt; is wherever the mouse happens to be --
+	/// which is why the macro itself cannot name who it healed.
+	/// </summary>
+	private static string DescribeTarget(ulong id) {
+		if (id is 0 or 0xE0000000)
+			return "none";
+		if (Objects.LocalPlayer is { } me && me.GameObjectId == id)
+			return "SELF";
+		foreach (var obj in Objects) {
+			if (obj.GameObjectId == id) {
+				string name = obj.Name.TextValue;
+				return name.Length > 0 ? name : $"0x{id:X}";
+			}
+		}
+		return $"0x{id:X}";
+	}
+
 	private static string StripQuotes(string s) {
 		if (s.Length >= 2 && ((s[0] == '"' && s[^1] == '"') || (s[0] == '\'' && s[^1] == '\'')))
 			return s[1..^1].Trim();

@@ -48,8 +48,25 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 
 	/// <summary>True once the watched action was attempted at all, whatever the outcome.</summary>
 	public bool SawAttempt { get; private set; }
-	/// <summary>What UseAction returned for the last attempt of the watched action.</summary>
+	/// <summary>What UseAction returned for the LAST attempt. See Attempts before trusting it.</summary>
 	public bool LastResult { get; private set; }
+
+	/// <summary>
+	/// How many times the watched action was attempted since arming.
+	///
+	/// ⚠ Not decoration. A "ghetto queue" macro repeats the same /ac a dozen times to beat
+	/// animation lock, so the FIRST attempt succeeds and the rest fail against the cooldown.
+	/// Reporting only the last result would read fired=True returned=False and look like a bug in
+	/// the plugin rather than the shape of the macro.
+	/// </summary>
+	public int Attempts { get; private set; }
+
+	/// <summary>
+	/// The target of the attempt that actually succeeded -- NOT the last one attempted, and not
+	/// the current target at check time. Zero if nothing succeeded.
+	/// ⚠ This is the target the CLIENT REQUESTED, not confirmation of where the action resolved.
+	/// </summary>
+	public ulong FiredTargetId { get; private set; }
 
 	private DateTime armedAt = DateTime.MinValue;
 
@@ -117,8 +134,14 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				if (match) {
 					this.LastResult = result;
 					this.SawAttempt = true;
-					if (result)
+					this.Attempts++;
+					// FIRST success wins and keeps its target. Later attempts in a repeat-macro
+					// fail against the cooldown, and letting them overwrite would discard the one
+					// piece of information worth having.
+					if (result && !this.Fired) {
 						this.Fired = true;
+						this.FiredTargetId = targetId;
+					}
 				}
 			}
 		}
@@ -138,6 +161,8 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.Fired = false;
 		this.SawAttempt = false;
 		this.LastResult = false;
+		this.Attempts = 0;
+		this.FiredTargetId = 0;
 		this.armedAt = DateTime.UtcNow;
 	}
 
@@ -146,6 +171,8 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.Fired = false;
 		this.SawAttempt = false;
 		this.LastResult = false;
+		this.Attempts = 0;
+		this.FiredTargetId = 0;
 		this.WatchedId = 0;
 		this.WatchedName = string.Empty;
 		this.armedAt = DateTime.MinValue;
