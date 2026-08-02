@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+
+	<!-- No package references on purpose. XivCommon 9.0.0 (what TinyCommands pulls) predates this
+	     SDK and still wants the old DalamudPluginInterface, and the only thing needed from it was a
+	     chat-line send, which is four lines of ClientStructs. One fewer dependency to break on the
+	     next API bump. -->
+
+	<PropertyGroup>
+		<Product>DeserokUtils</Product>
+		<AssemblyName>DeserokUtils</AssemblyName>
+		<Version>1.0.0</Version>
+		<Authors>deserokk</Authors>
+		<Description>A bucket of small FFXIV utilities.</Description>
+		<PackageProjectUrl>https://github.com/deserokk/DeserokUtils</PackageProjectUrl>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+</Project>

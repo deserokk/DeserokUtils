@@ -1,8 +1,0 @@
-{
-  "Name": "CastWatch",
-  "Author": "deserokk",
-  "Punchline": "Gate a macro line on whether the action actually went off",
-  "Description": "Adds /watch and /ifwatch. Arm a watch for an action on line 1, and later in the same macro /ifwatch cancels the macro unless that action was actually accepted or is currently being cast. Works for instant casts and oGCDs, which have no cast bar to observe. It never sends anything on your behalf; it can only stop a line you already wrote.",
-  "RepoUrl": "https://github.com/deserokk/CastWatch",
-  "Tags": ["macro", "conditional", "quality of life"]
-}

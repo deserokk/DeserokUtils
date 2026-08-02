@@ -1,7 +1,25 @@
 using System;
 using System.Collections.Generic;
 
-namespace CastWatch;
+namespace DeserokUtils.Features.CastWatch;
+
+/// <summary>
+/// Which targets count as a hit.
+///
+/// ⚠ Only EXACT tests here, deliberately. "Friendly" and "hostile" inferred from ObjectKind put
+/// pets, chocobos, friendly NPCs and event objects in a grey zone; identity with yourself and
+/// membership in the party roster are id comparisons that cannot be wrong.
+/// </summary>
+internal enum TargetFilter {
+	/// <summary>Any target at all. The default.</summary>
+	Any,
+	/// <summary>Only counts when it went to you.</summary>
+	Self,
+	/// <summary>Only counts when it went to anyone BUT you -- this is what catches a self-redirect.</summary>
+	NotSelf,
+	/// <summary>Only counts when it went to a party member other than you.</summary>
+	Party,
+}
 
 /// <summary>
 /// Who the targeting placeholders pointed at, captured the moment /watch ran.
@@ -77,6 +95,37 @@ internal sealed class WatchContext {
 		// who is also party slot 2 is normal. Report all of them rather than picking one and
 		// implying the macro resolved through that route.
 		return hits.Count > 0 ? string.Join(" = ", hits) : $"0x{id:X}";
+	}
+
+	/// <summary>
+	/// Does this target satisfy the filter?
+	///
+	/// ⚠⚠ Evaluated per ATTEMPT, not once at the end. deserok's fallback macro tries &lt;mo&gt;
+	/// seven times then &lt;2&gt; six times; if the mouseover is invalid the game may redirect the
+	/// early attempts to you, and the later one reaches the healer. Judging only the first success
+	/// would call that a self-cast and suppress a callout that should have gone out.
+	/// </summary>
+	public bool Passes(TargetFilter filter, ulong targetId, ulong selfId) {
+		if (filter == TargetFilter.Any)
+			return true;
+
+		bool isSelf = targetId == selfId;
+		bool hasTarget = targetId is not (0 or 0xE0000000);
+
+		return filter switch {
+			TargetFilter.Self => isSelf,
+			TargetFilter.NotSelf => hasTarget && !isSelf,
+			TargetFilter.Party => hasTarget && !isSelf && this.IsPartyMember(targetId),
+			_ => true,
+		};
+	}
+
+	private bool IsPartyMember(ulong id) {
+		foreach (var (_, member) in this.Party) {
+			if (member.Id == id)
+				return true;
+		}
+		return false;
 	}
 
 	public string Summary() {

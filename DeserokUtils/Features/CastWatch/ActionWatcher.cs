@@ -4,7 +4,7 @@ using Dalamud.Hooking;
 
 using FFXIVClientStructs.FFXIV.Client.Game;
 
-namespace CastWatch;
+namespace DeserokUtils.Features.CastWatch;
 
 /// <summary>
 /// Hooks ActionManager.UseAction and records whether the ONE currently-armed action was accepted.
@@ -70,6 +70,15 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 
 	/// <summary>Who the placeholders pointed at when the watch was armed. See WatchContext.</summary>
 	public WatchContext? Context { get; private set; }
+
+	/// <summary>Which targets count as a hit. Any, unless /watch was given a filter flag.</summary>
+	public TargetFilter Filter { get; private set; } = TargetFilter.Any;
+
+	/// <summary>
+	/// Successful uses rejected by the filter. Counted apart from Attempts so that "it went off, to
+	/// the wrong person" never reads as "it never went off".
+	/// </summary>
+	public int FilteredOut { get; private set; }
 
 	private DateTime armedAt = DateTime.MinValue;
 
@@ -138,12 +147,24 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 					this.LastResult = result;
 					this.SawAttempt = true;
 					this.Attempts++;
-					// FIRST success wins and keeps its target. Later attempts in a repeat-macro
-					// fail against the cooldown, and letting them overwrite would discard the one
-					// piece of information worth having.
+
 					if (result && !this.Fired) {
-						this.Fired = true;
-						this.FiredTargetId = targetId;
+						bool allowed = this.Context?.Passes(this.Filter, targetId, selfId) ?? true;
+						if (allowed) {
+							// FIRST allowed success wins and keeps its target. Later attempts in a
+							// repeat-macro fail against the cooldown; letting them overwrite would
+							// discard the one piece of information worth having.
+							this.Fired = true;
+							this.FiredTargetId = targetId;
+						}
+						else {
+							// ⚠ Counted SEPARATELY. "It went off, to the wrong person" and "it never
+							// went off" are different facts, and a callout suppressed for the first
+							// reason with no way to tell which is exactly the silence that costs an
+							// evening.
+							this.FilteredOut++;
+							Plugin.Diag($"filtered out: {this.WatchedName} went to {who}, filter is {this.Filter}");
+						}
 					}
 				}
 			}
@@ -155,7 +176,9 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		return result;
 	}
 
-	public void Arm(uint id, string name, WatchContext context) {
+	public void Arm(uint id, string name, WatchContext context, TargetFilter filter) {
+		this.Filter = filter;
+		this.FilteredOut = 0;
 		this.Context = context;
 		// Arming REPLACES any previous arm. That is what makes a double-press clean: every run of
 		// a macro starts from a known state instead of inheriting the last one's result.
@@ -178,6 +201,8 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.Attempts = 0;
 		this.FiredTargetId = 0;
 		this.Context = null;
+		this.Filter = TargetFilter.Any;
+		this.FilteredOut = 0;
 		this.WatchedId = 0;
 		this.WatchedName = string.Empty;
 		this.armedAt = DateTime.MinValue;
