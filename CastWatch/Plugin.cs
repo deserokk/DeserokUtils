@@ -94,7 +94,11 @@ public sealed class Plugin: IDalamudPlugin {
 	// ── /watch ───────────────────────────────────────────────────────────────────────────────
 
 	private void OnWatch(string command, string arguments) {
-		string name = arguments.Trim();
+		// FFXIV macros require quotes around multi-word action names (/ac "Nascent Flash"), so the
+		// natural thing to write on line 1 is /watch "Nascent Flash" to match. Accept both --
+		// otherwise the quoted form fails the name lookup and reads as "that action doesn't exist",
+		// which points at the wrong problem entirely.
+		string name = StripQuotes(arguments.Trim());
 
 		if (name.Length == 0) {
 			if (this.watcher.ArmIsLive)
@@ -181,6 +185,12 @@ public sealed class Plugin: IDalamudPlugin {
 	/// Name -> action id, matching how the name reads on the hotbar. Restricted to player actions
 	/// so a watch cannot silently bind to some internal ability that shares a name.
 	/// </summary>
+	private static string StripQuotes(string s) {
+		if (s.Length >= 2 && ((s[0] == '"' && s[^1] == '"') || (s[0] == '\'' && s[^1] == '\'')))
+			return s[1..^1].Trim();
+		return s;
+	}
+
 	private static uint? ResolveActionId(string name) {
 		var sheet = Data.GetExcelSheet<Lumina.Excel.Sheets.Action>();
 		if (sheet is null)
