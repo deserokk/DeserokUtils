@@ -4,6 +4,8 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
 
+using FFXIVClientStructs.FFXIV.Client.Game;
+
 namespace DeserokUtils.Features.CastWatch;
 
 /// <summary>
@@ -64,20 +66,22 @@ internal sealed class CastWatchFeature: IDisposable {
 			return;
 		}
 
-		uint? id = ResolveActionId(name);
-		if (id is null) {
+		var resolved = Resolve(name);
+		if (resolved is null) {
 			// A typo must not arm a watch that can never fire. Fail at the point of the mistake,
 			// not later at /ifwatch, where it is indistinguishable from "the spell fizzled".
-			Plugin.Chat.PrintError($"[CastWatch] no player action named \"{name}\". Nothing armed.");
+			Plugin.Chat.PrintError($"[CastWatch] no player action or usable item named \"{name}\". Nothing armed.");
 			return;
 		}
+
+		(ActionType type, uint id) = resolved.Value;
 
 		// Snapshot the placeholders NOW. A fallback macro resolves in well under a second, but by
 		// the time it reaches a later line the mouse has moved -- so reading <mo> at check time
 		// answers "where is the cursor now", not "who did the spell go to".
 		WatchContext context = WatchContext.Capture();
-		this.watcher.Arm(id.Value, name, context, filter);
-		Plugin.Diag($"armed {name} (id {id.Value}) filter={filter} | {context.Summary()}");
+		this.watcher.Arm(id, name, type, context, filter);
+		Plugin.Diag($"armed {name} ({type} {id}) filter={filter} | {context.Summary()}");
 	}
 
 	// ── /ifwatch ─────────────────────────────────────────────────────────────────────────────
@@ -114,7 +118,7 @@ internal sealed class CastWatchFeature: IDisposable {
 		// ⚠ The filter applies to the hardcast path too. A Raise cast at yourself is impossible, but
 		// a mitigation is not -- and a filter that silently only covered instants would be right
 		// for oGCDs and quietly wrong for everything with a cast bar.
-		bool casting = IsCastingWatched(this.watcher.WatchedId, this.watcher.Filter, this.watcher.Context);
+		bool casting = IsCastingWatched(this.watcher.WatchedId, this.watcher.WatchedType, this.watcher.Filter, this.watcher.Context);
 		bool pass = this.watcher.Fired || casting;
 
 		// One-shot: reading disarms, so a stale arm can never leak a callout into a later macro.
@@ -279,6 +283,25 @@ internal sealed class CastWatchFeature: IDisposable {
 	/// Name -> action id, matching how the name reads on the hotbar. Restricted to player actions
 	/// so a watch cannot silently bind to some internal ability that shares a name.
 	/// </summary>
+	private static (ActionType Type, uint Id)? Resolve(string name) {
+		uint? action = ResolveActionId(name);
+		uint? item = ResolveItemId(name);
+
+		// ⚠ A name matching both sheets is ambiguous and must SAY so. Picking one silently is how a
+		// watch ends up armed on something the macro never uses, with no way to tell from outside.
+		if (action is not null && item is not null) {
+			Plugin.Chat.PrintError(
+				$"[CastWatch] \"{name}\" is both an action ({action}) and an item ({item}). Watching the ACTION.");
+			return (ActionType.Action, action.Value);
+		}
+
+		if (action is not null)
+			return (ActionType.Action, action.Value);
+		if (item is not null)
+			return (ActionType.Item, item.Value);
+		return null;
+	}
+
 	private static uint? ResolveActionId(string name) {
 		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>();
 		if (sheet is null)
@@ -296,10 +319,33 @@ internal sealed class CastWatchFeature: IDisposable {
 	}
 
 	/// <summary>
+	/// Items that can be USED, which is the only kind worth watching. Phoenix Down is the reason
+	/// this exists: it is a long cast, it rezzes, and the person using one is usually a DPS nobody
+	/// expects to be rezzing at all -- which is exactly when a callout earns its keep.
+	/// ⚠ Restricted to rows with an ItemAction, or every piece of gear and every crafting material
+	/// becomes a candidate name.
+	/// </summary>
+	private static uint? ResolveItemId(string name) {
+		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+		if (sheet is null)
+			return null;
+
+		foreach (var row in sheet) {
+			if (row.ItemAction.RowId == 0)
+				continue;
+			string rowName = row.Name.ExtractText();
+			if (rowName.Length > 0 && string.Equals(rowName, name, StringComparison.OrdinalIgnoreCase))
+				return row.RowId;
+		}
+
+		return null;
+	}
+
+	/// <summary>
 	/// The hardcast case: nothing has resolved yet, but the cast bar is up and it is the watched
 	/// action. Instant casts never reach this -- the hook catches those instead.
 	/// </summary>
-	private static bool IsCastingWatched(uint id, TargetFilter filter, WatchContext? context) {
+	private static bool IsCastingWatched(uint id, ActionType type, TargetFilter filter, WatchContext? context) {
 		var player = Plugin.Objects.LocalPlayer;
 		if (player is null || !player.IsCasting || player.CastActionId != id)
 			return false;

@@ -46,6 +46,16 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 	public string WatchedName { get; private set; } = string.Empty;
 	public bool Fired { get; private set; }
 
+	/// <summary>
+	/// Action or Item, and it is NOT optional to track.
+	///
+	/// ⚠⚠ The id spaces are separate: action 4571 and item 4571 are unrelated things. Matching on
+	/// id alone would have made a watch on any action silently fire on some arbitrary item sharing
+	/// its number -- rare, undebuggable, and wrong in the direction that sends a callout you did
+	/// not earn.
+	/// </summary>
+	public ActionType WatchedType { get; private set; } = ActionType.Action;
+
 	/// <summary>True once the watched action was attempted at all, whatever the outcome.</summary>
 	public bool SawAttempt { get; private set; }
 	/// <summary>What UseAction returned for the LAST attempt. See Attempts before trusting it.</summary>
@@ -118,10 +128,13 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		// catches -- and therefore it must also log, or a broken watcher looks like a silent one.
 		try {
 			if (this.ArmIsLive) {
+				// ⚠ HQ items arrive as id + 1,000,000. Without normalising, watching a Phoenix Down
+				// would match the NQ stack and quietly ignore an HQ one -- a gap that only shows up
+				// for whoever happens to be carrying the HQ version.
 				uint adjusted = actionType == ActionType.Action
 					? ActionManager.Instance()->GetAdjustedActionId(actionId)
-					: actionId;
-				bool match = actionType == ActionType.Action
+					: NormalizeItemId(actionId);
+				bool match = actionType == this.WatchedType
 					&& (actionId == this.WatchedId || adjusted == this.WatchedId);
 
 				// ⚠ DIAGNOSTIC. Every UseAction seen while armed is reported, matched or not,
@@ -176,7 +189,11 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		return result;
 	}
 
-	public void Arm(uint id, string name, WatchContext context, TargetFilter filter) {
+	/// <summary>HQ items are the same item at +1,000,000. Same thing for our purposes.</summary>
+	public static uint NormalizeItemId(uint id) => id >= 1_000_000 ? id - 1_000_000 : id;
+
+	public void Arm(uint id, string name, ActionType type, WatchContext context, TargetFilter filter) {
+		this.WatchedType = type;
 		this.Filter = filter;
 		this.FilteredOut = 0;
 		this.Context = context;
@@ -203,6 +220,7 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.Context = null;
 		this.Filter = TargetFilter.Any;
 		this.FilteredOut = 0;
+		this.WatchedType = ActionType.Action;
 		this.WatchedId = 0;
 		this.WatchedName = string.Empty;
 		this.armedAt = DateTime.MinValue;
