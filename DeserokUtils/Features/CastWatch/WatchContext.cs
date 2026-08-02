@@ -128,6 +128,38 @@ internal sealed class WatchContext {
 		return false;
 	}
 
+	/// <summary>
+	/// Just the name, for putting into a chat line. Describe() is for diagnostics and says too much
+	/// ("&lt;mo&gt; Peachi Bunni = &lt;2&gt; Peachi Bunni"); this is what a person would type.
+	/// </summary>
+	public string NameOf(ulong id) {
+		if (id is 0 or 0xE0000000)
+			return string.Empty;
+
+		if (id == this.MouseOverId && this.MouseOverName.Length > 0)
+			return this.MouseOverName;
+		if (id == this.TargetId && this.TargetName.Length > 0)
+			return this.TargetName;
+		if (id == this.FocusId && this.FocusName.Length > 0)
+			return this.FocusName;
+		foreach (var (_, member) in this.Party) {
+			if (id == member.Id && member.Name.Length > 0)
+				return member.Name;
+		}
+
+		// Not in the snapshot -- an out-of-party target picked after arming, most likely. The live
+		// object table still knows them.
+		foreach (var obj in Plugin.Objects) {
+			if (obj.GameObjectId == id) {
+				string name = obj.Name.TextValue;
+				if (name.Length > 0)
+					return name;
+			}
+		}
+
+		return string.Empty;
+	}
+
 	public string Summary() {
 		string party = this.Party.Count > 0
 			? string.Join(", ", System.Linq.Enumerable.Select(this.Party, kv => $"<{kv.Key}>{kv.Value.Name}"))

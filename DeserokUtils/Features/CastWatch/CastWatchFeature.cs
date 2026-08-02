@@ -27,7 +27,7 @@ internal sealed class CastWatchFeature: IDisposable {
 		"/watch \"Nascent Flash\"\n"
 		+ "/ac \"Nascent Flash\" <t>\n"
 		+ "/wait 1\n"
-		+ "/ifwatch /p Nascent Flash on <t>";
+		+ "/ifwatch /p Nascent Flash on {who}";
 
 	public CastWatchFeature() {
 		Plugin.Commands.AddHandler("/watch", new CommandInfo(this.OnWatch) {
@@ -132,6 +132,12 @@ internal sealed class CastWatchFeature: IDisposable {
 		// Describe against the SNAPSHOT, so the answer is "it went to your mouseover" or "it fell
 		// through to <2>" -- the thing a fallback macro cannot tell you on its own.
 		string firedOn = this.watcher.Context?.Describe(this.watcher.FiredTargetId) ?? "unknown";
+		// For {who}: the id that actually received it. If the pass came from the cast bar instead
+		// of the hook, nothing has fired yet, so the cast's own target is the right answer.
+		ulong whoId = this.watcher.Fired
+			? this.watcher.FiredTargetId
+			: Plugin.Objects.LocalPlayer?.CastTargetObjectId ?? 0;
+		WatchContext? ctx = this.watcher.Context;
 		this.watcher.Disarm();
 
 		Plugin.Diag($"{watched}: attempts={attempts} lastReturned={lastResult}"
@@ -149,11 +155,12 @@ internal sealed class CastWatchFeature: IDisposable {
 
 		if (pass) {
 			if (payload.Length > 0) {
+				string line = SubstituteWho(payload, ctx, whoId);
 				// ⭐ QUEUED on purpose, unlike the cancel below. This has nothing to outrun, and the
 				// chatbox pipeline is what expands <t> / <mo> / <2> -- so the user's placeholders
 				// behave exactly as they would on an ordinary macro line.
-				Plugin.Diag($"passed -> running: {payload}");
-				GameCommands.Queue(payload);
+				Plugin.Diag($"passed -> running: {line}");
+				GameCommands.Queue(line);
 			}
 			return;
 		}
@@ -204,7 +211,7 @@ internal sealed class CastWatchFeature: IDisposable {
 			Row("/watch <action>", "Arm a watch. Put it above the /ac. Quotes optional.");
 			Row("/watch", "Report what is armed.");
 			Row("/watch off", "Disarm.");
-			Row("/ifwatch <command>", "Run that command ONLY if the action went off. Nothing happens if it did not.");
+			Row("/ifwatch <command>", "Run that command ONLY if the action went off. Use {who} in it for whoever actually received it.");
 			Row("/ifwatch", "No command: cancel the macro if the action did not go off.");
 
 			ImGui.EndTable();
@@ -271,6 +278,38 @@ internal sealed class CastWatchFeature: IDisposable {
 		}
 
 		return (rest, filter.Value);
+	}
+
+	/// <summary>
+	/// Fill {who} with whoever actually received the action.
+	///
+	/// ⭐ This is the one thing a vanilla macro cannot do. &lt;mo&gt; on the callout line evaluates
+	/// when THAT line runs, so a fallback macro that fell through from &lt;mo&gt; to &lt;2&gt; would
+	/// announce your mouseover while someone else got the heal -- and that is exactly the case
+	/// worth being right about. The snapshot knows the answer; this puts it in your sentence.
+	///
+	/// ⚠ Braces, not angle brackets: &lt;who&gt; would collide with the game's own placeholder
+	/// syntax, and a token the chat pipeline tries to parse is a token that breaks in ways nobody
+	/// can read.
+	///
+	/// ⚠ An unresolvable name degrades to "someone" rather than suppressing the line. A callout
+	/// that is slightly vague still does its job; a callout that silently never went out does not,
+	/// and a name lookup is far too small a reason to eat one.
+	/// </summary>
+	private static string SubstituteWho(string payload, WatchContext? context, ulong whoId) {
+		if (payload.IndexOf("{who}", StringComparison.OrdinalIgnoreCase) < 0)
+			return payload;
+
+		string name = context?.NameOf(whoId) ?? string.Empty;
+
+		if (name.Length == 0) {
+			name = "someone";
+			Plugin.Diag($"{{who}} could not be resolved (id 0x{whoId:X}); used \"someone\".");
+		}
+
+		return System.Text.RegularExpressions.Regex.Replace(
+			payload, @"\{who\}", name.Replace("$", "$$"),
+			System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 	}
 
 	private static string StripQuotes(string s) {
