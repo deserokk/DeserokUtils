@@ -7,6 +7,7 @@ using Dalamud.Plugin.Services;
 
 using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Shell;
 
 namespace CastWatch;
 
@@ -193,8 +194,8 @@ public sealed class Plugin: IDalamudPlugin {
 		}
 
 		Log.Debug($"CastWatch: {watched} did not go off -- cancelling macro");
-		SendToChatbox("/macrocancel");
-		Diag("/macrocancel sent. If the next line still ran, the cancel lost the race.");
+		RunCommandNow("/macrocancel");
+		Diag("/macrocancel executed inline.");
 	}
 
 	// ── helpers ──────────────────────────────────────────────────────────────────────────────
@@ -257,9 +258,34 @@ public sealed class Plugin: IDalamudPlugin {
 	}
 
 	/// <summary>
-	/// The same route TinyCommands uses, minus the XivCommon dependency. Only ever called with
-	/// "/macrocancel" -- a client-side command that transmits no chat.
+	/// Run a text command SYNCHRONOUSLY, in-line, before the macro advances.
+	///
+	/// ⚠⚠ This is the fix for the bug that made the whole plugin look broken. The first version
+	/// used UIModule.ProcessChatBoxEntry, which is what TinyCommands uses and what every guide
+	/// suggests -- but it QUEUES. Measured 2026-08-02: /ifwatch correctly decided CANCEL, the queued
+	/// /macrocancel was still sitting in the queue when the macro executed its next line, and the
+	/// /echo went out anyway. The gate was right and the suppression lost the race.
+	///
+	/// RaptureShellModule.ExecuteCommandInner runs the command immediately instead. Only ever called
+	/// with "/macrocancel", which is client-side and transmits no chat.
 	/// </summary>
+	private static unsafe void RunCommandNow(string line) {
+		var shell = RaptureShellModule.Instance();
+		UIModule* uiModule = UIModule.Instance();
+
+		if (shell is not null && uiModule is not null) {
+			using Utf8String cmd = new(line);
+			shell->ExecuteCommandInner(&cmd, uiModule);
+			return;
+		}
+
+		// Fall back to the queued path rather than doing nothing -- late is better than never --
+		// but SAY which path ran, or a fixed race and an unfixed one look identical.
+		Log.Warning("CastWatch: RaptureShellModule unavailable; falling back to the queued chatbox path.");
+		Diag("fell back to the QUEUED cancel path (RaptureShellModule was null).");
+		SendToChatbox(line);
+	}
+
 	private static unsafe void SendToChatbox(string line) {
 		UIModule* uiModule = UIModule.Instance();
 		if (uiModule is null) {
