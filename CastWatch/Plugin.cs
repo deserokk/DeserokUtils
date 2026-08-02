@@ -1,6 +1,7 @@
 using System;
 
 using Dalamud.Game.Command;
+using Dalamud.Game.Text;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 
@@ -33,6 +34,12 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IGameInteropProvider Interop { get; private set; } = null!;
 	internal static IPluginLog Log { get; private set; } = null!;
 
+	/// <summary>
+	/// Prints what the hook saw and what /ifwatch decided, to chat rather than the log, because
+	/// the log is not where you are looking mid-pull. Default ON while this is being diagnosed.
+	/// </summary>
+	internal static bool Verbose { get; set; } = true;
+
 	private readonly ActionWatcher watcher;
 
 	public Plugin(
@@ -57,6 +64,30 @@ public sealed class Plugin: IDalamudPlugin {
 		});
 		Commands.AddHandler("/ifwatch", new CommandInfo(this.OnIfWatch) {
 			HelpMessage = "/ifwatch -- continue the macro only if the watched action went off (or is being cast); otherwise cancel it.",
+		});
+		Commands.AddHandler("/castwatch", new CommandInfo(this.OnToggleVerbose) {
+			HelpMessage = "/castwatch -- toggle CastWatch's diagnostic output.",
+		});
+	}
+
+	private void OnToggleVerbose(string command, string arguments) {
+		Verbose = !Verbose;
+		Diag($"diagnostics {(Verbose ? "ON" : "off")}.");
+		Chat.Print($"[CastWatch] diagnostics {(Verbose ? "ON" : "off")} (debug channel).");
+	}
+
+	/// <summary>
+	/// Diagnostics go to the Debug channel so they land in a tab you have configured for them,
+	/// rather than in the middle of a pull. Genuine user-facing errors do NOT come through here --
+	/// those stay in normal chat where they cannot be missed.
+	/// </summary>
+	internal static void Diag(string message) {
+		if (!Verbose)
+			return;
+		Chat.Print(new XivChatEntry {
+			Type = XivChatType.Debug,
+			Name = "CastWatch",
+			Message = message,
 		});
 	}
 
@@ -122,7 +153,17 @@ public sealed class Plugin: IDalamudPlugin {
 
 		// One-shot: reading disarms, so a stale arm can never leak a callout into a later macro.
 		string watched = this.watcher.WatchedName;
+		bool sawAttempt = this.watcher.SawAttempt;
+		bool lastResult = this.watcher.LastResult;
+		bool fired = this.watcher.Fired;
 		this.watcher.Disarm();
+
+		// ⚠ DIAGNOSTIC. Reports every input to the decision, so "it ran anyway" separates into
+		// distinct causes: no attempt seen at all (hook dead or wrong id), attempt seen and
+		// UseAction returned true on a cast that visibly failed (wrong signal), or a correct
+		// cancel that arrived too late to stop the next line (timing).
+		Diag($"{watched}: sawAttempt={sawAttempt} useActionReturned={lastResult}"
+			+ $" fired={fired} casting={casting} -> {(pass ? "PASS" : "CANCEL")}");
 
 		if (pass) {
 			Log.Debug($"CastWatch: {watched} passed ({(casting ? "casting" : "fired")})");
@@ -131,6 +172,7 @@ public sealed class Plugin: IDalamudPlugin {
 
 		Log.Debug($"CastWatch: {watched} did not go off -- cancelling macro");
 		SendToChatbox("/macrocancel");
+		Diag("/macrocancel sent. If the next line still ran, the cancel lost the race.");
 	}
 
 	// ── helpers ──────────────────────────────────────────────────────────────────────────────
@@ -187,6 +229,7 @@ public sealed class Plugin: IDalamudPlugin {
 	public void Dispose() {
 		Commands.RemoveHandler("/watch");
 		Commands.RemoveHandler("/ifwatch");
+		Commands.RemoveHandler("/castwatch");
 		this.watcher.Dispose();
 	}
 }

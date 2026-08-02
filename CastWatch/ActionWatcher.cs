@@ -46,6 +46,11 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 	public string WatchedName { get; private set; } = string.Empty;
 	public bool Fired { get; private set; }
 
+	/// <summary>True once the watched action was attempted at all, whatever the outcome.</summary>
+	public bool SawAttempt { get; private set; }
+	/// <summary>What UseAction returned for the last attempt of the watched action.</summary>
+	public bool LastResult { get; private set; }
+
 	private DateTime armedAt = DateTime.MinValue;
 
 	/// <summary>True when the arm is live and has not aged out.</summary>
@@ -83,13 +88,27 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		// Guard, but report. An exception thrown from a detour takes the game with it, so this
 		// catches -- and therefore it must also log, or a broken watcher looks like a silent one.
 		try {
-			if (result && this.ArmIsLive && actionType == ActionType.Action) {
-				// Match the adjusted id too, so a watch on a base action still fires when the
-				// hotbar sends its upgraded/combo form.
-				uint adjusted = ActionManager.Instance()->GetAdjustedActionId(actionId);
-				if (actionId == this.WatchedId || adjusted == this.WatchedId) {
-					this.Fired = true;
-					Plugin.Log.Debug($"CastWatch: {this.WatchedName} accepted (id {actionId}, adjusted {adjusted})");
+			if (this.ArmIsLive) {
+				uint adjusted = actionType == ActionType.Action
+					? ActionManager.Instance()->GetAdjustedActionId(actionId)
+					: actionId;
+				bool match = actionType == ActionType.Action
+					&& (actionId == this.WatchedId || adjusted == this.WatchedId);
+
+				// ⚠ DIAGNOSTIC. Every UseAction seen while armed is reported, matched or not,
+				// together with the ORIGINAL's return value. Without this, "it passed anyway"
+				// cannot be told apart from "the hook never ran" or "the hook matched the wrong
+				// id" -- three different bugs with one symptom.
+				Plugin.Diag($"UseAction type={actionType} id={actionId}"
+					+ (adjusted != actionId ? $" (adj {adjusted})" : "")
+					+ $" returned {result}"
+					+ (match ? $"  <== MATCHES {this.WatchedName}" : ""));
+
+				if (match) {
+					this.LastResult = result;
+					this.SawAttempt = true;
+					if (result)
+						this.Fired = true;
 				}
 			}
 		}
@@ -107,12 +126,16 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.WatchedId = id;
 		this.WatchedName = name;
 		this.Fired = false;
+		this.SawAttempt = false;
+		this.LastResult = false;
 		this.armedAt = DateTime.UtcNow;
 	}
 
 	public void Disarm() {
 		this.Armed = false;
 		this.Fired = false;
+		this.SawAttempt = false;
+		this.LastResult = false;
 		this.WatchedId = 0;
 		this.WatchedName = string.Empty;
 		this.armedAt = DateTime.MinValue;
