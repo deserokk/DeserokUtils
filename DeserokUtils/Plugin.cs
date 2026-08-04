@@ -43,8 +43,20 @@ public sealed class Plugin: IDalamudPlugin {
 	/// <summary>
 	/// Diagnostic output to the Debug chat channel. Shared across features, because "what did it
 	/// see, and why did it decide that" is the same question every time.
+	///
+	/// ⚠⚠ A PASSTHROUGH to the config, not a separate field. It used to be its own static seeded
+	/// from the config at load, so both the checkbox and /dsu debug flipped the static and never
+	/// saved -- turn it off, restart, and it was on again, with nothing anywhere explaining why.
 	/// </summary>
-	internal static bool Verbose { get; set; } = true;
+	internal static bool Verbose {
+		get => Config?.Verbose ?? false;
+		set {
+			if (Config is null || Config.Verbose == value)
+				return;
+			Config.Verbose = value;
+			Config.Save();
+		}
+	}
 
 	private readonly IDalamudPluginInterface pluginInterface;
 	private readonly WindowSystem windows = new("DeserokUtils");
@@ -86,7 +98,6 @@ public sealed class Plugin: IDalamudPlugin {
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
 		Config.Migrate();
-		Verbose = Config.Verbose;
 
 		// ── features ─────────────────────────────────────────────────────────────────────────
 		// Each registers its own commands in its constructor and hands back a tab. Adding a second

@@ -22,10 +22,16 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public int Version { get; set; } = 1;
 
-	public const int CurrentVersion = 2;
+	public const int CurrentVersion = 3;
 
-	/// <summary>Diagnostic output to the Debug chat channel.</summary>
-	public bool Verbose { get; set; } = true;
+	/// <summary>
+	/// Diagnostic output to the Debug chat channel.
+	///
+	/// ⚠ OFF by default. It shipped on because everything was being diagnosed, and CastWatch logs a
+	/// line per UseAction while armed -- which against a thirteen-line fallback macro is thirteen
+	/// lines per press. Correct while hunting a bug, noise once the bug is dead.
+	/// </summary>
+	public bool Verbose { get; set; } = false;
 
 	// ── FateWatch ────────────────────────────────────────────────────────────────────────────
 
@@ -140,6 +146,13 @@ public sealed class Configuration: IPluginConfiguration {
 				this.TrackedFates.Add(name);
 			if (!this.FateLabels.ContainsKey(name))
 				this.FateLabels[name] = label;
+		}
+
+		if (this.Version < 3) {
+			// ⚠ A changed default cannot reach a config that already exists -- the same trap as the
+			// FATE names. Diagnostics were on for everyone who installed before this, and would have
+			// stayed on forever with the default quietly saying otherwise.
+			this.Verbose = false;
 		}
 
 		this.Version = CurrentVersion;
