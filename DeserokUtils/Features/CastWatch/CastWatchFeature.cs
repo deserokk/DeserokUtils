@@ -31,10 +31,10 @@ internal sealed class CastWatchFeature: IDisposable {
 
 	public CastWatchFeature() {
 		Plugin.Commands.AddHandler("/watch", new CommandInfo(this.OnWatch) {
-			HelpMessage = "/watch <action> -- arm a watch for that action. Put it above the /ac.",
+			HelpMessage = "/watch <action> [--self|--notself|--party] -- arm a watch. Put it above the /ac. Items work too.",
 		});
 		Plugin.Commands.AddHandler("/ifwatch", new CommandInfo(this.OnIfWatch) {
-			HelpMessage = "/ifwatch [command] -- run the command only if the action went off. Bare: cancel the macro if it did not.",
+			HelpMessage = "/ifwatch [command] -- run it only if the action went off; {who} becomes whoever received it. Bare: cancel the macro instead.",
 		});
 	}
 
@@ -208,14 +208,50 @@ internal sealed class CastWatchFeature: IDisposable {
 			ImGui.TableSetupColumn("what it does");
 			ImGui.TableHeadersRow();
 
-			Row("/watch <action>", "Arm a watch. Put it above the /ac. Quotes optional.");
+			Row("/watch <action>", "Arm a watch. Put it above the /ac. Quotes optional. Usable items work too (Phoenix Down).");
 			Row("/watch", "Report what is armed.");
 			Row("/watch off", "Disarm.");
-			Row("/ifwatch <command>", "Run that command ONLY if the action went off. Use {who} in it for whoever actually received it.");
+			Row("/ifwatch <command>", "Run that command ONLY if the action went off.");
 			Row("/ifwatch", "No command: cancel the macro if the action did not go off.");
 
 			ImGui.EndTable();
 		}
+
+		Section("Target filters");
+		ImGui.TextWrapped("Add one to /watch to say WHO has to receive it for the callout to count:");
+		ImGui.Spacing();
+		if (ImGui.BeginTable("castwatch_filters", 2,
+			ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) {
+			ImGui.TableSetupColumn("flag", ImGuiTableColumnFlags.WidthFixed, 200f);
+			ImGui.TableSetupColumn("counts when");
+			ImGui.TableHeadersRow();
+
+			Row("--any", "Anyone at all. The default when no flag is given.");
+			Row("--self", "It went to you.");
+			Row("--notself", "It went to anyone but you. Catches a self-redirect -- Aurora and friends quietly retarget to you when the mouseover is invalid.");
+			Row("--party", "It went to a party member other than you. NOT for out-of-party rezzes; use --notself there.");
+
+			ImGui.EndTable();
+		}
+		ImGui.Spacing();
+		ImGui.TextDisabled("/watch Aurora --notself");
+		ImGui.TextWrapped(
+			"Only exact tests are offered. Friendly/hostile guessed from object type puts pets, "
+			+ "chocobos and friendly NPCs in a grey zone, and a filter that is usually right is worse "
+			+ "than one that is not offered.");
+
+		Section("The {who} token");
+		ImGui.TextWrapped(
+			"Put {who} in the /ifwatch line and it becomes whoever actually received the action.");
+		ImGui.Spacing();
+		ImGui.TextDisabled("/ifwatch /p Aurora on {who}");
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"This is the thing a vanilla macro cannot do: <mo> on the callout line is evaluated when "
+			+ "THAT line runs, so a fallback macro that fell through from <mo> to <2> would announce "
+			+ "your mouseover while someone else got the heal. Braces, not <who> -- angle brackets "
+			+ "collide with the game's own placeholders. If the name cannot be resolved it becomes "
+			+ "\"someone\" rather than eating the line.");
 
 		Section("Macro template");
 		ImGui.TextUnformatted(Template);
