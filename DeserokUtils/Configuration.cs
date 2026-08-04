@@ -109,6 +109,21 @@ public sealed class Configuration: IPluginConfiguration {
 	/// right about somewhere this was not tested.
 	/// </summary>
 	public void Migrate() {
+		// ⚠ Dedupe ALWAYS, not only on a version bump. A duplicated entry is not cosmetic here: the
+		// rotation length is derived from how many members there are, so one accidental repeat
+		// doubled every prediction (observed: 117.7 min where 60 was correct). Whatever produced
+		// the duplicate, the timing must not depend on nobody ever making one.
+		int before = this.TrackedFates.Count;
+		this.TrackedFates = this.TrackedFates
+			.Where(t => !string.IsNullOrWhiteSpace(t))
+			.Select(t => t.Trim())
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		if (this.TrackedFates.Count != before) {
+			Plugin.Log.Warning($"FateWatch: removed {before - this.TrackedFates.Count} duplicate tracked FATE(s)");
+			this.Save();
+		}
+
 		if (this.Version >= CurrentVersion)
 			return;
 

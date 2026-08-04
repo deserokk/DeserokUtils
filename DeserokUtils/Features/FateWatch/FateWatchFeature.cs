@@ -197,9 +197,12 @@ internal sealed class FateWatchFeature: IDisposable {
 				int samples = cfg.MeasuredIntervals.TryGetValue(name, out var l) ? l.Count : 0;
 				// ⭐ Says whether the number is measured or merely assumed. A configured default and
 				// a value derived from twelve observations deserve different confidence.
+				// ⭐ Show BOTH: the slot gap and how long until this same FATE returns. The screenshot
+				// bug was invisible precisely because only one number was on screen.
+				double perFate = FateTracker.EffectivePerFateCycle(name);
 				ImGui.TextUnformatted(samples >= 3
-					? $"{cycle:0.#}m (measured, n={samples})"
-					: $"{cycle:0.#}m (assumed)");
+					? $"slot {cycle:0.#}m -> {perFate:0.#}m (measured, n={samples})"
+					: $"slot {cycle:0.#}m -> {perFate:0.#}m (assumed)");
 
 				ImGui.TableNextColumn();
 				if (ImGui.SmallButton($"x##rm{name}"))

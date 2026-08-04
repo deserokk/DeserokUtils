@@ -194,7 +194,7 @@ internal sealed class FateTracker {
 		// ⚠⚠ In rotation mode the same FATE recurs every cycle * memberCount, NOT every cycle. Two
 		// alternating pot FATEs 30 minutes apart means each one returns in 60 -- and predicting
 		// either at +30 lands exactly when the OTHER is due. Confident, and wrong every time.
-		double cycle = EffectiveCycle(name) * (cfg.RotationMode ? Math.Max(1, cfg.TrackedFates.Count) : 1);
+		double cycle = EffectiveCycle(name) * (cfg.RotationMode ? RotationLength() : 1);
 		double elapsed = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - last) / 60.0;
 
 		// Carry forward across missed cycles: if you were logged out for two hours, the next spawn
@@ -249,6 +249,24 @@ internal sealed class FateTracker {
 	/// ⭐ Median rather than mean: one missed observation produces a double-length gap, and a mean
 	/// would let that single outlier drag every prediction late.
 	/// </summary>
+	/// <summary>
+	/// How many slots the ring has, i.e. how many cycles before the SAME FATE comes round again.
+	///
+	/// ⚠⚠ Derived from distinct members, and this coupling is the thing to watch: tracking a third,
+	/// unrelated FATE would silently change the pot timings, because 'what I track' and 'what is in
+	/// the rotation' are two different ideas sharing one list. Fine while there is exactly one
+	/// rotation; split them the moment there are two.
+	/// </summary>
+	public static int RotationLength() {
+		var cfg = Plugin.Config;
+		int n = cfg.TrackedFates.Distinct(StringComparer.OrdinalIgnoreCase).Count();
+		return Math.Max(1, n);
+	}
+
+	/// <summary>The real gap between two spawns of the SAME fate, which is what a person means.</summary>
+	public static double EffectivePerFateCycle(string name)
+		=> EffectiveCycle(name) * (Plugin.Config.RotationMode ? RotationLength() : 1);
+
 	public static double EffectiveCycle(string name) {
 		var cfg = Plugin.Config;
 		if (cfg.MeasuredIntervals.TryGetValue(name, out var list) && list.Count >= 3) {
