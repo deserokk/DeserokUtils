@@ -143,6 +143,31 @@ internal sealed class FateTracker {
 			+ (next is null ? "." : $" -- next in about {next:0.#} min."));
 	}
 
+	/// <summary>
+	/// Anchor FORWARD: 'the next one is in N minutes'.
+	///
+	/// ⭐ Covers the two things actually known in the wild, neither of which is an elapsed time.
+	/// The wiki rule -- a fresh instance spawns its first pot ten minutes in -- and shout chat
+	/// saying 'north in 12'. Expressing either through the elapsed-time anchor means doing modular
+	/// arithmetic in your head while the content is running, which nobody does correctly.
+	/// </summary>
+	public void AnchorForward(string name, double minutesUntil) {
+		var cfg = Plugin.Config;
+		double cycle = EffectivePerFateCycle(name);
+		long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+		// Last spawn = one full cycle before the next one is due.
+		cfg.LastSeen[name] = now - (long)((cycle - minutesUntil) * 60);
+		cfg.LastSeenTerritory[name] = Plugin.ClientState.TerritoryType;
+		this.firedAlerts.Remove(name);
+		this.firedAlerts.Remove("__rotation");
+		cfg.Save();
+
+		cfg.FateLabels.TryGetValue(name, out string? lbl);
+		Plugin.Chat.Print($"[FateWatch] next {name}{(string.IsNullOrEmpty(lbl) ? "" : $" ({lbl})")} "
+			+ $"set to {minutesUntil:0.#} min from now.");
+	}
+
 	private void CheckAlerts() {
 		var cfg = Plugin.Config;
 

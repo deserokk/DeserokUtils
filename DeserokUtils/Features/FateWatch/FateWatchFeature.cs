@@ -26,7 +26,7 @@ internal sealed class FateWatchFeature: IDisposable {
 
 	public FateWatchFeature() {
 		Plugin.Commands.AddHandler("/fatewatch", new CommandInfo(this.OnCommand) {
-			HelpMessage = "/fatewatch [list | anchor <name> [minsAgo]] -- timers, zone FATE list, or set the cycle by hand.",
+			HelpMessage = "/fatewatch [list | anchor <name> <minsAgo> | next <name> <minsUntil>] -- timers, zone FATE list, or set the cycle by hand.",
 		});
 
 		Plugin.FateMinutes = this.tracker.MinutesUntilNext;
@@ -125,6 +125,24 @@ internal sealed class FateWatchFeature: IDisposable {
 				return;
 			}
 			this.tracker.AnchorManually(match, minsAgo);
+			return;
+		}
+
+		if (arg.StartsWith("next")) {
+			string rest = arguments.Trim()[4..].Trim();
+			double minsUntil = 0;
+			int sp = rest.LastIndexOf(' ');
+			if (sp > 0 && double.TryParse(rest[(sp + 1)..], out double parsed)) {
+				minsUntil = parsed;
+				rest = rest[..sp].Trim();
+			}
+			rest = rest.Trim('"');
+			string? m2 = Plugin.Config.TrackedFates.FirstOrDefault(t => string.Equals(t, rest, StringComparison.OrdinalIgnoreCase));
+			if (m2 is null) {
+				Plugin.Chat.PrintError($"[FateWatch] \"{rest}\" is not tracked. Try /fatewatch list.");
+				return;
+			}
+			this.tracker.AnchorForward(m2, minsUntil);
 			return;
 		}
 
@@ -229,6 +247,18 @@ internal sealed class FateWatchFeature: IDisposable {
 			this.newFateName = string.Empty;
 		}
 		ImGui.TextDisabled("Run /fatewatch list in the zone to read exact names out of the game.");
+
+		Section("Setting the clock by hand");
+		ImGui.TextWrapped(
+			"Two ways, because neither thing you actually know is an elapsed time:");
+		ImGui.BulletText("/fatewatch next \"Daylight Pottery\" 10");
+		ImGui.TextDisabled("   a fresh instance spawns its first pot ten minutes in, per the wiki --");
+		ImGui.TextDisabled("   and this is also how you use 'north in 12' from shout chat.");
+		ImGui.BulletText("/fatewatch anchor \"In a Pot of Bother\" 6");
+		ImGui.TextDisabled("   for when one popped six minutes ago.");
+		ImGui.TextWrapped(
+			"Neither feeds the measured interval. A number from a stranger is not the same evidence as "
+			+ "an observed spawn, and letting it in would corrupt the thing that corrects the assumption.");
 
 		Section("Server bar");
 		bool dtrOn = cfg.DtrEnabled;
