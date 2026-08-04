@@ -4,6 +4,8 @@ using System.Numerics;
 
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
+using Dalamud.Game.Gui.Dtr;
+using Dalamud.Game.Text.SeStringHandling;
 
 namespace DeserokUtils.Features.FateWatch;
 
@@ -17,17 +19,73 @@ namespace DeserokUtils.Features.FateWatch;
 /// </summary>
 internal sealed class FateWatchFeature: IDisposable {
 	private readonly FateTracker tracker = new();
+	private readonly IDtrBarEntry dtr;
 	private string newFateName = string.Empty;
 
 	public string TabTitle => "FateWatch";
 
 	public FateWatchFeature() {
 		Plugin.Commands.AddHandler("/fatewatch", new CommandInfo(this.OnCommand) {
-			HelpMessage = "/fatewatch [list] -- show tracked FATE timers, or list every FATE active in this zone.",
+			HelpMessage = "/fatewatch [list | anchor <name> [minsAgo]] -- timers, zone FATE list, or set the cycle by hand.",
 		});
+
+		Plugin.FateMinutes = this.tracker.MinutesUntilNext;
+
+		this.dtr = Plugin.Dtr.Get("FateWatch");
+		this.dtr.OnClick = _ => Plugin.OpenWindow();
+		this.dtr.Shown = false;
 	}
 
-	public void Tick() => this.tracker.Tick();
+	public void Tick() {
+		this.tracker.Tick();
+		this.UpdateDtr();
+	}
+
+	/// <summary>
+	/// The server bar shows the soonest tracked FATE, or nothing at all.
+	///
+	/// ⚠ Hidden rather than showing a placeholder when there is no prediction. A bar entry reading
+	/// "--" is a thing you learn to ignore, and once ignored it is no longer a bar entry.
+	/// </summary>
+	private void UpdateDtr() {
+		if (!Plugin.Config.DtrEnabled || !Plugin.Config.FateWatchEnabled) {
+			this.dtr.Shown = false;
+			return;
+		}
+
+		var soonest = this.tracker.Soonest();
+		if (soonest is null) {
+			this.dtr.Shown = false;
+			return;
+		}
+
+		var (name, label, mins) = soonest.Value;
+
+		// ⚠ No pot icon exists. BitmapFontIcon is a fixed set of game glyphs, so GoldStar is the
+		// closest honest stand-in -- and swapping to Warning under five minutes carries urgency
+		// without needing colour, which reads badly against the bar's own background anyway.
+		var icon = mins <= 5 ? BitmapFontIcon.Warning : BitmapFontIcon.GoldStar;
+
+		string text = mins < 1
+			? $"<1m{(label.Length > 0 ? " " + label : "")}"
+			: $"{Math.Floor(mins):0}m{(label.Length > 0 ? " " + label : "")}";
+
+		this.dtr.Text = new SeStringBuilder().AddIcon(icon).AddText(text).Build();
+		this.dtr.Tooltip = BuildTooltip();
+		this.dtr.Shown = true;
+	}
+
+	private static SeString BuildTooltip() {
+		var sb = new SeStringBuilder();
+		sb.AddText("FateWatch");
+		foreach (string n in Plugin.Config.TrackedFates) {
+			Plugin.Config.FateLabels.TryGetValue(n, out string? lbl);
+			sb.AddText($"\n{n}{(string.IsNullOrEmpty(lbl) ? "" : $" [{lbl}]")}: ");
+			double? m = Plugin.FateMinutes(n);
+			sb.AddText(m is null ? "not seen yet" : $"{m:0.#} min");
+		}
+		return sb.Build();
+	}
 
 	private void OnCommand(string command, string arguments) {
 		string arg = arguments.Trim().ToLowerInvariant();
@@ -48,6 +106,25 @@ internal sealed class FateWatchFeature: IDisposable {
 					$"  {f.Name.TextValue}  (id {f.FateId}, lvl {f.Level}, {f.Progress}%, "
 					+ $"{TimeSpan.FromSeconds(Math.Max(0, f.TimeRemaining)):mm\\:ss} left){tracked}");
 			}
+			return;
+		}
+
+		if (arg.StartsWith("anchor")) {
+			string rest = arguments.Trim()[6..].Trim();
+			double minsAgo = 0;
+			int sp = rest.LastIndexOf(' ');
+			if (sp > 0 && double.TryParse(rest[(sp + 1)..], out double parsed)) {
+				minsAgo = parsed;
+				rest = rest[..sp].Trim();
+			}
+			rest = rest.Trim('"');
+			string? match = Plugin.Config.TrackedFates.FirstOrDefault(t => string.Equals(t, rest, StringComparison.OrdinalIgnoreCase));
+			if (match is null) {
+				// ⚠ Anchoring an untracked name would store a time nothing ever reads. Say so.
+				Plugin.Chat.PrintError($"[FateWatch] \"{rest}\" is not tracked. Add it first, or check /fatewatch list.");
+				return;
+			}
+			this.tracker.AnchorManually(match, minsAgo);
 			return;
 		}
 
@@ -73,9 +150,10 @@ internal sealed class FateWatchFeature: IDisposable {
 		if (ImGui.Checkbox("Enabled", ref enabled)) { cfg.FateWatchEnabled = enabled; cfg.Save(); }
 
 		Section("Tracked FATEs");
-		if (ImGui.BeginTable("fw_tracked", 4,
+		if (ImGui.BeginTable("fw_tracked", 5,
 			ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) {
 			ImGui.TableSetupColumn("FATE");
+			ImGui.TableSetupColumn("bar label", ImGuiTableColumnFlags.WidthFixed, 80f);
 			ImGui.TableSetupColumn("next", ImGuiTableColumnFlags.WidthFixed, 110f);
 			ImGui.TableSetupColumn("cycle", ImGuiTableColumnFlags.WidthFixed, 130f);
 			ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 30f);
@@ -86,6 +164,18 @@ internal sealed class FateWatchFeature: IDisposable {
 				ImGui.TableNextRow();
 				ImGui.TableNextColumn();
 				ImGui.TextUnformatted(name);
+
+				// The short label that rides in the server bar -- "N" / "S". Editable because only
+				// deserok knows which side each FATE is on; guessing it would put a confident wrong
+				// direction in front of him at the exact moment he is deciding where to run.
+				ImGui.TableNextColumn();
+				cfg.FateLabels.TryGetValue(name, out string? lbl);
+				string edit = lbl ?? string.Empty;
+				ImGui.SetNextItemWidth(-1);
+				if (ImGui.InputText($"##lbl{name}", ref edit, 8)) {
+					cfg.FateLabels[name] = edit.Trim();
+					cfg.Save();
+				}
 
 				ImGui.TableNextColumn();
 				double? mins = this.tracker.MinutesUntilNext(name);
@@ -137,6 +227,14 @@ internal sealed class FateWatchFeature: IDisposable {
 		}
 		ImGui.TextDisabled("Run /fatewatch list in the zone to read exact names out of the game.");
 
+		Section("Server bar");
+		bool dtrOn = cfg.DtrEnabled;
+		if (ImGui.Checkbox("Show in the server info bar", ref dtrOn)) { cfg.DtrEnabled = dtrOn; cfg.Save(); }
+		bool onlyZone = cfg.DtrOnlyInZone;
+		if (ImGui.Checkbox("Only in a zone where it has been seen", ref onlyZone)) { cfg.DtrOnlyInZone = onlyZone; cfg.Save(); }
+		ImGui.TextDisabled("Shows the soonest one, e.g. \"12m N\". Hidden entirely when nothing can be predicted.");
+		ImGui.TextDisabled("No pot icon exists in the game's font -- a gold star is the stand-in, and it turns to a warning under 5 min.");
+
 		Section("Alerts");
 		bool toast = cfg.AlertToast, chat = cfg.AlertChat, sound = cfg.AlertSound;
 		if (ImGui.Checkbox("Toast popup", ref toast)) { cfg.AlertToast = toast; cfg.Save(); }
@@ -170,5 +268,8 @@ internal sealed class FateWatchFeature: IDisposable {
 		ImGui.Spacing();
 	}
 
-	public void Dispose() => Plugin.Commands.RemoveHandler("/fatewatch");
+	public void Dispose() {
+		Plugin.Commands.RemoveHandler("/fatewatch");
+		this.dtr.Remove();
+	}
 }

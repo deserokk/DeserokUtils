@@ -101,10 +101,35 @@ internal sealed class FateTracker {
 		}
 
 		cfg.LastSeen[name] = now;
+		cfg.LastSeenTerritory[name] = Plugin.ClientState.TerritoryType;
 		this.firedAlerts.Remove(name);
 		cfg.Save();
 
 		Plugin.Announce($"{name} is up now.");
+	}
+
+	/// <summary>
+	/// Anchor the cycle by hand, for what deserok already does manually: see one running, or ask
+	/// shout chat. If someone says it popped six minutes ago, that is the same information the
+	/// tracker would have got by watching -- there is no reason to make him wait for the next one
+	/// just because the plugin was not looking.
+	///
+	/// ⚠ Does NOT contribute to MeasuredIntervals. A number relayed through a stranger and a
+	/// remembered "about six minutes" are not the same quality of evidence as an observed spawn,
+	/// and letting them into the measurement would quietly corrupt the thing that corrects the
+	/// assumption.
+	/// </summary>
+	public void AnchorManually(string name, double minutesAgo) {
+		var cfg = Plugin.Config;
+		long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+		cfg.LastSeen[name] = now - (long)(minutesAgo * 60);
+		cfg.LastSeenTerritory[name] = Plugin.ClientState.TerritoryType;
+		this.firedAlerts.Remove(name);
+		cfg.Save();
+
+		double? next = this.MinutesUntilNext(name);
+		Plugin.Chat.Print($"[FateWatch] anchored {name} to {minutesAgo:0.#} min ago"
+			+ (next is null ? "." : $" -- next in about {next:0.#} min."));
 	}
 
 	private void CheckAlerts() {
@@ -158,6 +183,34 @@ internal sealed class FateTracker {
 			return sorted[sorted.Count / 2];
 		}
 		return cfg.CycleMinutes;
+	}
+
+	/// <summary>
+	/// The tracked FATE due soonest, with its label, or null when nothing can be predicted.
+	/// Used by the server bar, which has room for exactly one thing.
+	/// </summary>
+	public (string Name, string Label, double Minutes)? Soonest() {
+		(string, string, double)? best = null;
+
+		foreach (string name in Plugin.Config.TrackedFates) {
+			double? mins = this.MinutesUntilNext(name);
+			if (mins is null)
+				continue;
+
+			if (Plugin.Config.DtrOnlyInZone) {
+				// Only in a zone where this FATE has actually been seen. Learned, not hardcoded --
+				// nothing to get wrong, and it covers whatever gets tracked later for free.
+				if (!Plugin.Config.LastSeenTerritory.TryGetValue(name, out uint terr)
+					|| terr != Plugin.ClientState.TerritoryType)
+					continue;
+			}
+
+			Plugin.Config.FateLabels.TryGetValue(name, out string? label);
+			if (best is null || mins.Value < best.Value.Item3)
+				best = (name, label ?? string.Empty, mins.Value);
+		}
+
+		return best;
 	}
 
 	public static bool IsTracked(string name)

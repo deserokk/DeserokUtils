@@ -35,6 +35,8 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IFateTable Fates { get; private set; } = null!;
 	internal static IFramework Framework { get; private set; } = null!;
 	internal static IToastGui Toasts { get; private set; } = null!;
+	internal static IDtrBar Dtr { get; private set; } = null!;
+	internal static IClientState ClientState { get; private set; } = null!;
 	internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
 	internal static Configuration Config { get; private set; } = null!;
 
@@ -62,7 +64,9 @@ public sealed class Plugin: IDalamudPlugin {
 		IPluginLog log,
 		IFateTable fates,
 		IFramework framework,
-		IToastGui toasts) {
+		IToastGui toasts,
+		IDtrBar dtr,
+		IClientState clientState) {
 
 		this.pluginInterface = pluginInterface;
 		Commands = commands;
@@ -76,6 +80,8 @@ public sealed class Plugin: IDalamudPlugin {
 		Fates = fates;
 		Framework = framework;
 		Toasts = toasts;
+		Dtr = dtr;
+		ClientState = clientState;
 		PluginInterface = pluginInterface;
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -100,6 +106,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.pluginInterface.UiBuilder.OpenMainUi += this.OpenMain;
 		this.pluginInterface.UiBuilder.OpenConfigUi += this.OpenMain;
 
+		OpenWindow = this.OpenMain;
 		Framework.Update += this.OnFrameworkUpdate;
 
 		Commands.AddHandler("/deserokutils", new CommandInfo(this.OnPluginCommand) {
@@ -113,6 +120,12 @@ public sealed class Plugin: IDalamudPlugin {
 	private void OnFrameworkUpdate(IFramework framework) => this.fateWatch.Tick();
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
+
+	/// <summary>Static hook so a feature can open the window without holding a reference to it.</summary>
+	internal static Action OpenWindow { get; private set; } = () => { };
+
+	/// <summary>Countdown for a tracked FATE, for anything that needs it outside the feature.</summary>
+	internal static Func<string, double?> FateMinutes { get; set; } = _ => null;
 
 	private void OnPluginCommand(string command, string arguments) {
 		switch (arguments.Trim().ToLowerInvariant()) {

@@ -50,6 +50,30 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public Dictionary<string, List<double>> MeasuredIntervals { get; set; } = new();
 
+	/// <summary>
+	/// Short label per FATE for the server bar -- "N" / "S".
+	///
+	/// ⚠ Separate dictionary rather than a field on a richer TrackedFates type, purely so an
+	/// existing saved config keeps deserialising. Changing the shape of a list that is already on
+	/// disk loses whatever was in it, and the spawn anchors are the expensive thing to lose.
+	/// </summary>
+	public Dictionary<string, string> FateLabels { get; set; } = new() {
+		["Persistent Pots"] = "S",
+		["Pleading Pots"] = "S",
+	};
+
+	/// <summary>Territory each FATE was last seen in, so the bar can hide itself elsewhere.</summary>
+	public Dictionary<string, uint> LastSeenTerritory { get; set; } = new();
+
+	public bool DtrEnabled { get; set; } = true;
+
+	/// <summary>
+	/// Only show the bar entry in a zone where a tracked FATE has actually been seen.
+	/// ⭐ Learned rather than hardcoded: no zone id to get wrong, and it works for whatever else
+	/// gets tracked later without anyone editing a list.
+	/// </summary>
+	public bool DtrOnlyInZone { get; set; } = true;
+
 	public bool AlertToast { get; set; } = true;
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;
