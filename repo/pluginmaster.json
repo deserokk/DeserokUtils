@@ -3,7 +3,7 @@
     "Author": "deserokk",
     "Name": "DeserokUtils",
     "InternalName": "DeserokUtils",
-    "AssemblyVersion": "1.0.1.0",
+    "AssemblyVersion": "1.1.0.0",
     "Description": "Small quality-of-life utilities, one feature per tab.\n\nCastWatch: gate a macro line on whether an action actually went off. Arm a watch above the /ac, then /ifwatch runs your line only if the action was accepted -- or cancels the macro if it was not. Works for instant casts, oGCDs and usable items, none of which produce a cast bar to observe. Optional target filters (--self, --notself, --party) and a {who} token that fills in whoever actually received it, which a vanilla macro cannot do.\n\nIt never composes or sends anything on your behalf; it only runs or suppresses a line you already wrote.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/deserokk/DeserokUtils",
