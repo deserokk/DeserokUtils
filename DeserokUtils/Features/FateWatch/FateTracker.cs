@@ -65,7 +65,16 @@ internal sealed class FateTracker {
 				continue;
 
 			string name = fate.Name.TextValue;
-			Plugin.Diag($"FATE appeared: {name} (id {fate.FateId}, lvl {fate.Level}, {fate.Progress}%)");
+
+			// ⭐ BOTH channels, deliberately. Diag goes to the Debug chat tab, which is where he will
+			// look during play -- but chat scrollback is finite and a two-hour session in a busy zone
+			// would push the early spawns out. Log.Information persists to dalamud.log on disk, so the
+			// record survives the session and can be read back afterwards rather than transcribed.
+			string line = $"FATE appeared: {name} | id={fate.FateId} lvl={fate.Level} "
+				+ $"terr={Plugin.ClientState.TerritoryType} remaining={fate.TimeRemaining:0}s "
+				+ $"pos=({fate.Position.X:0},{fate.Position.Z:0})";
+			Plugin.Diag(line);
+			Plugin.Log.Information("[FateWatch] " + line);
 
 			if (IsTracked(name))
 				this.RecordSpawn(name);
