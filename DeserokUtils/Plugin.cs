@@ -85,6 +85,7 @@ public sealed class Plugin: IDalamudPlugin {
 		PluginInterface = pluginInterface;
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+		Config.Migrate();
 		Verbose = Config.Verbose;
 
 		// ── features ─────────────────────────────────────────────────────────────────────────

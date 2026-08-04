@@ -112,9 +112,11 @@ internal sealed class FateTracker {
 		cfg.LastSeen[name] = now;
 		cfg.LastSeenTerritory[name] = Plugin.ClientState.TerritoryType;
 		this.firedAlerts.Remove(name);
+		this.firedAlerts.Remove("__rotation");
 		cfg.Save();
 
-		Plugin.Announce($"{name} is up now.");
+		cfg.FateLabels.TryGetValue(name, out string? lbl);
+		Plugin.Announce($"{name}{(string.IsNullOrEmpty(lbl) ? "" : $" ({lbl})")} is up now.");
 	}
 
 	/// <summary>
@@ -144,6 +146,24 @@ internal sealed class FateTracker {
 	private void CheckAlerts() {
 		var cfg = Plugin.Config;
 
+		// In rotation mode there is ONE upcoming event, not one per member. Alerting per FATE would
+		// fire twice for every slot -- once correctly, once for the member that is not next.
+		if (cfg.RotationMode) {
+			var next = this.NextInRotation();
+			if (next is null)
+				return;
+			var (rname, rlabel, rmins) = next.Value;
+			if (!this.firedAlerts.TryGetValue("__rotation", out var rfired))
+				this.firedAlerts["__rotation"] = rfired = new HashSet<double>();
+			foreach (double threshold in cfg.AlertMinutes.OrderByDescending(m => m)) {
+				if (rmins <= threshold && !rfired.Contains(threshold)) {
+					rfired.Add(threshold);
+					Plugin.Announce($"{rname}{(rlabel.Length > 0 ? $" ({rlabel})" : "")} in about {threshold:0} minutes.");
+				}
+			}
+			return;
+		}
+
 		foreach (string name in cfg.TrackedFates) {
 			double? minutesAway = this.MinutesUntilNext(name);
 			if (minutesAway is null || minutesAway < 0)
@@ -171,13 +191,57 @@ internal sealed class FateTracker {
 		if (!cfg.LastSeen.TryGetValue(name, out long last) || last <= 0)
 			return null;
 
-		double cycle = EffectiveCycle(name);
+		// ⚠⚠ In rotation mode the same FATE recurs every cycle * memberCount, NOT every cycle. Two
+		// alternating pot FATEs 30 minutes apart means each one returns in 60 -- and predicting
+		// either at +30 lands exactly when the OTHER is due. Confident, and wrong every time.
+		double cycle = EffectiveCycle(name) * (cfg.RotationMode ? Math.Max(1, cfg.TrackedFates.Count) : 1);
 		double elapsed = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - last) / 60.0;
 
 		// Carry forward across missed cycles: if you were logged out for two hours, the next spawn
 		// is the next multiple, not one that already passed.
 		double remaining = cycle - (elapsed % cycle);
 		return remaining;
+	}
+
+	/// <summary>
+	/// The next member of the rotation, whichever FATE it is.
+	///
+	/// ⭐ This is the question actually being asked. "When is Daylight Pottery" matters far less
+	/// than "when is the next pot, and which side do I run to" -- and the rotation answers that from
+	/// a single observation of ANY member, rather than needing to have seen each one separately.
+	/// </summary>
+	public (string Name, string Label, double Minutes)? NextInRotation() {
+		var cfg = Plugin.Config;
+		if (!cfg.RotationMode || cfg.TrackedFates.Count == 0)
+			return null;
+
+		// Anchor on the most recent sighting of ANY member.
+		string? lastName = null;
+		long lastAt = 0;
+		foreach (string n in cfg.TrackedFates) {
+			if (cfg.LastSeen.TryGetValue(n, out long t) && t > lastAt) {
+				lastAt = t;
+				lastName = n;
+			}
+		}
+		if (lastName is null)
+			return null;
+
+		double cycle = EffectiveCycle(lastName);
+		double elapsed = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - lastAt) / 60.0;
+
+		// How many slots have gone by since that sighting, and therefore how far round the ring.
+		int slotsPassed = (int)Math.Floor(elapsed / cycle) + 1;
+		double remaining = (slotsPassed * cycle) - elapsed;
+
+		int lastIndex = cfg.TrackedFates.FindIndex(
+			t => string.Equals(t, lastName, StringComparison.OrdinalIgnoreCase));
+		if (lastIndex < 0)
+			lastIndex = 0;
+
+		string next = cfg.TrackedFates[(lastIndex + slotsPassed) % cfg.TrackedFates.Count];
+		cfg.FateLabels.TryGetValue(next, out string? label);
+		return (next, label ?? string.Empty, remaining);
 	}
 
 	/// <summary>
@@ -199,6 +263,21 @@ internal sealed class FateTracker {
 	/// Used by the server bar, which has room for exactly one thing.
 	/// </summary>
 	public (string Name, string Label, double Minutes)? Soonest() {
+		// ⭐ Rotation first: one sighting of ANY member answers 'next pot, which side', which is the
+		// question. Per-FATE timers are the fallback for tracked things that do not rotate.
+		if (Plugin.Config.RotationMode) {
+			var rot = this.NextInRotation();
+			if (rot is not null) {
+				if (Plugin.Config.DtrOnlyInZone) {
+					bool anyHere = Plugin.Config.LastSeenTerritory.Values.Any(t => t == Plugin.ClientState.TerritoryType);
+					if (!anyHere)
+						return null;
+				}
+				return rot;
+			}
+			return null;
+		}
+
 		(string, string, double)? best = null;
 
 		foreach (string name in Plugin.Config.TrackedFates) {

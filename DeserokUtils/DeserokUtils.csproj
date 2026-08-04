@@ -9,7 +9,7 @@
 	<PropertyGroup>
 		<Product>DeserokUtils</Product>
 		<AssemblyName>DeserokUtils</AssemblyName>
-		<Version>1.2.1</Version>
+		<Version>1.3.0</Version>
 		<Authors>deserokk</Authors>
 		<Description>A bucket of small FFXIV utilities.</Description>
 		<PackageProjectUrl>https://github.com/deserokk/DeserokUtils</PackageProjectUrl>
