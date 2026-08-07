@@ -170,14 +170,19 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool FcBuffsEnabled { get; set; } = false;
 
 	/// <summary>
-	/// Go through every step EXCEPT the button press, and log what would have been pressed.
+	/// Go through every step EXCEPT the activation, and log what would have been pressed.
 	///
-	/// ⭐ ON by default, and it should stay on until a dry-run log has been read. This is the first
-	/// thing in the plugin that acts rather than observes, and the row index it acts on comes from
-	/// three measured constants. A dry run costs one line in a log; the alternative costs a wrongly
-	/// consumed action and no clear evidence of which step was wrong.
+	/// ⚠ OFF as of v1.5.1. It shipped ON in 1.5.0 as a first-release guard, and the guard did its
+	/// job -- the dry-run log is what confirmed the row index before anything was consumed. Once the
+	/// chain was verified end to end, leaving it on meant a fresh install would tick its buffs,
+	/// enable the feature, and silently do nothing until it found this checkbox.
+	///
+	/// ⚠⚠ NO MIGRATION, on purpose, and this is the rule rather than an oversight: a default is for a
+	/// config that does not exist yet. Forcing it off in Migrate() would override anyone who had
+	/// deliberately turned it ON -- which is exactly the "rehearse before you trust it" case this
+	/// setting exists to serve.
 	/// </summary>
-	public bool FcBuffsDryRun { get; set; } = true;
+	public bool FcBuffsDryRun { get; set; } = false;
 
 	/// <summary>
 	/// Company action names to keep running, matched against the CompanyAction sheet.
