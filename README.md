@@ -7,8 +7,12 @@ Small FFXIV utilities, one feature per tab. `/dsu` or `/deserokutils` opens the 
 Add this to Dalamud's **Custom Plugin Repositories**:
 
 ```
-https://raw.githubusercontent.com/deserokk/DeserokUtils/main/repo/pluginmaster.json
+https://raw.githubusercontent.com/deserokk/DalamudPlugins/main/pluginmaster.json
 ```
+
+⭐ That is the **shared feed** — one URL for every plugin, so nothing new ever needs adding. This
+repo also carries `repo/pluginmaster.json` listing only DeserokUtils; it works, but the shared feed
+is the one to use.
 
 ---
 
