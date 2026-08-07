@@ -11,6 +11,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 
 using DeserokUtils.Features.CastWatch;
 using DeserokUtils.Features.FateWatch;
+using DeserokUtils.Features.FcBuffs;
 using DeserokUtils.UI;
 
 namespace DeserokUtils;
@@ -22,8 +23,6 @@ namespace DeserokUtils;
 /// never means editing the first one's code.
 /// </summary>
 public sealed class Plugin: IDalamudPlugin {
-	public string Name => "DeserokUtils";
-
 	internal static ICommandManager Commands { get; private set; } = null!;
 	internal static IChatGui Chat { get; private set; } = null!;
 	internal static IObjectTable Objects { get; private set; } = null!;
@@ -37,6 +36,9 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IToastGui Toasts { get; private set; } = null!;
 	internal static IDtrBar Dtr { get; private set; } = null!;
 	internal static IClientState ClientState { get; private set; } = null!;
+	internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
+	internal static ICondition Condition { get; private set; } = null!;
+	internal static IGameGui GameGui { get; private set; } = null!;
 	internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
 	internal static Configuration Config { get; private set; } = null!;
 
@@ -58,11 +60,11 @@ public sealed class Plugin: IDalamudPlugin {
 		}
 	}
 
-	private readonly IDalamudPluginInterface pluginInterface;
 	private readonly WindowSystem windows = new("DeserokUtils");
 	private readonly MainWindow mainWindow;
 	private readonly List<IDisposable> features = new();
 	private readonly FateWatchFeature fateWatch;
+	private readonly FcBuffsFeature fcBuffs;
 
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
@@ -78,9 +80,11 @@ public sealed class Plugin: IDalamudPlugin {
 		IFramework framework,
 		IToastGui toasts,
 		IDtrBar dtr,
-		IClientState clientState) {
+		IClientState clientState,
+		IAddonLifecycle addonLifecycle,
+		ICondition condition,
+		IGameGui gameGui) {
 
-		this.pluginInterface = pluginInterface;
 		Commands = commands;
 		Chat = chat;
 		Objects = objects;
@@ -94,6 +98,9 @@ public sealed class Plugin: IDalamudPlugin {
 		Toasts = toasts;
 		Dtr = dtr;
 		ClientState = clientState;
+		AddonLifecycle = addonLifecycle;
+		Condition = condition;
+		GameGui = gameGui;
 		PluginInterface = pluginInterface;
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -107,16 +114,19 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(castWatch);
 		this.fateWatch = new FateWatchFeature();
 		this.features.Add(this.fateWatch);
+		this.fcBuffs = new FcBuffsFeature();
+		this.features.Add(this.fcBuffs);
 
 		this.mainWindow = new MainWindow([
 			(castWatch.TabTitle, castWatch.DrawTab),
 			(this.fateWatch.TabTitle, this.fateWatch.DrawTab),
+			(this.fcBuffs.TabTitle, this.fcBuffs.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
-		this.pluginInterface.UiBuilder.Draw += this.windows.Draw;
-		this.pluginInterface.UiBuilder.OpenMainUi += this.OpenMain;
-		this.pluginInterface.UiBuilder.OpenConfigUi += this.OpenMain;
+		PluginInterface.UiBuilder.Draw += this.windows.Draw;
+		PluginInterface.UiBuilder.OpenMainUi += this.OpenMain;
+		PluginInterface.UiBuilder.OpenConfigUi += this.OpenMain;
 
 		OpenWindow = this.OpenMain;
 		Framework.Update += this.OnFrameworkUpdate;
@@ -129,15 +139,15 @@ public sealed class Plugin: IDalamudPlugin {
 		});
 	}
 
-	private void OnFrameworkUpdate(IFramework framework) => this.fateWatch.Tick();
+	private void OnFrameworkUpdate(IFramework framework) {
+		this.fateWatch.Tick();
+		this.fcBuffs.Tick();
+	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
 
 	/// <summary>Static hook so a feature can open the window without holding a reference to it.</summary>
 	internal static Action OpenWindow { get; private set; } = () => { };
-
-	/// <summary>Countdown for a tracked FATE, for anything that needs it outside the feature.</summary>
-	internal static Func<string, double?> FateMinutes { get; set; } = _ => null;
 
 	private void OnPluginCommand(string command, string arguments) {
 		switch (arguments.Trim().ToLowerInvariant()) {
@@ -194,9 +204,9 @@ public sealed class Plugin: IDalamudPlugin {
 		Commands.RemoveHandler("/deserokutils");
 		Commands.RemoveHandler("/dsu");
 
-		this.pluginInterface.UiBuilder.Draw -= this.windows.Draw;
-		this.pluginInterface.UiBuilder.OpenMainUi -= this.OpenMain;
-		this.pluginInterface.UiBuilder.OpenConfigUi -= this.OpenMain;
+		PluginInterface.UiBuilder.Draw -= this.windows.Draw;
+		PluginInterface.UiBuilder.OpenMainUi -= this.OpenMain;
+		PluginInterface.UiBuilder.OpenConfigUi -= this.OpenMain;
 		this.windows.RemoveAllWindows();
 
 		foreach (var feature in this.features)

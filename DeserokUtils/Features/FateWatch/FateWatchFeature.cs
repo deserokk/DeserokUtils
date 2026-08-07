@@ -29,15 +29,27 @@ internal sealed class FateWatchFeature: IDisposable {
 			HelpMessage = "/fatewatch [list | anchor <name> <minsAgo> | next <name> <minsUntil>] -- timers, zone FATE list, or set the cycle by hand.",
 		});
 
-		Plugin.FateMinutes = this.tracker.MinutesUntilNext;
-
 		this.dtr = Plugin.Dtr.Get("FateWatch");
 		this.dtr.OnClick = _ => Plugin.OpenWindow();
 		this.dtr.Shown = false;
 	}
 
+	/// <summary>
+	/// ⚠⚠ The bar is throttled, and it was not. UpdateDtr ran EVERY FRAME: Soonest() re-derived the
+	/// prediction, and BuildTooltip allocated a fresh SeString with a line per tracked FATE. Sixty
+	/// times a second, to display a number in whole minutes that changes once a minute.
+	///
+	/// ⭐ Matched to the tracker's own 1s poll, because nothing can change between polls anyway --
+	/// the bar was redrawing from data that provably had not moved.
+	/// </summary>
+	private DateTime lastDtr = DateTime.MinValue;
+
 	public void Tick() {
 		this.tracker.Tick();
+
+		if (DateTime.UtcNow - this.lastDtr < TimeSpan.FromSeconds(1))
+			return;
+		this.lastDtr = DateTime.UtcNow;
 		this.UpdateDtr();
 	}
 
@@ -71,17 +83,17 @@ internal sealed class FateWatchFeature: IDisposable {
 			: $"{Math.Floor(mins):0}m{(label.Length > 0 ? " " + label : "")}";
 
 		this.dtr.Text = new SeStringBuilder().AddIcon(icon).AddText(text).Build();
-		this.dtr.Tooltip = BuildTooltip();
+		this.dtr.Tooltip = this.BuildTooltip();
 		this.dtr.Shown = true;
 	}
 
-	private static SeString BuildTooltip() {
+	private SeString BuildTooltip() {
 		var sb = new SeStringBuilder();
 		sb.AddText("FateWatch");
 		foreach (string n in Plugin.Config.TrackedFates) {
 			Plugin.Config.FateLabels.TryGetValue(n, out string? lbl);
 			sb.AddText($"\n{n}{(string.IsNullOrEmpty(lbl) ? "" : $" [{lbl}]")}: ");
-			double? m = Plugin.FateMinutes(n);
+			double? m = this.tracker.MinutesUntilNext(n);
 			sb.AddText(m is null ? "not seen yet" : $"{m:0.#} min");
 		}
 		return sb.Build();
@@ -263,9 +275,8 @@ internal sealed class FateWatchFeature: IDisposable {
 		Section("Server bar");
 		bool dtrOn = cfg.DtrEnabled;
 		if (ImGui.Checkbox("Show in the server info bar", ref dtrOn)) { cfg.DtrEnabled = dtrOn; cfg.Save(); }
-		bool onlyZone = cfg.DtrOnlyInZone;
-		if (ImGui.Checkbox("Only in a zone where it has been seen", ref onlyZone)) { cfg.DtrOnlyInZone = onlyZone; cfg.Save(); }
 		ImGui.TextDisabled("Shows the soonest one, e.g. \"12m N\". Hidden entirely when nothing can be predicted.");
+		ImGui.TextDisabled("Only ever appears in the instance the timer was anchored in -- leaving clears it.");
 		ImGui.TextDisabled("No pot icon exists in the game's font -- a gold star is the stand-in, and it turns to a warning under 5 min.");
 
 		Section("Alerts");
@@ -292,6 +303,13 @@ internal sealed class FateWatchFeature: IDisposable {
 			+ "spawn plus the cycle length -- which means the first one after installing is a "
 			+ "surprise, and everything after it is predicted. Each real spawn re-anchors the clock, "
 			+ "and once three intervals are recorded the measured value replaces the assumed one.");
+
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"And why the timers empty when you leave: the pots are thirty minutes apart but not pegged "
+			+ "to the clock, so a fresh instance starts a fresh cycle. Carrying the old anchor across "
+			+ "would give you a confident countdown to nothing -- and alerts in Ul'dah. The measured "
+			+ "cycle length is kept; only the 'last seen' is dropped.");
 	}
 
 	private static void Section(string title) {

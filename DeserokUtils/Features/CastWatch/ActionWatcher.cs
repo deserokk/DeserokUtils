@@ -107,9 +107,18 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 			return;
 		}
 
+		// ⚠⚠ CREATED, NOT ENABLED. The hook goes live only while a watch is armed -- see Arm/Disarm.
+		//
+		// UseAction is one of the hottest functions in the client: every GCD, every oGCD, every item,
+		// from a macro spamming a thirteen-line fallback. This watcher is armed for ten seconds at a
+		// time, a few times an hour, inside specific macros. Detouring every action in the game for
+		// the other 99.9% of the session bought nothing -- the detour called the original and fell
+		// straight through a disarmed check.
+		//
+		// ⭐ Resolving the address at construction is still right: a hook that cannot install must
+		// say so at load, not at the moment a macro depends on it.
 		this.hook = Plugin.Interop.HookFromAddress<UseActionDelegate>(addr, this.Detour);
-		this.hook.Enable();
-		Plugin.Log.Information($"CastWatch: hooked ActionManager.UseAction at 0x{addr:X}");
+		Plugin.Log.Information($"CastWatch: resolved ActionManager.UseAction at 0x{addr:X} (hook enabled only while armed)");
 	}
 
 	private bool Detour(
@@ -208,10 +217,19 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		this.Attempts = 0;
 		this.FiredTargetId = 0;
 		this.armedAt = DateTime.UtcNow;
+
+		// Live only from here until Disarm.
+		this.hook?.Enable();
 	}
 
 	public void Disarm() {
 		this.Armed = false;
+
+		// ⚠ Off with the arm. The arm can also age out on its own (see ArmIsLive/Expiry) without
+		// Disarm being called, so the detour still checks -- this removes the common case, it does
+		// not replace the guard.
+		this.hook?.Disable();
+
 		this.Fired = false;
 		this.SawAttempt = false;
 		this.LastResult = false;
