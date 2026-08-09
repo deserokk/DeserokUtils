@@ -58,6 +58,33 @@ internal sealed class FcBuffPolicy {
 		ConditionFlag.TradeOpen, ConditionFlag.CreatingCharacter, ConditionFlag.Unconscious,
 	};
 
+	/// <summary>
+	/// Whether we are on the home world.
+	///
+	/// ⚠⚠ FC BUFFS DO NOT APPLY WHILE VISITING ANOTHER WORLD -- the statuses simply go away. To a
+	/// presence-only design that is indistinguishable from "they ran out", so the plugin cheerfully
+	/// tried to refresh them, over and over, for the whole trip.
+	///
+	/// ⭐ It costs nothing, checked with deserok: the FC window cannot even be OPENED while away, so
+	/// every attempt died at the Opening step and no stock was ever spent. What it produced was a
+	/// timeout error in chat every ten minutes -- a plugin loudly reporting a broken step, for a
+	/// situation that is completely normal and about which nothing was wrong.
+	///
+	/// ⚠ Which is its own kind of bad: an error that fires when nothing is broken teaches you to
+	/// ignore the errors that mean something.
+	///
+	/// ⭐ Grouped with the loading-screen check rather than treated as its own refusal, on purpose:
+	/// being away from home is not a place where the status list means what it usually means. So the
+	/// whole picture is dropped, exactly like a zone transition -- which also stops ARRIVING on
+	/// another world from reading as "the buff just dropped" and firing a toast at you.
+	/// </summary>
+	public static bool OnHomeWorld() {
+		var me = Plugin.Objects.LocalPlayer;
+		return me is not null
+			&& me.CurrentWorld.RowId != 0
+			&& me.CurrentWorld.RowId == me.HomeWorld.RowId;
+	}
+
 	/// <summary>Whether this place is on the safe list, by name rather than by number.</summary>
 	public static bool InSafePlace() {
 		var (_, place) = FcBuffReader.CurrentPlace();
@@ -74,6 +101,7 @@ internal sealed class FcBuffPolicy {
 		bool quiet = Plugin.ClientState.IsLoggedIn
 			&& Plugin.Objects.LocalPlayer is not null
 			&& Plugin.ClientState.TerritoryType != 0
+			&& OnHomeWorld()
 			&& !Plugin.Condition.Any(Busy);
 
 		if (!quiet && this.Settled)
@@ -81,6 +109,7 @@ internal sealed class FcBuffPolicy {
 				+ (!Plugin.ClientState.IsLoggedIn ? "not logged in"
 					: Plugin.Objects.LocalPlayer is null ? "no local player"
 					: Plugin.ClientState.TerritoryType == 0 ? "between areas"
+					: !OnHomeWorld() ? "away from the home world (FC buffs do not apply)"
 					: "a busy condition flag is set"));
 
 		if (!quiet) {
