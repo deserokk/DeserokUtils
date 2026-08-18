@@ -202,11 +202,23 @@ case this handles best rather than the case that defeats it.
 # Mouseover
 
 ```
-/ifmo /ac Clemency {mo}
+/ifmo /ac Clemency {mo}                       mouseover, else ordinary targeting
+/ifmo /ac Cover {mo|2}                        mouseover, then <2>, else ordinary targeting
+/ifmo /ac "Heart of Corundum" {mo|2|noop}     mouseover, then <2>, else send NOTHING
 ```
 
-`{mo}` becomes `<mo>` when the action would actually land on what you're pointing at, and
-**nothing** otherwise — leaving ordinary targeting.
+Each candidate is checked against the action, and the first one it would **actually land on** is
+used. Any placeholder the game understands works as a segment — `mo`, `2`, `t`, `f`, `me` — because
+each goes through the game's own resolver rather than a list of names this plugin knows.
+
+⚠ **The tail differs per action, so it's explicit.** Cover can't target you, so falling through to
+ordinary targeting merely no-ops. Heart of Corundum *can*, so the same fallthrough quietly spends a
+cooldown on yourself that you pressed for somebody else. `noop` is how you say "if none of these
+work, do nothing".
+
+⭐ Forgot the quotes on a multi-word name? It adds them. `/ac` rejects unquoted multi-word actions,
+but this parser reads them fine — so without the fix you'd get a correct decision in the log and
+nothing happening in game, which is a worse failure than not parsing at all.
 
 Replaces the twelve-line mouseover macro with a bare fallback at the bottom. That pattern works and
 has a race: press it while the GCD is rolling and every mouseover line fails on cooldown, then the

@@ -47,18 +47,20 @@ namespace DeserokUtils.Features.IfMouseover;
 /// </summary>
 internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	public string SectionTitle => "Mouseover";
-	public string Summary => "/ifmo -- use the mouseover if the action would land on it, otherwise target normally. One line instead of thirteen.";
+	public string Summary => "/ifmo -- pick the first target the action would actually land on. {mo|2|noop} in one line instead of a fallback chain.";
 
-	private const string Token = "{mo}";
 
 	/// <summary>Last decision, for the tab. Purely diagnostic.</summary>
 	private string lastDecision = "nothing yet";
 
 	public IfMouseoverFeature() {
 		Plugin.Commands.AddHandler("/ifmo", new CommandInfo(this.OnIfMouseover) {
-			HelpMessage = "/ifmo <command with {mo}> -- {mo} becomes <mo> if the action would work on your mouseover, otherwise nothing.",
+			HelpMessage = "/ifmo <command with {mo}> -- picks the first target the action would land on. Chain with {mo|2}, end with |noop to send nothing.",
 		});
 	}
+
+	private static readonly System.Text.RegularExpressions.Regex TokenPattern =
+		new(@"\{([A-Za-z0-9|]+)\}", System.Text.RegularExpressions.RegexOptions.Compiled);
 
 	private void OnIfMouseover(string command, string arguments) {
 		string payload = arguments.Trim();
@@ -68,144 +70,207 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 			return;
 		}
 
+		var match = TokenPattern.Match(payload);
 		// ⚠ A payload with no token is almost certainly a mistake -- it would run identically without
 		// /ifmo, so silently passing it through would leave a macro that looks conditional and is not.
-		if (payload.IndexOf(Token, StringComparison.OrdinalIgnoreCase) < 0) {
-			Plugin.Chat.PrintError($"[IfMouseover] no {Token} in that line, so /ifmo would change nothing. Add {Token} where the target goes.");
+		if (!match.Success) {
+			Plugin.Chat.PrintError("[IfMouseover] no {…} token in that line, so /ifmo would change nothing. "
+				+ "Put {mo} -- or {mo|2}, {mo|2|noop} -- where the target goes.");
 			return;
 		}
 
-		(bool useMouseover, string why) = this.Decide(payload);
+		string[] chain = match.Groups[1].Value.Split('|', StringSplitOptions.TrimEntries);
+		(string? placeholder, bool send, string why) = this.Decide(payload, chain);
 
-		// ⚠ Replace with an EMPTY string when the mouseover is not usable, then tidy the double space
-		// it leaves. "/ac Clemency " and "/ac Clemency" behave the same, but the log line is read by a
-		// human and a stray space reads like a bug.
-		string line = System.Text.RegularExpressions.Regex.Replace(
-			payload, System.Text.RegularExpressions.Regex.Escape(Token),
-			useMouseover ? "<mo>" : string.Empty,
-			System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+		if (!send) {
+			this.lastDecision = $"sent nothing -- {why}";
+			Trace($"/ifmo: {why} -> nothing sent (noop)");
+			return;
+		}
+
+		// ⚠ An empty substitution leaves "/ac Cover " -- harmless to the game, but the log line is read
+		// by a human and a stray double space reads like a bug.
+		string line = payload.Remove(match.Index, match.Length).Insert(match.Index, placeholder ?? string.Empty);
+		line = AddMissingQuotes(line, match.Index);
 		line = System.Text.RegularExpressions.Regex.Replace(line, @"\s{2,}", " ").Trim();
 
-		this.lastDecision = $"{(useMouseover ? "used <mo>" : "targeted normally")} -- {why}";
+		this.lastDecision = $"{(placeholder is null ? "targeted normally" : $"used {placeholder}")} -- {why}";
 		Trace($"/ifmo: {why} -> {line}");
 
-		// ⭐ QUEUED, so the chatbox pipeline expands <mo> and every other placeholder in your line.
-		// Sending it synchronously would break exactly the token this feature exists to insert.
+		// ⭐ QUEUED, so the chatbox pipeline expands the placeholder we chose and any others in your
+		// line. Sending it synchronously would break exactly the token this feature exists to insert.
 		GameCommands.Queue(line);
 	}
 
+
 	/// <summary>
-	/// What the game itself thinks <c>&lt;mo&gt;</c> means right now.
+	/// Quote a multi-word action name the user forgot to quote.
 	///
-	/// ⚠⚠ NOT `ITargetManager.MouseOverTarget`, which shipped in 1.7.0 and was WRONG. That property
-	/// reports only the WORLD mouseover -- hovering a character model. Vanilla `&lt;mo&gt;` also
-	/// resolves a **party frame** hover, which is the entire point of mouseover healing: healers
-	/// hover the party list, not the 3D model. So /ifmo fell through to normal targeting in its single
-	/// most important case.
+	/// ⚠⚠ Because forgetting is normal and the failure is invisible. `/ac` requires quotes for
+	/// multi-word names, but this plugin's parser does not -- so an unquoted "Heart of Corundum"
+	/// resolves, validates, picks the right target, and then emits a line the game silently rejects.
+	/// Correct diagnostics, nothing happening. The plugin already knows the real name, so it can just
+	/// put the quotes in.
 	///
-	/// ⭐⭐ The fix is not "also check the party list". It is to stop reimplementing the placeholder
-	/// and ASK THE GAME: `PronounModule.ResolvePlaceholder` is the function that resolves
-	/// &lt;mo&gt; for every macro in the game, so whatever it returns is correct by construction --
-	/// world, party frame, alliance list, nameplate, and whatever else exists that nobody here
-	/// thought to name.
+	/// ⭐ Only ever ADDS quotes around a name that resolved to a real player action, and only when it
+	/// actually contains a space. It never rewrites anything else in your line.
 	///
-	/// ⚠⚠ Which is the FcBuffs recorder lesson wearing new clothes: **an allowlist cannot find what
-	/// you do not know the name of.** Enumerating the hover kinds I could think of would have been
-	/// wrong again the moment a fifth one existed. Asking the authority has no such failure mode.
-	///
-	/// ⚠ The last three parameters are undocumented; 0/0/false is the conventional call and its
-	/// correctness is observable -- if it were wrong this returns null and the feature visibly stops
-	/// resolving anything. Both readings are logged side by side so a disagreement is visible rather
-	/// than silent.
+	/// ⚠ Skips the edit if the action name sits AFTER the token, since the index arithmetic would be
+	/// wrong -- nobody writes that, and quietly corrupting a line beats nothing at all.
 	/// </summary>
-	private static FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject* ResolveMouseover() {
-		var pronoun = FFXIVClientStructs.FFXIV.Client.UI.Misc.PronounModule.Instance();
-		return pronoun is null ? null : pronoun->ResolvePlaceholder("<mo>", 0, 0, false);
+	private static string AddMissingQuotes(string line, int tokenAt) {
+		var span = ActionLookup.ActionNameIn(line);
+		if (span is null || span.Value.Quoted)
+			return line;
+		if (!span.Value.Name.Contains(' '))
+			return line;
+		if (span.Value.Start > tokenAt)
+			return line;
+		if (ActionLookup.Resolve(span.Value.Name) is null)
+			return line;
+
+		string quoted = line.Remove(span.Value.Start, span.Value.Length)
+			.Insert(span.Value.Start, $"\"{span.Value.Name}\"");
+		Trace($"/ifmo: added the quotes \"{span.Value.Name}\" needs -- /ac rejects unquoted multi-word names.");
+		return quoted;
 	}
 
 	/// <summary>
-	/// Whether to use the mouseover, and the reason -- the reason is returned rather than logged here
-	/// so every path names itself in one place.
+	/// Walk the chain and pick the first placeholder the action would actually land on.
+	///
+	/// ⭐⭐ Better than the vanilla fallback chain, not merely shorter. Vanilla FIRES AND FAILS down
+	/// the list -- a line per miss, each burning a chance for the GCD to expire onto the wrong one.
+	/// This validates every candidate before anything is sent, so there is one attempt and it is the
+	/// right one.
+	///
+	/// ⚠⚠ The tail is EXPLICIT, because the correct tail differs per action and no default is right
+	/// for all of them:
+	/// <code>
+	/// {mo}          mouseover, else ordinary targeting      Clemency
+	/// {mo|2}        mouseover, then &lt;2&gt;, else ordinary targeting
+	/// {mo|2|noop}   mouseover, then &lt;2&gt;, else SEND NOTHING     Heart of Corundum
+	/// </code>
+	/// Cover cannot target you, so ordinary targeting merely no-ops there. **Heart of Corundum CAN**,
+	/// so the same fallthrough silently self-casts a cooldown you pressed for somebody else -- and
+	/// deserok has self-use on a separate key. `noop` is how you say "if neither works, do nothing".
+	///
+	/// ⚠ Segment names are NOT validated against a list. Whatever the game resolves is legal --
+	/// <c>mo</c>, <c>2</c>, <c>t</c>, <c>f</c>, <c>me</c>, and anything else that exists. Same reason
+	/// the mouseover bug happened: an allowlist cannot contain what nobody thought to name.
 	/// </summary>
-	private (bool Use, string Why) Decide(string payload) {
-		var resolved = ResolveMouseover();
+	private (string? Placeholder, bool Send, string Why) Decide(string payload, string[] chain) {
+		string? name = ActionLookup.ActionNameIn(payload)?.Name;
+		uint? actionId = name is null ? null : ActionLookup.Resolve(name);
 
-		// ⚠ Reported together on purpose. Dalamud's world-only reading is what got this wrong, so
-		// seeing both makes the party-frame case visible as "the game found one, Dalamud did not"
-		// rather than as an unexplained behaviour change.
-		string worldOnly = Plugin.Targets.MouseOverTarget?.Name.ToString() ?? "none";
-
-		if (resolved is null) {
-			if (worldOnly != "none")
-				Plugin.Log.Warning($"/ifmo: the game resolved <mo> to nothing while Dalamud reports {worldOnly}. "
-					+ "That should not happen -- suspect the ResolvePlaceholder arguments.");
-			return (false, $"no mouseover (world reading: {worldOnly})");
+		if (actionId is null) {
+			// ⚠ Degrade, but SAY so. Without the action we cannot ask whether anything would work, so
+			// this falls back to "first segment that resolves to somebody" -- the weaker presence test,
+			// and the user deserves to know they are getting it.
+			Trace($"/ifmo: no usable action name in that line ({name ?? "none found"}); presence check only.");
+			foreach (string seg in chain) {
+				if (seg.Equals("noop", StringComparison.OrdinalIgnoreCase))
+					return (null, false, "nothing resolved, and the chain ends in noop");
+				var who = Resolve(seg);
+				if (who is not null)
+					return ($"<{seg}>", true, $"<{seg}> resolves to {who->NameString} -- presence check only");
+			}
+			return (null, true, "nothing in the chain resolved -- ordinary targeting");
 		}
 
-		string moName = resolved->NameString;
-
-		string? name = ActionLookup.ActionNameIn(payload);
-		if (name is null) {
-			// ⚠ Degrade, but SAY so. Without the action we cannot ask whether it would work, so this
-			// falls back to the presence check -- which is the weaker test criticised above, and the
-			// user deserves to know they are getting it.
-			Trace("/ifmo: could not find an action name in that line; falling back to a presence check.");
-			return (true, $"mouseover present ({moName}), action unknown -- presence check only");
-		}
-
-		uint? actionId = ActionLookup.Resolve(name);
-		if (actionId is null)
-			return (true, $"mouseover present ({moName}), \"{name}\" is not a player action -- presence check only");
-
-		// ⚠ STATIC, not instance -- the compiler said so. Both of these are free functions on
-		// ActionManager rather than members of the singleton, unlike UseAction next door in CastWatch.
-		var target = resolved;
-		bool can = ActionManager.CanUseActionOnTarget(actionId.Value, target);
-
-		// ⭐⭐ MEASURED 2026-08-18, then obeyed -- it shipped "displayed, not obeyed" for exactly one
-		// build. GetActionInRangeOrLoS returns a LogMessage ROW ID, and 0 means fine:
-		//     0    (fine)                565/566  Target is not in range.
-		//     562  Target not in line of sight.   563  Invalid target.
-		// Confirmed by the strongest test available -- the SAME player read 566 across the zone and 0
-		// up close, nothing changing but distance. And presses during the GCD still read 0, so it is
-		// not contaminated by cooldown (572, "Cannot use yet", never appeared).
-		//
-		// ⚠⚠ OBEYING IT IS REQUIRED FOR PARITY, not a bonus. Ungated, an out-of-range mouseover
-		// substitutes <mo>, the action fails, and nothing else happens -- while the thirteen-line
-		// macro this replaces would have fallen through to its bare line and healed somebody. Without
-		// this check /ifmo is a REGRESSION in exactly the case it claims to handle.
-		uint rangeStatus = 0;
 		var self = Plugin.Objects.LocalPlayer;
-		if (self is not null)
-			rangeStatus = ActionManager.GetActionInRangeOrLoS(
+		foreach (string seg in chain) {
+			// ⚠ noop ends the walk wherever it sits, so {mo|noop|2} means what it says: the 2 is
+			// unreachable. Honouring position beats quietly reordering somebody's intent.
+			if (seg.Equals("noop", StringComparison.OrdinalIgnoreCase))
+				return (null, false, $"no candidate before noop could take {name}");
+
+			var who = Resolve(seg);
+			if (who is null) {
+				Trace($"/ifmo: <{seg}> resolves to nobody");
+				continue;
+			}
+
+			bool can = ActionManager.CanUseActionOnTarget(actionId.Value, who);
+			uint status = self is null ? 0 : ActionManager.GetActionInRangeOrLoS(
 				actionId.Value,
 				(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)self.Address,
-				target);
+				who);
 
-		bool reachable = rangeStatus == 0;
-		Trace($"/ifmo: {name} ({actionId}) on {moName}: CanUseActionOnTarget={can}, "
-			+ $"rangeOrLoS={rangeStatus}{Explain(rangeStatus)}");
+			Trace($"/ifmo: {name} ({actionId}) on <{seg}> = {who->NameString}: "
+				+ $"CanUseActionOnTarget={can}, rangeOrLoS={status}{Explain(status)}");
 
-		if (!can)
-			return (false, $"{name} cannot be used on {moName}");
-		if (!reachable)
-			return (false, $"{moName} is out of reach ({Reason(rangeStatus)})");
+			if (can && status == 0)
+				return ($"<{seg}>", true, $"{name} lands on {who->NameString} via <{seg}>");
+		}
 
-		return (true, $"{name} can be used on {moName}");
+		// ⚠ Falling off the end means ordinary targeting -- the behaviour {mo} shipped with, kept so
+		// the Clemency macro written before the chain existed still does what it did.
+		return (null, true, $"nothing in the chain could take {name} -- ordinary targeting");
+	}
+
+	/// <summary>
+	/// Resolve one chain segment through the game's own placeholder resolver.
+	///
+	/// ⚠ Dalamud's world-only mouseover reading is logged alongside for <c>mo</c>, because that
+	/// disagreement is exactly the bug that shipped in 1.7.0 and it should stay visible.
+	/// </summary>
+	private static FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject* Resolve(string segment) {
+		var pronoun = FFXIVClientStructs.FFXIV.Client.UI.Misc.PronounModule.Instance();
+		if (pronoun is null)
+			return null;
+
+		var resolved = pronoun->ResolvePlaceholder($"<{segment}>", 0, 0, false);
+
+		if (resolved is null && segment.Equals("mo", StringComparison.OrdinalIgnoreCase)) {
+			string worldOnly = Plugin.Targets.MouseOverTarget?.Name.ToString() ?? "none";
+			if (worldOnly != "none")
+				Plugin.Log.Warning($"/ifmo: the game resolved <mo> to nothing while Dalamud reports {worldOnly}. "
+					+ "Suspect the ResolvePlaceholder arguments.");
+		}
+
+		return resolved;
 	}
 
 	// ── the tab section ──────────────────────────────────────────────────────────────────────
 
 	public void DrawSection() {
 		ImGui.TextWrapped(
-			"Put {mo} where the target goes. It becomes <mo> when the action would actually land on "
-			+ "your mouseover, and disappears otherwise -- which leaves an ordinary, untargeted line.");
+			"Put a token where the target goes. Each candidate is checked against the action, and the "
+			+ "first one it would actually land on is used.");
 		ImGui.Spacing();
 
-		const string template = "/ifmo /ac Clemency {mo}";
-		ImGui.TextUnformatted(template);
-		if (ImGui.Button("Copy##ifmo"))
-			ImGui.SetClipboardText(template);
+		if (ImGui.BeginTable("ifmo_chain", 2,
+			ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) {
+			ImGui.TableSetupColumn("token", ImGuiTableColumnFlags.WidthFixed, 130f);
+			ImGui.TableSetupColumn("meaning");
+			ImGui.TableHeadersRow();
+			Row("{mo}", "Mouseover, else ordinary targeting. Good for Clemency.");
+			Row("{mo|2}", "Mouseover, then <2>, else ordinary targeting.");
+			Row("{mo|2|noop}", "Mouseover, then <2>, else send NOTHING.");
+			ImGui.EndTable();
+		}
+
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"⚠ The tail matters, and differs per action. Cover cannot target you, so ordinary targeting "
+			+ "just no-ops. Heart of Corundum CAN target you, so the same fallthrough quietly spends a "
+			+ "cooldown on yourself that you pressed for somebody else. That is what noop is for.");
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"Any placeholder the game understands works as a segment -- mo, 2, t, f, me and the rest. "
+			+ "There is no list of allowed names; whatever the game resolves is legal.");
+
+		ImGui.Spacing();
+		foreach (string template in new[] {
+			"/ifmo /ac Clemency {mo}",
+			"/ifmo /ac Cover {mo|2}",
+			"/ifmo /ac \"Heart of Corundum\" {mo|2|noop}",
+		}) {
+			ImGui.TextUnformatted(template);
+			ImGui.SameLine();
+			if (ImGui.Button($"Copy##ifmo{template.Length}"))
+				ImGui.SetClipboardText(template);
+		}
 
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last press: {this.lastDecision}");
@@ -225,6 +290,14 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 			+ "the way the vanilla macro does -- a presence check would send <mo> anyway and simply "
 			+ "fail. If the action name cannot be read out of your line, it degrades to a presence "
 			+ "check and says so in diagnostics rather than pretending.");
+	}
+
+	private static void Row(string token, string what) {
+		ImGui.TableNextRow();
+		ImGui.TableNextColumn();
+		ImGui.TextUnformatted(token);
+		ImGui.TableNextColumn();
+		ImGui.TextWrapped(what);
 	}
 
 	/// <summary>
