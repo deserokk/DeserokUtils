@@ -99,6 +99,60 @@ path loses that race, which cost a day of thinking the gate was broken when it w
 command runs **queued** (`ProcessChatBoxEntry`) because it has nothing to outrun, and that pipeline
 is what expands `<t>` / `<mo>` / `<2>`.
 
+---
+
+# DrawSheathe
+
+One key that draws or sheathes, whichever is currently correct.
+
+```
+/drawsheathe
+```
+
+The Gold Saucer **Draw Weapon** and **Sheathe Weapon** are *emotes* (Emote rows 238 and 237) — not
+replacements for the default weapon toggle. Buying them adds two emotes rather than changing the
+animations the default keybind plays, and an emote cannot be bound as a toggle. So they take two
+hotbar slots and you have to know which one is correct at any moment. This restores the toggle.
+
+## Commands
+
+| command | |
+|---|---|
+| `/drawsheathe` | Draw or sheathe, whichever is right |
+| `/drawsheathe state` | Report what it reads, without sending anything |
+| `/drawsheathe conditions` | List every condition flag the game currently has set |
+| `/drawsheathe sniff [seconds]` | Record what the client calls when you press the real keybind |
+
+## Design notes
+
+⚠⚠ **The emote does nothing while you are moving or jumping** — silently refused, no message. Those
+cases fall back to the game's own toggle, so a single key covers everything.
+
+⭐ The predicate is *"would the emote be refused"*, **not** *"am I moving"*. Moving was simply the
+first case found; jumping refuses the emote too and reads `IsPlayerMoving == false`. A check named
+after movement was answering a narrower question than the one being asked, and would have kept being
+wrong one case at a time. The list is observed rather than a model of the game's rule — anything not
+on it gets the emote, which fails harmlessly.
+
+⚠⚠ **`SetUnsheathed`'s `isInstant` parameter means the opposite of its name.** Read the signature and
+`false` is obviously "play the animation"; it teleports the weapon into the hand instead. The real
+keybind passes `true` every time, standing and moving alike, and that is the call that animates.
+Found by hooking the function and pressing the key — `/drawsheathe sniff` is that tool, kept.
+
+⚠⚠ **A held key is collapsed to one toggle.** Auto-repeat arrives around 10 Hz, and without this a
+held key cycles the weapon continuously. A cooldown alone does *not* fix it: gating on the game's
+one-second sheathe cooldown only slows the cycle to one per second for as long as the key is down.
+Only a quiet-gap test collapses it. The window is configurable in the tab because repeat rates are a
+property of your hardware — this is an accessibility setting, not a tuning detail.
+
+⭐ **The game's own `SheatheCooldown` is honoured too**, and it is a real countdown: measured at 1.0
+on a state change, decaying at 1.0/second, 0 at rest. Both paths set it, the queued emote included,
+so one gate covers both.
+
+Both emote commands are editable in the tab, and the fallback can be switched off there. That
+fallback is the only part which calls into the client directly, so the switch is what gets a working
+key back if a patch ever breaks it — without waiting for a build.
+
 ## Building
 
 ```

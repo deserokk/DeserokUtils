@@ -10,6 +10,7 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.UI;
 
 using DeserokUtils.Features.CastWatch;
+using DeserokUtils.Features.DrawSheathe;
 using DeserokUtils.Features.FateWatch;
 using DeserokUtils.Features.FcBuffs;
 using DeserokUtils.UI;
@@ -116,11 +117,16 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(this.fateWatch);
 		this.fcBuffs = new FcBuffsFeature();
 		this.features.Add(this.fcBuffs);
+		// ⭐ The fourth one, and still two lines plus a folder. No Tick(), no hook, no listener --
+		// it is a command handler and a tab, which is the least a feature here has ever needed.
+		var drawSheathe = new DrawSheatheFeature();
+		this.features.Add(drawSheathe);
 
 		this.mainWindow = new MainWindow([
 			(castWatch.TabTitle, castWatch.DrawTab),
 			(this.fateWatch.TabTitle, this.fateWatch.DrawTab),
 			(this.fcBuffs.TabTitle, this.fcBuffs.DrawTab),
+			(drawSheathe.TabTitle, drawSheathe.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 

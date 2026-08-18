@@ -300,6 +300,79 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public int FcBuffCheckSeconds { get; set; } = 60;
 
+	// ── DrawSheathe ──────────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// ⚠ The literal command line, not an emote name. The feature sends it verbatim through the
+	/// chatbox, so whatever works when typed works here.
+	///
+	/// ⚠⚠ "motion" is a SUBCOMMAND, and the game's own usage text writes it as `/draw [subcommand]`
+	/// -- the square brackets mean "optional" and are not typed. `/draw [motion]` is a different
+	/// string from `/draw motion`, and the difference is whether the chat line goes out with it.
+	/// </summary>
+	public const string DefaultDrawCommand = "/draw motion";
+
+	/// <inheritdoc cref="DefaultDrawCommand"/>
+	public const string DefaultSheatheCommand = "/sheathe motion";
+
+	/// <summary>
+	/// Sent when the weapon is AWAY. See <see cref="DefaultDrawCommand"/>.
+	///
+	/// ⭐ Configurable for one reason only: it costs a string and it outlives this specific Gold
+	/// Saucer purchase. The Emote sheet currently holds exactly two draw/sheathe rows (237 and 238),
+	/// so there is nothing else to point it at today -- but "which emote" is not a thing the toggle
+	/// logic should have an opinion about.
+	///
+	/// ⚠ A NEW key, so no migration: absent from an existing config, it keeps this initialiser.
+	/// Additions are free; only edits to an existing key need <see cref="Migrate"/>.
+	/// </summary>
+	public string DrawCommand { get; set; } = DefaultDrawCommand;
+
+	/// <summary>Sent when the weapon is OUT. See <see cref="DrawCommand"/>.</summary>
+	public string SheatheCommand { get; set; } = DefaultSheatheCommand;
+
+	/// <summary>
+	/// Presses closer together than this many milliseconds are treated as ONE press. 0 disables.
+	///
+	/// ⚠⚠ AN ACCESSIBILITY SETTING, NOT A TUNING DETAIL. deserok uses a key repeater as an assistive
+	/// device because tapping keys is difficult. It works like ordinary auto-repeat -- a tap is one
+	/// press, holding past about half a second streams presses at ~10 Hz (102 ms apart, measured
+	/// 2026-08-17) until release. A normal tap is therefore unaffected by this setting; the hold is
+	/// what produced a dozen weapon toggles a second.
+	///
+	/// ⚠⚠ And a cooldown alone does NOT solve the hold, which is the trap: gating on the game's
+	/// one-second sheathe cooldown turns a dozen toggles into one per second and keeps going for as
+	/// long as the key is down. Slower cycling still reads as broken. Only a quiet-gap test collapses
+	/// a held key to a single action.
+	///
+	/// ⭐ 250 is better than 2x the measured 102 ms repeat, and comfortably below the repeater's own
+	/// ~500 ms hold-to-repeat delay, so it cannot swallow a deliberate second tap. It lives here
+	/// rather than in a constant because repeat rates are a property of somebody's hardware, and a
+	/// person whose device repeats slower should be able to say so without a rebuild.
+	/// </summary>
+	public int DrawSheatheRepeatCollapseMs { get; set; } = 250;
+
+	/// <summary>
+	/// When the emote would be refused, use the game's own draw/sheathe instead.
+	///
+	/// ⚠⚠ ON, because the emote SIMPLY DOES NOTHING in those cases -- refused with no message, so
+	/// without this the key is dead exactly when you are running or jumping, which is the failure
+	/// the old macro had. Off is the pre-existing emote-only behaviour.
+	///
+	/// ⚠ Named for the CONDITION, not for movement, and that rename is not cosmetic. It shipped for
+	/// an evening as UseDefaultToggleWhileMoving, then jumping turned out to refuse the emote too
+	/// while reading IsPlayerMoving == false. A setting named after one case invites the next one to
+	/// be bolted on as a second setting; named after the reason, it just grows a new entry in
+	/// DrawSheatheFeature.EmoteRefusedBecause.
+	///
+	/// ⭐ Kept as a switch rather than hardcoded for one specific reason: this branch is the only
+	/// part of the feature that calls into the client directly (UIState.WeaponState.SetUnsheathed)
+	/// rather than sending a text command, so it is the only part a patch can break outright.
+	/// Turning it off restores a working key without waiting on a build -- which is the whole reason
+	/// this plugin exists instead of a dependency on somebody else's.
+	/// </summary>
+	public bool UseDefaultToggleWhenEmoteWouldFail { get; set; } = true;
+
 	public bool AlertToast { get; set; } = true;
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;
