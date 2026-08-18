@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Dalamud.Hooking;
 
@@ -54,10 +55,17 @@ internal sealed unsafe class EmoteInterceptor: IDisposable {
 	private readonly Hook<ExecuteEmoteDelegate>? hook;
 
 	/// <summary>
-	/// When each emote last actually ANNOUNCED itself. Keyed by emote id, so clapping does not
-	/// silence your next /dote -- "the same emote" is the unit, per the original ask.
+	/// When each emote FAMILY last actually announced itself, so clapping does not silence your next
+	/// /dote -- "the same emote" is the unit, per the original ask.
+	///
+	/// ⚠ Keyed by family rather than by emote id, because the Cheer variants are sixteen ids that
+	/// nobody treats as sixteen emotes. See <see cref="Configuration.EmoteQuietFamilies"/>.
 	/// </summary>
-	private readonly Dictionary<ushort, DateTime> lastAnnounced = new();
+	private readonly Dictionary<string, DateTime> lastAnnounced = new();
+
+	/// <summary>emote id -> (family key, label). Memoised: the sheet lookup is the same answer every
+	/// time and this runs inside a detour.</summary>
+	private readonly Dictionary<ushort, (string Key, string Label)> familyCache = new();
 
 	private DateTime sniffUntil = DateTime.MinValue;
 	private int sniffSeen;
@@ -119,16 +127,61 @@ internal sealed unsafe class EmoteInterceptor: IDisposable {
 		Plugin.Chat.Print("[EmoteQuiet] timers cleared -- the next use of each emote will announce.");
 	}
 
-	/// <summary>Emotes currently inside their quiet window, newest first, for the tab.</summary>
-	public IEnumerable<(ushort Id, TimeSpan Remaining)> ActiveWindows() {
+	/// <summary>Emote families currently inside their quiet window, for the tab.</summary>
+	public IEnumerable<(string Label, TimeSpan Remaining)> ActiveWindows() {
 		TimeSpan window = TimeSpan.FromSeconds(Math.Max(1, Plugin.Config.EmoteQuietWindowSeconds));
 		DateTime now = DateTime.UtcNow;
-		foreach (var (id, when) in this.lastAnnounced) {
+		foreach (var (key, when) in this.lastAnnounced) {
 			TimeSpan left = window - (now - when);
 			if (left > TimeSpan.Zero)
-				yield return (id, left);
+				yield return (this.LabelFor(key), left);
 		}
 	}
+
+	private string LabelFor(string key) {
+		foreach (var (_, entry) in this.familyCache) {
+			if (entry.Key == key)
+				return entry.Label;
+		}
+		return key;
+	}
+
+	/// <summary>
+	/// Which family an emote belongs to, and what to call it.
+	///
+	/// ⚠ The configured prefixes are checked against the emote NAME, longest first, so a more
+	/// specific prefix wins over a broader one if somebody adds both. Anything unmatched is its own
+	/// family keyed by id -- the default for every emote in the game except the Cheers.
+	///
+	/// ⚠ The cache is cleared when the family list is edited (see <see cref="ForgetFamilies"/>),
+	/// because otherwise an emote fired before the edit would keep its old family for the session
+	/// and the setting would look like it had not applied.
+	/// </summary>
+	private (string Key, string Label) FamilyOf(ushort emoteId) {
+		if (this.familyCache.TryGetValue(emoteId, out var cached))
+			return cached;
+
+		string name = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Emote>()
+			?.GetRowOrDefault(emoteId)?.Name.ExtractText() ?? string.Empty;
+
+		(string Key, string Label) result = ($"#{emoteId}", Name(emoteId));
+
+		foreach (string prefix in Plugin.Config.EmoteQuietFamilies
+			.Where(p => !string.IsNullOrWhiteSpace(p))
+			.OrderByDescending(p => p.Length)) {
+
+			if (name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) {
+				result = ($"family:{prefix.Trim().ToLowerInvariant()}", $"{prefix.Trim()} (all variants)");
+				break;
+			}
+		}
+
+		this.familyCache[emoteId] = result;
+		return result;
+	}
+
+	/// <summary>Drop the memoised families, so an edit to the list takes effect immediately.</summary>
+	public void ForgetFamilies() => this.familyCache.Clear();
 
 	// ── the detour ───────────────────────────────────────────────────────────────────────────
 
@@ -202,16 +255,17 @@ internal sealed unsafe class EmoteInterceptor: IDisposable {
 
 		DateTime now = DateTime.UtcNow;
 		var window = TimeSpan.FromSeconds(Math.Max(1, Plugin.Config.EmoteQuietWindowSeconds));
+		(string key, string label) = this.FamilyOf(emoteId);
 
-		if (this.lastAnnounced.TryGetValue(emoteId, out DateTime last) && now - last < window) {
+		if (this.lastAnnounced.TryGetValue(key, out DateTime last) && now - last < window) {
 			// ⚠⚠ The property, NEVER `Flags = ...`. The emote window arrives carrying 0x88 and those
 			// bits mean something to code that is not this code.
 			option->DisableLogMessage = true;
-			return $"SUPPRESSED (announced {(now - last).TotalSeconds:0.#}s ago)";
+			return $"SUPPRESSED as {label} (announced {(now - last).TotalSeconds:0.#}s ago)";
 		}
 
-		this.lastAnnounced[emoteId] = now;
-		return "announced; quiet window started";
+		this.lastAnnounced[key] = now;
+		return $"announced as {label}; quiet window started";
 	}
 
 	private static string Describe(EmoteController.PlayEmoteOption* option) =>

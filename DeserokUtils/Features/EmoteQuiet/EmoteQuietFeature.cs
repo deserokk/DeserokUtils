@@ -26,11 +26,18 @@ internal sealed class EmoteQuietFeature: IDisposable {
 	public string TabTitle => "EmoteQuiet";
 
 	private readonly EmoteInterceptor interceptor = new();
+	private readonly IncomingEmoteFilter incoming = new();
+	private string newFamily = string.Empty;
 
 	public EmoteQuietFeature() {
 		Plugin.Commands.AddHandler("/emotequiet", new CommandInfo(this.OnCommand) {
-			HelpMessage = "/emotequiet -- announce an emote once, then stay quiet about repeats. 'on'/'off', 'reset', or 'sniff' to record what the game passes.",
+			HelpMessage = "/emotequiet -- announce an emote once, then stay quiet about repeats. 'on'/'off', 'others', 'reset', or 'sniff'.",
 		});
+
+		// ⚠ The interceptor Syncs itself once it has resolved its address; this one has no
+		// constructor of its own to do it in, and a setting left ON from the last session must
+		// actually subscribe at load rather than at the first time the tab happens to be opened.
+		this.incoming.Sync();
 	}
 
 	private void OnCommand(string command, string arguments) {
@@ -53,6 +60,15 @@ internal sealed class EmoteQuietFeature: IDisposable {
 
 			case "reset" or "clear":
 				this.interceptor.Reset();
+				this.incoming.Reset();
+				return;
+
+			case "others":
+				Plugin.Config.EmoteQuietIncomingEnabled = !Plugin.Config.EmoteQuietIncomingEnabled;
+				Plugin.Config.Save();
+				this.incoming.Sync();
+				Plugin.Chat.Print($"[EmoteQuiet] hiding other people's repeats: "
+					+ $"{(Plugin.Config.EmoteQuietIncomingEnabled ? "ON" : "off")}.");
 				return;
 
 			case "":
@@ -78,7 +94,8 @@ internal sealed class EmoteQuietFeature: IDisposable {
 		Plugin.Chat.Print(
 			$"[EmoteQuiet] {(Plugin.Config.EmoteQuietEnabled ? "ON" : "off")}, "
 			+ $"window {Plugin.Config.EmoteQuietWindowSeconds}s, "
-			+ $"{active} emote(s) currently quiet."
+			+ $"{active} emote(s) currently quiet. "
+			+ $"Others' repeats: {(Plugin.Config.EmoteQuietIncomingEnabled ? $"hidden ({this.incoming.SuppressedCount} so far)" : "shown")}."
 			+ (this.interceptor.Sniffing ? $" Recording, {this.interceptor.SniffRemaining.TotalSeconds:0}s left." : ""));
 	}
 
@@ -155,20 +172,76 @@ internal sealed class EmoteQuietFeature: IDisposable {
 			"Per emote, not global -- clapping never silences your next /dote. The clock starts when a "
 			+ "message actually goes out, so typing \"/clap motion\" yourself does not start it.");
 
+		Section("Emotes that count as one");
+		ImGui.TextWrapped(
+			"Any emote whose name starts with one of these shares a single quiet window. \"Cheer \" is "
+			+ "here because the sixteen Cheer variants are one emote in practice -- you cycle through "
+			+ "them hunting a colour, then settle -- and all fifteen coloured ones produce the exact "
+			+ "same chat line anyway, so collapsing them hides nothing that was ever visible.");
+		ImGui.Spacing();
+
+		var families = Plugin.Config.EmoteQuietFamilies;
+		for (int i = 0; i < families.Count; i++) {
+			if (ImGui.Button($"x##eq_fam_del{i}")) {
+				families.RemoveAt(i);
+				Plugin.Config.Save();
+				this.interceptor.ForgetFamilies();
+				break;
+			}
+			ImGui.SameLine();
+			ImGui.TextUnformatted($"\"{families[i]}\"");
+		}
+
+		ImGui.SetNextItemWidth(200f);
+		ImGui.InputTextWithHint("##eq_fam_add", "name prefix, e.g. \"Cheer \"", ref this.newFamily, 64);
+		ImGui.SameLine();
+		if (ImGui.Button("Add##eq_fam") && this.newFamily.Trim().Length > 0) {
+			families.Add(this.newFamily);
+			this.newFamily = string.Empty;
+			Plugin.Config.Save();
+			this.interceptor.ForgetFamilies();
+		}
+		ImGui.TextDisabled("the trailing space matters -- \"Cheer \" leaves plain /cheer on its own");
+
 		Section("Currently quiet");
 		var active = this.interceptor.ActiveWindows().OrderByDescending(a => a.Remaining).ToList();
 		if (active.Count == 0) {
 			ImGui.TextDisabled("nothing -- the next use of any emote will announce");
 		}
 		else {
-			foreach (var (id, remaining) in active)
-				ImGui.BulletText($"{EmoteInterceptor.Name(id)} -- quiet for another {remaining.TotalSeconds:0}s");
+			foreach (var (label, remaining) in active)
+				ImGui.BulletText($"{label} -- quiet for another {remaining.TotalSeconds:0}s");
 		}
 		ImGui.Spacing();
 		if (ImGui.Button("Clear timers##eq_reset"))
 			this.interceptor.Reset();
 		ImGui.SameLine();
 		ImGui.TextDisabled("/emotequiet reset");
+
+		Section("Other people's emotes");
+		bool others = Plugin.Config.EmoteQuietIncomingEnabled;
+		if (ImGui.Checkbox("Hide repeats from other players, in my log only", ref others)) {
+			Plugin.Config.EmoteQuietIncomingEnabled = others;
+			Plugin.Config.Save();
+			this.incoming.Sync();
+		}
+		ImGui.TextWrapped(
+			"Same one-minute rule, applied from the other end. Kept per sender, so ten people clapping "
+			+ "is ten lines -- that is the part worth reading -- while one person clapping thirty times "
+			+ "is one.");
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"Unlike the xN collapsing in Chat 2.0, this does not care whether the repeats are "
+			+ "consecutive. Two people alternating emotes defeats that approach and is the case this "
+			+ "one handles best, since every distinct line carries its own clock.");
+		ImGui.Spacing();
+		if (Plugin.Config.EmoteQuietIncomingEnabled) {
+			int watching = this.incoming.ActiveWindows().Count();
+			ImGui.TextDisabled($"hidden so far: {this.incoming.SuppressedCount}  ·  {watching} line(s) currently quiet");
+			ImGui.TextWrapped(
+				"⚠ This one deletes things from your own log, so it is counted rather than trusted. "
+				+ "Turn on diagnostics to see each hidden line named in the Debug channel.");
+		}
 
 		Section("Recorder");
 		ImGui.TextWrapped(
@@ -208,5 +281,6 @@ internal sealed class EmoteQuietFeature: IDisposable {
 	public void Dispose() {
 		Plugin.Commands.RemoveHandler("/emotequiet");
 		this.interceptor.Dispose();
+		this.incoming.Dispose();
 	}
 }

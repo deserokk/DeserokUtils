@@ -398,6 +398,43 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public int EmoteQuietWindowSeconds { get; set; } = 60;
 
+	/// <summary>
+	/// Hide OTHER people's repeated emote lines in your own log, same window, keyed per sender.
+	///
+	/// ⚠⚠ OFF by default, and for a different reason than the outgoing half. That one changes what
+	/// others see; this one deletes things from your own chat log, and a filter that is too broad
+	/// hides its own mistakes by construction. Opt in, then audit it -- the tab counts what it hid.
+	///
+	/// ⭐ Per sender is not a default to revisit, it is the design: "knowing 10 people clapped is
+	/// nice, knowing 1 guy spammed clap 30 times is noise". Audience size is signal, repetition is
+	/// noise, and keying on sender-plus-line is exactly the line between them.
+	/// </summary>
+	public bool EmoteQuietIncomingEnabled { get; set; } = false;
+
+	/// <summary>
+	/// Name prefixes whose emotes all count as ONE emote for the quiet window.
+	///
+	/// ⚠⚠ THE CHEER VARIANTS ARE SIXTEEN SEPARATE EMOTES THAT NOBODY TREATS AS SEPARATE. Observed
+	/// behaviour, deserok and others alike: you cycle through them hunting the colour you want and
+	/// then settle on one. Keyed per emote id, that cycle announces every step.
+	///
+	/// ⭐ Confirmed from the sheet 2026-08-17: fifteen rows begin "Cheer " -- On/Wave/Jump/Rhythm/
+	/// Light across five colours -- and every one of them renders the IDENTICAL log line, "…cheers to
+	/// the rhythm." (their LogMessage rows are byte-for-byte the same). So collapsing them loses
+	/// nothing that was ever visible. The trailing space matters: plain "Cheer" is a different emote
+	/// with a different line ("…lets out a cheer.") and stays on its own.
+	///
+	/// ⚠ A hand-written list, deliberately, and NOT derived by grouping emotes that share a log
+	/// message. That derivation was tried and is a trap: ExtractText drops the verb -- it is stored as
+	/// a singular/plural pair inside the payload -- so Bow, Clap, Wave, Yes, No, Smile and fifteen
+	/// others all reduce to ".". Grouping on it would silence your next bow because you clapped, and
+	/// do it invisibly. Fifteen names verified by eye beats a clever rule nobody can check.
+	///
+	/// ⚠ Prefix match on the emote NAME, case-insensitive. Anything not matching is its own family.
+	/// </summary>
+	[JsonProperty(ObjectCreationHandling = ReplaceList)]
+	public List<string> EmoteQuietFamilies { get; set; } = new() { "Cheer " };
+
 	public bool AlertToast { get; set; } = true;
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;
