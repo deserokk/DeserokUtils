@@ -373,6 +373,31 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public bool UseDefaultToggleWhenEmoteWouldFail { get; set; } = true;
 
+	// ── EmoteQuiet ───────────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Suppress the chat log message on a repeat of an emote you have already announced.
+	///
+	/// ⚠⚠ OFF by default even though it was asked for, because it changes what OTHER PEOPLE see.
+	/// Every other setting in this file affects only deserok's own client; this one edits what
+	/// reaches strangers' chat logs, and a plugin that starts doing that on install without being
+	/// asked is the wrong shape. It costs one checkbox, once.
+	///
+	/// ⚠⚠ It does nothing unless the game's own "Display log message" is TICKED in the emote window.
+	/// That checkbox is the thing this exists to let you finally leave on -- with it off there is no
+	/// message to suppress, and the feature would appear broken while working perfectly.
+	/// </summary>
+	public bool EmoteQuietEnabled { get; set; } = false;
+
+	/// <summary>
+	/// How long after announcing an emote to stay quiet about that same emote, in seconds.
+	///
+	/// ⚠ PER EMOTE, not global -- clapping must not silence your next /dote. 60 is the figure from
+	/// the original ask: "display the first of a given emote, then hide log messages for the same
+	/// emote within 1 minute".
+	/// </summary>
+	public int EmoteQuietWindowSeconds { get; set; } = 60;
+
 	public bool AlertToast { get; set; } = true;
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;

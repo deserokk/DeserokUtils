@@ -11,6 +11,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 
 using DeserokUtils.Features.CastWatch;
 using DeserokUtils.Features.DrawSheathe;
+using DeserokUtils.Features.EmoteQuiet;
 using DeserokUtils.Features.FateWatch;
 using DeserokUtils.Features.FcBuffs;
 using DeserokUtils.UI;
@@ -121,12 +122,15 @@ public sealed class Plugin: IDalamudPlugin {
 		// it is a command handler and a tab, which is the least a feature here has ever needed.
 		var drawSheathe = new DrawSheatheFeature();
 		this.features.Add(drawSheathe);
+		var emoteQuiet = new EmoteQuietFeature();
+		this.features.Add(emoteQuiet);
 
 		this.mainWindow = new MainWindow([
 			(castWatch.TabTitle, castWatch.DrawTab),
 			(this.fateWatch.TabTitle, this.fateWatch.DrawTab),
 			(this.fcBuffs.TabTitle, this.fcBuffs.DrawTab),
 			(drawSheathe.TabTitle, drawSheathe.DrawTab),
+			(emoteQuiet.TabTitle, emoteQuiet.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
