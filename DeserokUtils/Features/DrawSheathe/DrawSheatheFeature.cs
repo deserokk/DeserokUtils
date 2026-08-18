@@ -211,6 +211,18 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// ⚠ This is a list of OBSERVED refusals, not a model of the game's rule. It cannot be complete
 	/// and is not trying to be: an unlisted case simply gets the emote, which fails harmlessly and
 	/// is the behaviour that existed before any of this.
+	///
+	/// ⚠⚠⚠ DESPITE THE NAME, THIS IS NOT "EVERY CASE WHERE THE EMOTE FAILS". It is "cases where
+	/// falling back to the direct call is CORRECT", and those two sets are not the same. **Cutscenes
+	/// are the counterexample and must stay off this list.** Tested 2026-08-17: typing the command
+	/// during one gets a clean refusal from the game -- *The command "/draw motion" is unavailable at
+	/// this time.* -- which is the right outcome, delivered with a reason. Adding cutscenes here
+	/// would route them to SetUnsheathed, which is a raw state write that consults none of that, and
+	/// would force the weapon out mid-scene. The "consistency fix" is the bug.
+	///
+	/// ⭐ So the test for adding a case is not "does the emote fail here" but "should the game's own
+	/// toggle happen here instead". Moving and jumping pass it: you asked to draw, and drawing while
+	/// running is ordinary. A cutscene fails it: the game is saying no on purpose.
 	/// </summary>
 	internal static string? EmoteRefusedBecause() {
 		if (PlayerIsMoving() == true)
