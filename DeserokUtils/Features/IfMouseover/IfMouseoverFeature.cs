@@ -95,13 +95,54 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	}
 
 	/// <summary>
+	/// What the game itself thinks <c>&lt;mo&gt;</c> means right now.
+	///
+	/// ⚠⚠ NOT `ITargetManager.MouseOverTarget`, which shipped in 1.7.0 and was WRONG. That property
+	/// reports only the WORLD mouseover -- hovering a character model. Vanilla `&lt;mo&gt;` also
+	/// resolves a **party frame** hover, which is the entire point of mouseover healing: healers
+	/// hover the party list, not the 3D model. So /ifmo fell through to normal targeting in its single
+	/// most important case.
+	///
+	/// ⭐⭐ The fix is not "also check the party list". It is to stop reimplementing the placeholder
+	/// and ASK THE GAME: `PronounModule.ResolvePlaceholder` is the function that resolves
+	/// &lt;mo&gt; for every macro in the game, so whatever it returns is correct by construction --
+	/// world, party frame, alliance list, nameplate, and whatever else exists that nobody here
+	/// thought to name.
+	///
+	/// ⚠⚠ Which is the FcBuffs recorder lesson wearing new clothes: **an allowlist cannot find what
+	/// you do not know the name of.** Enumerating the hover kinds I could think of would have been
+	/// wrong again the moment a fifth one existed. Asking the authority has no such failure mode.
+	///
+	/// ⚠ The last three parameters are undocumented; 0/0/false is the conventional call and its
+	/// correctness is observable -- if it were wrong this returns null and the feature visibly stops
+	/// resolving anything. Both readings are logged side by side so a disagreement is visible rather
+	/// than silent.
+	/// </summary>
+	private static FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject* ResolveMouseover() {
+		var pronoun = FFXIVClientStructs.FFXIV.Client.UI.Misc.PronounModule.Instance();
+		return pronoun is null ? null : pronoun->ResolvePlaceholder("<mo>", 0, 0, false);
+	}
+
+	/// <summary>
 	/// Whether to use the mouseover, and the reason -- the reason is returned rather than logged here
 	/// so every path names itself in one place.
 	/// </summary>
 	private (bool Use, string Why) Decide(string payload) {
-		var mouseover = Plugin.Targets.MouseOverTarget;
-		if (mouseover is null)
-			return (false, "no mouseover");
+		var resolved = ResolveMouseover();
+
+		// ⚠ Reported together on purpose. Dalamud's world-only reading is what got this wrong, so
+		// seeing both makes the party-frame case visible as "the game found one, Dalamud did not"
+		// rather than as an unexplained behaviour change.
+		string worldOnly = Plugin.Targets.MouseOverTarget?.Name.ToString() ?? "none";
+
+		if (resolved is null) {
+			if (worldOnly != "none")
+				Plugin.Log.Warning($"/ifmo: the game resolved <mo> to nothing while Dalamud reports {worldOnly}. "
+					+ "That should not happen -- suspect the ResolvePlaceholder arguments.");
+			return (false, $"no mouseover (world reading: {worldOnly})");
+		}
+
+		string moName = resolved->NameString;
 
 		string? name = ActionLookup.ActionNameIn(payload);
 		if (name is null) {
@@ -109,16 +150,16 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 			// falls back to the presence check -- which is the weaker test criticised above, and the
 			// user deserves to know they are getting it.
 			Trace("/ifmo: could not find an action name in that line; falling back to a presence check.");
-			return (true, $"mouseover present ({mouseover.Name}), action unknown -- presence check only");
+			return (true, $"mouseover present ({moName}), action unknown -- presence check only");
 		}
 
 		uint? actionId = ActionLookup.Resolve(name);
 		if (actionId is null)
-			return (true, $"mouseover present ({mouseover.Name}), \"{name}\" is not a player action -- presence check only");
+			return (true, $"mouseover present ({moName}), \"{name}\" is not a player action -- presence check only");
 
 		// ⚠ STATIC, not instance -- the compiler said so. Both of these are free functions on
 		// ActionManager rather than members of the singleton, unlike UseAction next door in CastWatch.
-		var target = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)mouseover.Address;
+		var target = resolved;
 		bool can = ActionManager.CanUseActionOnTarget(actionId.Value, target);
 
 		// ⭐⭐ MEASURED 2026-08-18, then obeyed -- it shipped "displayed, not obeyed" for exactly one
@@ -142,15 +183,15 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 				target);
 
 		bool reachable = rangeStatus == 0;
-		Trace($"/ifmo: {name} ({actionId}) on {mouseover.Name}: CanUseActionOnTarget={can}, "
+		Trace($"/ifmo: {name} ({actionId}) on {moName}: CanUseActionOnTarget={can}, "
 			+ $"rangeOrLoS={rangeStatus}{Explain(rangeStatus)}");
 
 		if (!can)
-			return (false, $"{name} cannot be used on {mouseover.Name}");
+			return (false, $"{name} cannot be used on {moName}");
 		if (!reachable)
-			return (false, $"{mouseover.Name} is out of reach ({Reason(rangeStatus)})");
+			return (false, $"{moName} is out of reach ({Reason(rangeStatus)})");
 
-		return (true, $"{name} can be used on {mouseover.Name}");
+		return (true, $"{name} can be used on {moName}");
 	}
 
 	// ── the tab section ──────────────────────────────────────────────────────────────────────
