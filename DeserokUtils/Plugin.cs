@@ -13,6 +13,7 @@ using DeserokUtils.Features.CastWatch;
 using DeserokUtils.Features.DrawSheathe;
 using DeserokUtils.Features.EmoteQuiet;
 using DeserokUtils.Features.FateWatch;
+using DeserokUtils.Features.IfMouseover;
 using DeserokUtils.Features.FcBuffs;
 using DeserokUtils.UI;
 
@@ -124,13 +125,20 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(drawSheathe);
 		var emoteQuiet = new EmoteQuietFeature();
 		this.features.Add(emoteQuiet);
+		var ifMouseover = new IfMouseoverFeature();
+		this.features.Add(ifMouseover);
 
+		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
+		// having relatives: the macro tools are three faces of one complaint, everything else stands
+		// alone. Adding a sixth utility is still one line here and one folder.
+		const string macros = "Macros";
 		this.mainWindow = new MainWindow([
-			(castWatch.TabTitle, castWatch.DrawTab),
-			(this.fateWatch.TabTitle, this.fateWatch.DrawTab),
-			(this.fcBuffs.TabTitle, this.fcBuffs.DrawTab),
-			(drawSheathe.TabTitle, drawSheathe.DrawTab),
-			(emoteQuiet.TabTitle, emoteQuiet.DrawTab),
+			new TabEntry(macros, castWatch.TabTitle, castWatch.Summary, castWatch.DrawTab),
+			new TabEntry(macros, ifMouseover.SectionTitle, ifMouseover.Summary, ifMouseover.DrawSection),
+			new TabEntry(null, this.fateWatch.TabTitle, string.Empty, this.fateWatch.DrawTab),
+			new TabEntry(null, this.fcBuffs.TabTitle, string.Empty, this.fcBuffs.DrawTab),
+			new TabEntry(null, drawSheathe.TabTitle, string.Empty, drawSheathe.DrawTab),
+			new TabEntry(null, emoteQuiet.TabTitle, string.Empty, emoteQuiet.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 

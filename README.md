@@ -153,6 +153,74 @@ Both emote commands are editable in the tab, and the fallback can be switched of
 fallback is the only part which calls into the client directly, so the switch is what gets a working
 key back if a patch ever breaks it — without waiting for a build.
 
+---
+
+# EmoteQuiet
+
+Announce an emote the first time, then stay quiet about repeats of that same emote.
+
+```
+/emotequiet on         say it once, then be quiet for a minute
+/emotequiet others     also hide OTHER people's repeats, in your log only
+/emotequiet reset      forget the timers
+```
+
+The game gives you two settings and both are bad: log messages on means fifty *"X claps"* through a
+performance, off means nobody ever knows you clapped at all. Most players pick off, so emotes stop
+persisting anywhere — a `/dote` you looked away from is simply gone.
+
+⭐ **The middle option was in the engine the whole time.** `DisableLogMessage` is a per-emote flag,
+and `motion` is that flag exposed one command at a time. This sets it automatically on repeats, so
+the first one talks and the rest don't.
+
+⚠ **Off by default.** Everything else here affects only your own client; this changes what other
+people see. It also needs the game's own "Display log message" ticked — that's the box this exists
+to let you leave on.
+
+## Design notes
+
+⚠⚠ **Never assign `Flags` wholesale.** The emote window arrives carrying `0x88`; only the
+`DisableLogMessage` property is touched, because it sets one bit and leaves the rest alone. Caught
+only because the recording printed the raw byte — the friendly property read `False` in both cases
+and looked identical.
+
+⭐ Hooked at `EmoteManager`, not `AgentEmote`, and that was measured too: `AgentEmote.ExecuteEmote`
+receives `option = NULL` for the emote window and hotbar, so a hook there would have had nothing to
+modify on the paths that matter most.
+
+⚠ The Cheer variants count as **one** emote. Fifteen rows begin `Cheer ` and all render the identical
+line, so cycling colours to find the one you want announces once. Hand-listed, deliberately —
+deriving families from shared log messages is a trap, since `ExtractText` drops the verb and Bow,
+Clap, Wave, Yes, No and sixteen others all reduce to `"."`.
+
+⭐ Other people's repeats are keyed **per sender**: ten people clapping is ten lines, one person
+clapping thirty times is one. Unlike consecutive-duplicate collapsing, alternating emotes are the
+case this handles best rather than the case that defeats it.
+
+---
+
+# Mouseover
+
+```
+/ifmo /ac Clemency {mo}
+```
+
+`{mo}` becomes `<mo>` when the action would actually land on what you're pointing at, and
+**nothing** otherwise — leaving ordinary targeting.
+
+Replaces the twelve-line mouseover macro with a bare fallback at the bottom. That pattern works and
+has a race: press it while the GCD is rolling and every mouseover line fails on cooldown, then the
+GCD expires onto the fallback — so it targets normally despite a perfectly good mouseover. The
+fallback sits last, which is exactly where it's most likely to win. One line has nothing to race.
+
+⚠⚠ The test is *"would this action work on that target"*, not *"is something under the cursor"*.
+Pointing at an enemy while healing has to fall through, the way vanilla does; a presence check would
+send `<mo>` anyway and simply fail. Uses `ActionManager.CanUseActionOnTarget` plus
+`GetActionInRangeOrLoS`, whose codes are LogMessage row ids — `0` fine, `566` out of range, `562` no
+line of sight. **Obeying the range code is required for parity, not a bonus:** ungated, an
+out-of-range mouseover fails and nothing else happens, while the macro would have fallen through and
+healed somebody.
+
 ## Building
 
 ```

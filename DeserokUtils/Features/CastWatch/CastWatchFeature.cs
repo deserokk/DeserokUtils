@@ -22,6 +22,7 @@ internal sealed class CastWatchFeature: IDisposable {
 	private readonly ActionWatcher watcher = new();
 
 	public string TabTitle => "CastWatch";
+	public string Summary => "/watch + /ifwatch -- run a macro line only if the action actually went off, including instants with no cast bar.";
 
 	private const string Template =
 		"/watch \"Nascent Flash\"\n"
