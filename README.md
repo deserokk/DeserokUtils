@@ -233,6 +233,47 @@ line of sight. **Obeying the range code is required for parity, not a bonus:** u
 out-of-range mouseover fails and nothing else happens, while the macro would have fallen through and
 healed somebody.
 
+---
+
+# Interact
+
+A key that operates the thing in front of you and **nothing else**.
+
+```
+/dsuinteract
+```
+
+Put it in a one-line macro, drag it to a hotbar slot, bind it.
+
+FFXIV's Confirm key is console-shaped: it drives world objects *and* menus, and it takes two presses
+for a lever — one to target, one to use. So you press it repeatedly. **With any menu open, those
+presses land in the menu**, drop a cursor on it, and activate whatever is under it. If you keep
+consumables at the top of your bags for quick access, a key-and-wheel dungeon can eat a raid potion.
+
+A dedicated key can't do that, because it isn't Confirm — there's no menu path to be routed down.
+
+⭐ It also **never changes your target**, so you aren't left pointing at a lever afterwards. That
+wasn't designed in; calling the interact function directly simply doesn't touch targeting, which the
+logs confirmed across a full dungeon before the target save/restore got written. The fix was to
+measure and then not build anything.
+
+## Design notes
+
+⭐ **The game already has both behaviours as separate functions** — `InteractWithObject` and
+`OpenObjectInteraction`. The engine distinguishes "do the thing" from "open the interaction UI"; only
+the input layer collapses them. Recording showed Confirm's keyboard path passes
+`checkLineOfSight: true` and calls only the first, while the mouse-click path passes `false` and
+pairs it with the second. This uses the keyboard path.
+
+⚠ Two guards, covering different things: it refuses while you're **casting** (interactions produce a
+cast bar), and refuses within **1s** of the last interact — because aetherytes have no cast bar, so
+the state check alone has a hole.
+
+⭐ Target selection asks the game first — soft target, then current target — and only scans for the
+nearest interactable as a last resort. That scan is the one place a list of object kinds appears, so
+it **logs every nearby candidate it rejects**: a missing kind shows up as a named object in the log
+rather than as "the key does nothing near that thing."
+
 ## Building
 
 ```

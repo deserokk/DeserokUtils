@@ -14,6 +14,7 @@ using DeserokUtils.Features.DrawSheathe;
 using DeserokUtils.Features.EmoteQuiet;
 using DeserokUtils.Features.FateWatch;
 using DeserokUtils.Features.IfMouseover;
+using DeserokUtils.Features.Interact;
 using DeserokUtils.Features.FcBuffs;
 using DeserokUtils.UI;
 
@@ -127,6 +128,8 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(emoteQuiet);
 		var ifMouseover = new IfMouseoverFeature();
 		this.features.Add(ifMouseover);
+		var interact = new InteractFeature();
+		this.features.Add(interact);
 
 		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
 		// having relatives: the macro tools are three faces of one complaint, everything else stands
@@ -139,6 +142,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, this.fcBuffs.TabTitle, string.Empty, this.fcBuffs.DrawTab),
 			new TabEntry(null, drawSheathe.TabTitle, string.Empty, drawSheathe.DrawTab),
 			new TabEntry(null, emoteQuiet.TabTitle, string.Empty, emoteQuiet.DrawTab),
+			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
