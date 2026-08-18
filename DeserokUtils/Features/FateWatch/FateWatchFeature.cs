@@ -90,14 +90,35 @@ internal sealed class FateWatchFeature: IDisposable {
 	private SeString BuildTooltip() {
 		var sb = new SeStringBuilder();
 		sb.AddText("FateWatch");
-		foreach (string n in Plugin.Config.TrackedFates) {
-			Plugin.Config.FateLabels.TryGetValue(n, out string? lbl);
-			sb.AddText($"\n{n}{(string.IsNullOrEmpty(lbl) ? "" : $" [{lbl}]")}: ");
+
+		// ⚠ Only THIS zone's ring. Listing every rotation would put North Horn's pots in the tooltip
+		// while stood in South Horn, next to timers that cannot apply here.
+		var rotation = FateTracker.CurrentRotation();
+		if (rotation is null) {
+			sb.AddText("\nno rotation for this zone");
+			return sb.Build();
+		}
+
+		sb.AddText($"\n{rotation.Zone}");
+		foreach (string n in rotation.Members) {
+			string lbl = FateTracker.LabelFor(n);
+			sb.AddText($"\n{n}{(lbl.Length == 0 ? "" : $" [{lbl}]")}: ");
 			double? m = this.tracker.MinutesUntilNext(n);
 			sb.AddText(m is null ? "not seen yet" : $"{m:0.#} min");
 		}
 		return sb.Build();
 	}
+
+	/// <summary>
+	/// Find a FATE by name across EVERY rotation, not just this zone's.
+	///
+	/// ⚠ Deliberately not scoped to the current territory: anchoring by hand from shout chat is
+	/// exactly the case where you might be setting up a zone you are about to travel to.
+	/// </summary>
+	private static string? FindMember(string typed) =>
+		Plugin.Config.Rotations
+			.SelectMany(r => r.Members)
+			.FirstOrDefault(m => string.Equals(m, typed, StringComparison.OrdinalIgnoreCase));
 
 	private void OnCommand(string command, string arguments) {
 		string arg = arguments.Trim().ToLowerInvariant();
@@ -130,7 +151,7 @@ internal sealed class FateWatchFeature: IDisposable {
 				rest = rest[..sp].Trim();
 			}
 			rest = rest.Trim('"');
-			string? match = Plugin.Config.TrackedFates.FirstOrDefault(t => string.Equals(t, rest, StringComparison.OrdinalIgnoreCase));
+			string? match = FindMember(rest);
 			if (match is null) {
 				// ⚠ Anchoring an untracked name would store a time nothing ever reads. Say so.
 				Plugin.Chat.PrintError($"[FateWatch] \"{rest}\" is not tracked. Add it first, or check /fatewatch list.");
@@ -149,7 +170,7 @@ internal sealed class FateWatchFeature: IDisposable {
 				rest = rest[..sp].Trim();
 			}
 			rest = rest.Trim('"');
-			string? m2 = Plugin.Config.TrackedFates.FirstOrDefault(t => string.Equals(t, rest, StringComparison.OrdinalIgnoreCase));
+			string? m2 = FindMember(rest);
 			if (m2 is null) {
 				Plugin.Chat.PrintError($"[FateWatch] \"{rest}\" is not tracked. Try /fatewatch list.");
 				return;
@@ -158,11 +179,22 @@ internal sealed class FateWatchFeature: IDisposable {
 			return;
 		}
 
-		foreach (string name in Plugin.Config.TrackedFates) {
+		var here = FateTracker.CurrentRotation();
+		if (here is null) {
+			// ⚠ Says which zones it DOES know. "Nothing here" alone reads as broken; naming the
+			// rotations it has makes it obvious this is a zone without one rather than a dead plugin.
+			Plugin.Chat.Print(
+				$"[FateWatch] no rotation for territory {Plugin.ClientState.TerritoryType}. Known: "
+				+ string.Join(", ", Plugin.Config.Rotations.Select(r => $"{r.Zone} ({r.Territory})")));
+			return;
+		}
+
+		Plugin.Chat.Print($"[FateWatch] {here.Zone}:");
+		foreach (string name in here.Members) {
 			double? mins = this.tracker.MinutesUntilNext(name);
 			Plugin.Chat.Print(mins is null
-				? $"[FateWatch] {name}: never seen yet -- no prediction possible."
-				: $"[FateWatch] {name}: about {mins:0.#} min away.");
+				? $"  {name}: never seen yet -- no prediction possible."
+				: $"  {name}: about {mins:0.#} min away.");
 		}
 	}
 
@@ -179,86 +211,15 @@ internal sealed class FateWatchFeature: IDisposable {
 		bool enabled = cfg.FateWatchEnabled;
 		if (ImGui.Checkbox("Enabled", ref enabled)) { cfg.FateWatchEnabled = enabled; cfg.Save(); }
 
-		Section("Tracked FATEs");
-		if (ImGui.BeginTable("fw_tracked", 5,
-			ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) {
-			ImGui.TableSetupColumn("FATE");
-			ImGui.TableSetupColumn("bar label", ImGuiTableColumnFlags.WidthFixed, 80f);
-			ImGui.TableSetupColumn("next", ImGuiTableColumnFlags.WidthFixed, 110f);
-			ImGui.TableSetupColumn("cycle", ImGuiTableColumnFlags.WidthFixed, 130f);
-			ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 30f);
-			ImGui.TableHeadersRow();
-
-			string? remove = null;
-			foreach (string name in cfg.TrackedFates.ToList()) {
-				ImGui.TableNextRow();
-				ImGui.TableNextColumn();
-				ImGui.TextUnformatted(name);
-
-				// The short label that rides in the server bar -- "N" / "S". Editable because only
-				// deserok knows which side each FATE is on; guessing it would put a confident wrong
-				// direction in front of him at the exact moment he is deciding where to run.
-				ImGui.TableNextColumn();
-				cfg.FateLabels.TryGetValue(name, out string? lbl);
-				string edit = lbl ?? string.Empty;
-				ImGui.SetNextItemWidth(-1);
-				if (ImGui.InputText($"##lbl{name}", ref edit, 8)) {
-					cfg.FateLabels[name] = edit.Trim();
-					cfg.Save();
-				}
-
-				ImGui.TableNextColumn();
-				double? mins = this.tracker.MinutesUntilNext(name);
-				if (mins is null) {
-					// ⚠ Not a countdown of zero, and not blank. "Never seen" is a distinct state and
-					// showing it as 0:00 would be a confident lie.
-					ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), "not seen yet");
-				}
-				else {
-					var span = TimeSpan.FromMinutes(mins.Value);
-					var colour = mins <= 5 ? new Vector4(1f, 0.5f, 0.4f, 1f)
-						: mins <= 10 ? new Vector4(1f, 0.85f, 0.3f, 1f)
-						: new Vector4(0.55f, 0.9f, 0.55f, 1f);
-					ImGui.TextColored(colour, $"{span:mm\\:ss}");
-				}
-
-				ImGui.TableNextColumn();
-				double cycle = FateTracker.EffectiveCycle(name);
-				int samples = cfg.MeasuredIntervals.TryGetValue(name, out var l) ? l.Count : 0;
-				// ⭐ Says whether the number is measured or merely assumed. A configured default and
-				// a value derived from twelve observations deserve different confidence.
-				// ⭐ Show BOTH: the slot gap and how long until this same FATE returns. The screenshot
-				// bug was invisible precisely because only one number was on screen.
-				double perFate = FateTracker.EffectivePerFateCycle(name);
-				ImGui.TextUnformatted(samples >= 3
-					? $"slot {cycle:0.#}m -> {perFate:0.#}m (measured, n={samples})"
-					: $"slot {cycle:0.#}m -> {perFate:0.#}m (assumed)");
-
-				ImGui.TableNextColumn();
-				if (ImGui.SmallButton($"x##rm{name}"))
-					remove = name;
-			}
-
-			ImGui.EndTable();
-
-			if (remove is not null) {
-				cfg.TrackedFates.Remove(remove);
-				cfg.Save();
-			}
+		// ⭐ One table PER ROTATION. A single flat list is what made two zones' pots look like one
+		// four-member ring, which halved every prediction in both.
+		var currentRotation = FateTracker.CurrentRotation();
+		foreach (var rot in cfg.Rotations) {
+			bool isHere = currentRotation is not null && currentRotation.Territory == rot.Territory;
+			Section($"{rot.Zone}  (territory {rot.Territory}){(isHere ? "   << you are here" : "")}");
+			this.DrawRotation(rot, isHere);
 		}
 
-		ImGui.SetNextItemWidth(240f);
-		ImGui.InputTextWithHint("##fw_add", "exact FATE name", ref this.newFateName, 128);
-		ImGui.SameLine();
-		if (ImGui.Button("Add") && this.newFateName.Trim().Length > 0) {
-			string n = this.newFateName.Trim();
-			if (!cfg.TrackedFates.Contains(n, StringComparer.OrdinalIgnoreCase)) {
-				cfg.TrackedFates.Add(n);
-				cfg.Save();
-			}
-			this.newFateName = string.Empty;
-		}
-		ImGui.TextDisabled("Run /fatewatch list in the zone to read exact names out of the game.");
 
 		Section("Setting the clock by hand");
 		ImGui.TextWrapped(
@@ -289,13 +250,6 @@ internal sealed class FateWatchFeature: IDisposable {
 
 		ImGui.TextDisabled($"Warns at: {string.Join(", ", cfg.AlertMinutes.Select(m => $"{m:0}m"))} before.");
 
-		double cycleMin = cfg.CycleMinutes;
-		ImGui.SetNextItemWidth(120f);
-		if (ImGui.InputDouble("Assumed cycle (min)", ref cycleMin, 1, 5, "%.1f")) {
-			cfg.CycleMinutes = Math.Clamp(cycleMin, 1, 240);
-			cfg.Save();
-		}
-
 		Section("Why it needs to see one first");
 		ImGui.TextWrapped(
 			"The game's FATE table only contains FATEs that are active right now. One spawning in ten "
@@ -310,6 +264,125 @@ internal sealed class FateWatchFeature: IDisposable {
 			+ "to the clock, so a fresh instance starts a fresh cycle. Carrying the old anchor across "
 			+ "would give you a confident countdown to nothing -- and alerts in Ul'dah. The measured "
 			+ "cycle length is kept; only the 'last seen' is dropped.");
+	}
+
+	/// <summary>
+	/// One rotation's members, timers and measured cycles.
+	///
+	/// ⚠ The ORDER of the rows is the ring order, and it is load-bearing -- it decides which FATE
+	/// comes next. The up/down buttons exist because the order cannot be inferred: the plugin only
+	/// ever sees one member at a time, so it can never observe the ring itself.
+	/// </summary>
+	private void DrawRotation(FateRotation rot, bool isHere) {
+		var cfg = Plugin.Config;
+
+		if (!ImGui.BeginTable($"fw_rot{rot.Territory}", 6,
+			ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+			return;
+
+		ImGui.TableSetupColumn("FATE");
+		ImGui.TableSetupColumn("bar label", ImGuiTableColumnFlags.WidthFixed, 70f);
+		ImGui.TableSetupColumn("next", ImGuiTableColumnFlags.WidthFixed, 100f);
+		ImGui.TableSetupColumn("cycle", ImGuiTableColumnFlags.WidthFixed, 190f);
+		ImGui.TableSetupColumn("order", ImGuiTableColumnFlags.WidthFixed, 56f);
+		ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 28f);
+		ImGui.TableHeadersRow();
+
+		string? remove = null;
+		int moveFrom = -1, moveTo = -1;
+
+		for (int i = 0; i < rot.Members.Count; i++) {
+			string name = rot.Members[i];
+			ImGui.TableNextRow();
+
+			ImGui.TableNextColumn();
+			ImGui.TextUnformatted(name);
+
+			// ⚠ Editable, because only deserok knows which end of the map each one is on. Guessing
+			// would put a confident wrong direction in front of him at the moment he is deciding
+			// where to run -- and South Horn's are blank precisely because nobody has looked yet.
+			ImGui.TableNextColumn();
+			rot.Labels.TryGetValue(name, out string? lbl);
+			string edit = lbl ?? string.Empty;
+			ImGui.SetNextItemWidth(-1);
+			if (ImGui.InputText($"##lbl{rot.Territory}{name}", ref edit, 8)) {
+				rot.Labels[name] = edit.Trim();
+				cfg.Save();
+			}
+
+			ImGui.TableNextColumn();
+			double? mins = this.tracker.MinutesUntilNext(name);
+			if (mins is null) {
+				// ⚠ Not a countdown of zero, and not blank. "Never seen" is a distinct state and
+				// showing it as 0:00 would be a confident lie.
+				ImGui.TextColored(new Vector4(0.7f, 0.7f, 0.7f, 1f), "not seen yet");
+			}
+			else {
+				var span = TimeSpan.FromMinutes(mins.Value);
+				var colour = mins <= 5 ? new Vector4(1f, 0.5f, 0.4f, 1f)
+					: mins <= 10 ? new Vector4(1f, 0.85f, 0.3f, 1f)
+					: new Vector4(0.55f, 0.9f, 0.55f, 1f);
+				ImGui.TextColored(colour, $"{span:mm\\:ss}");
+			}
+
+			ImGui.TableNextColumn();
+			// ⭐ Show BOTH numbers: the slot gap and how long until this same FATE returns. The
+			// unit-mismatch bug was invisible precisely because only one of them was on screen.
+			double cycle = FateTracker.EffectiveCycle(name);
+			double perFate = FateTracker.EffectivePerFateCycle(name);
+			int samples = cfg.MeasuredIntervals.TryGetValue(name, out var l) ? l.Count : 0;
+			ImGui.TextUnformatted(samples >= 3
+				? $"slot {cycle:0.#}m -> {perFate:0.#}m (measured, n={samples})"
+				: $"slot {cycle:0.#}m -> {perFate:0.#}m (assumed)");
+
+			ImGui.TableNextColumn();
+			if (ImGui.SmallButton($"^##up{rot.Territory}{name}") && i > 0) { moveFrom = i; moveTo = i - 1; }
+			ImGui.SameLine();
+			if (ImGui.SmallButton($"v##dn{rot.Territory}{name}") && i < rot.Members.Count - 1) { moveFrom = i; moveTo = i + 1; }
+
+			ImGui.TableNextColumn();
+			if (ImGui.SmallButton($"x##rm{rot.Territory}{name}"))
+				remove = name;
+		}
+
+		ImGui.EndTable();
+
+		if (moveFrom >= 0) {
+			(rot.Members[moveFrom], rot.Members[moveTo]) = (rot.Members[moveTo], rot.Members[moveFrom]);
+			cfg.Save();
+		}
+		if (remove is not null) {
+			rot.Members.Remove(remove);
+			rot.Labels.Remove(remove);
+			cfg.Save();
+		}
+
+		double slot = rot.SlotMinutes;
+		ImGui.SetNextItemWidth(120f);
+		if (ImGui.InputDouble($"Assumed slot gap (min)##slot{rot.Territory}", ref slot, 1, 5, "%.1f")) {
+			rot.SlotMinutes = Math.Clamp(slot, 1, 240);
+			cfg.Save();
+		}
+		ImGui.SameLine();
+		ImGui.TextDisabled($"so the same one returns every ~{rot.SlotMinutes * Math.Max(1, rot.Members.Count):0.#}m");
+
+		// ⚠ Adding is offered only for the zone you are standing in: that is the only place
+		// /fatewatch list can give you the exact name, and a typo here tracks nothing, silently.
+		if (!isHere)
+			return;
+
+		ImGui.SetNextItemWidth(240f);
+		ImGui.InputTextWithHint($"##fw_add{rot.Territory}", "exact FATE name", ref this.newFateName, 128);
+		ImGui.SameLine();
+		if (ImGui.Button($"Add##{rot.Territory}") && this.newFateName.Trim().Length > 0) {
+			string n = this.newFateName.Trim();
+			if (!rot.Members.Contains(n, StringComparer.OrdinalIgnoreCase)) {
+				rot.Members.Add(n);
+				cfg.Save();
+			}
+			this.newFateName = string.Empty;
+		}
+		ImGui.TextDisabled("Run /fatewatch list to read exact names out of the running game.");
 	}
 
 	private static void Section(string title) {

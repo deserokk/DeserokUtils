@@ -150,6 +150,15 @@ internal sealed class FateTracker {
 		return anchoredInstance == instance;
 	}
 
+	// ⚠ Auto-deriving the N/S label from the spawn's Z coordinate lived here and was DELETED the
+	// same hour, at deserok's call: "we really don't need to auto derive, the old system with having
+	// a simple N and S on the timer was fine."
+	//
+	// ⭐ He is right, and the reason is worth keeping. Labelling is a TWO-LETTER, ONE-TIME setup per
+	// zone -- it happens twice in the life of a rotation. Thirty lines of coordinate inference, plus
+	// an undocumented axis convention held on three observations, to save typing "N" once. The
+	// automation was more code, more assumption, and more surface than the thing it replaced.
+
 	/// <summary>Record WHERE an anchor was made, which is what lets it be retired later.</summary>
 	private static void StampPlace(string name) {
 		var cfg = Plugin.Config;
@@ -209,8 +218,10 @@ internal sealed class FateTracker {
 				if (list.Count > 20)
 					list.RemoveAt(0);
 
+				// ⚠ Compared against the PER-FATE cycle, which is what was just measured -- the
+				// rotation's SlotMinutes is the other unit and would look wrong by the ring length.
 				Plugin.Diag($"FateWatch: {name} interval measured at {gapMinutes:0.0} min "
-					+ $"(configured cycle is {cfg.CycleMinutes:0.#})");
+					+ $"(expected about {EffectivePerFateCycle(name):0.#})");
 			}
 			else {
 				Plugin.Diag($"FateWatch: {name} gap of {gapMinutes:0.0} min ignored as not-a-cycle.");
@@ -223,7 +234,7 @@ internal sealed class FateTracker {
 		this.firedAlerts.Remove("__rotation");
 		cfg.Save();
 
-		cfg.FateLabels.TryGetValue(name, out string? lbl);
+		string lbl = LabelFor(name);
 		Plugin.Announce($"{name}{(string.IsNullOrEmpty(lbl) ? "" : $" ({lbl})")} is up now.");
 	}
 
@@ -272,7 +283,7 @@ internal sealed class FateTracker {
 		this.firedAlerts.Remove("__rotation");
 		cfg.Save();
 
-		cfg.FateLabels.TryGetValue(name, out string? lbl);
+		string lbl = LabelFor(name);
 		Plugin.Chat.Print($"[FateWatch] next {name}{(string.IsNullOrEmpty(lbl) ? "" : $" ({lbl})")} "
 			+ $"set to {minutesUntil:0.#} min from now. Clears when you leave this instance.");
 	}
@@ -280,37 +291,24 @@ internal sealed class FateTracker {
 	private void CheckAlerts() {
 		var cfg = Plugin.Config;
 
-		// In rotation mode there is ONE upcoming event, not one per member. Alerting per FATE would
-		// fire twice for every slot -- once correctly, once for the member that is not next.
-		if (cfg.RotationMode) {
-			var next = this.NextInRotation();
-			if (next is null)
-				return;
-			var (rname, rlabel, rmins) = next.Value;
-			if (!this.firedAlerts.TryGetValue("__rotation", out var rfired))
-				this.firedAlerts["__rotation"] = rfired = new HashSet<double>();
-			foreach (double threshold in cfg.AlertMinutes.OrderByDescending(m => m)) {
-				if (rmins <= threshold && !rfired.Contains(threshold)) {
-					rfired.Add(threshold);
-					Plugin.Announce($"{rname}{(rlabel.Length > 0 ? $" ({rlabel})" : "")} in about {threshold:0} minutes.");
-				}
-			}
+		// ⚠⚠ ONE upcoming event, not one per member. Alerting per FATE fires twice for every slot --
+		// once correctly, and once for the member that is not actually next.
+		//
+		// ⭐ The per-FATE branch that used to sit here is gone with RotationMode. A ring of one member
+		// already expresses "does not rotate", so there was never a second case -- just a second way
+		// of saying it that could disagree with the list next to it.
+		var next = this.NextInRotation();
+		if (next is null)
 			return;
-		}
 
-		foreach (string name in cfg.TrackedFates) {
-			double? minutesAway = this.MinutesUntilNext(name);
-			if (minutesAway is null || minutesAway < 0)
-				continue;
+		var (rname, rlabel, rmins) = next.Value;
+		if (!this.firedAlerts.TryGetValue("__rotation", out var rfired))
+			this.firedAlerts["__rotation"] = rfired = new HashSet<double>();
 
-			if (!this.firedAlerts.TryGetValue(name, out var fired))
-				this.firedAlerts[name] = fired = new HashSet<double>();
-
-			foreach (double threshold in cfg.AlertMinutes.OrderByDescending(m => m)) {
-				if (minutesAway <= threshold && !fired.Contains(threshold)) {
-					fired.Add(threshold);
-					Plugin.Announce($"{name} in about {threshold:0} minutes.");
-				}
+		foreach (double threshold in cfg.AlertMinutes.OrderByDescending(m => m)) {
+			if (rmins <= threshold && !rfired.Contains(threshold)) {
+				rfired.Add(threshold);
+				Plugin.Announce($"{rname}{(rlabel.Length > 0 ? $" ({rlabel})" : "")} in about {threshold:0} minutes.");
 			}
 		}
 	}
@@ -325,10 +323,10 @@ internal sealed class FateTracker {
 		if (!cfg.LastSeen.TryGetValue(name, out long last) || last <= 0)
 			return null;
 
-		// ⚠⚠ In rotation mode the same FATE recurs every cycle * memberCount, NOT every cycle. Two
-		// alternating pot FATEs 30 minutes apart means each one returns in 60 -- and predicting
-		// either at +30 lands exactly when the OTHER is due. Confident, and wrong every time.
-		double cycle = EffectiveCycle(name) * (cfg.RotationMode ? RotationLength() : 1);
+		// ⚠⚠ The same FATE recurs every cycle * memberCount, NOT every cycle. Two alternating pot
+		// FATEs 30 minutes apart means each one returns in 60 -- and predicting either at +30 lands
+		// exactly when the OTHER is due. Confident, and wrong every time.
+		double cycle = EffectiveCycle(name) * RotationLength(RotationOf(name));
 		double elapsed = (DateTimeOffset.UtcNow.ToUnixTimeSeconds() - last) / 60.0;
 
 		// Carry forward across missed cycles: if you were logged out for two hours, the next spawn
@@ -346,13 +344,17 @@ internal sealed class FateTracker {
 	/// </summary>
 	public (string Name, string Label, double Minutes)? NextInRotation() {
 		var cfg = Plugin.Config;
-		if (!cfg.RotationMode || cfg.TrackedFates.Count == 0)
+
+		// ⚠ The rotation for HERE. Predicting from another zone's ring would answer a question
+		// nobody asked, using an anchor that cannot apply.
+		var rotation = CurrentRotation();
+		if (rotation is null || rotation.Members.Count == 0)
 			return null;
 
 		// Anchor on the most recent sighting of ANY member.
 		string? lastName = null;
 		long lastAt = 0;
-		foreach (string n in cfg.TrackedFates) {
+		foreach (string n in rotation.Members) {
 			if (cfg.LastSeen.TryGetValue(n, out long t) && t > lastAt) {
 				lastAt = t;
 				lastName = n;
@@ -368,13 +370,13 @@ internal sealed class FateTracker {
 		int slotsPassed = (int)Math.Floor(elapsed / cycle) + 1;
 		double remaining = (slotsPassed * cycle) - elapsed;
 
-		int lastIndex = cfg.TrackedFates.FindIndex(
+		int lastIndex = rotation.Members.FindIndex(
 			t => string.Equals(t, lastName, StringComparison.OrdinalIgnoreCase));
 		if (lastIndex < 0)
 			lastIndex = 0;
 
-		string next = cfg.TrackedFates[(lastIndex + slotsPassed) % cfg.TrackedFates.Count];
-		cfg.FateLabels.TryGetValue(next, out string? label);
+		string next = rotation.Members[(lastIndex + slotsPassed) % rotation.Members.Count];
+		rotation.Labels.TryGetValue(next, out string? label);
 		return (next, label ?? string.Empty, remaining);
 	}
 
@@ -384,25 +386,48 @@ internal sealed class FateTracker {
 	/// would let that single outlier drag every prediction late.
 	/// </summary>
 	/// <summary>
-	/// How many slots the ring has, i.e. how many cycles before the SAME FATE comes round again.
+	/// The rotation for a territory, or null if that zone has none.
 	///
-	/// ⚠⚠ Derived from distinct members, and this coupling is the thing to watch: tracking a third,
-	/// unrelated FATE would silently change the pot timings, because 'what I track' and 'what is in
-	/// the rotation' are two different ideas sharing one list. Fine while there is exactly one
-	/// rotation; split them the moment there are two.
+	/// ⭐ Territory is how a rotation is FOUND now, rather than a filter applied afterwards. The
+	/// Occult Crescent's two zones run two different pot pairs on independent rings, and a single
+	/// flat list made that ring four long -- halving every prediction in both zones at once.
 	/// </summary>
-	public static int RotationLength() {
-		var cfg = Plugin.Config;
-		int n = cfg.TrackedFates.Distinct(StringComparer.OrdinalIgnoreCase).Count();
-		return Math.Max(1, n);
-	}
+	public static FateRotation? RotationIn(uint territory)
+		=> Plugin.Config.Rotations.FirstOrDefault(r => r.Territory == territory);
+
+	/// <summary>The rotation for wherever the player is standing, or null.</summary>
+	public static FateRotation? CurrentRotation() => RotationIn(Plugin.ClientState.TerritoryType);
+
+	/// <summary>
+	/// The rotation a FATE belongs to, by name.
+	///
+	/// ⚠⚠ Looked up by MEMBERSHIP, never by where the player is. A measured interval for Daylight
+	/// Pottery is a fact about North Horn's ring and must be divided by North Horn's length --
+	/// even while standing in South Horn. Using the current zone's length here would convert a
+	/// measurement using a ring it was never part of.
+	/// </summary>
+	public static FateRotation? RotationOf(string name)
+		=> Plugin.Config.Rotations.FirstOrDefault(
+			r => r.Members.Any(m => string.Equals(m, name, StringComparison.OrdinalIgnoreCase)));
+
+	/// <summary>
+	/// How many slots a ring has, i.e. how many cycles before the SAME FATE comes round again.
+	///
+	/// ⭐ The old version derived this from the single flat tracked list, and the note here warned
+	/// that "what I track" and "what is in the rotation" were two ideas sharing one list -- to be
+	/// split the moment there were two rotations. There are two, and this is that split.
+	/// </summary>
+	public static int RotationLength(FateRotation? rotation)
+		=> Math.Max(1, rotation?.Members.Distinct(StringComparer.OrdinalIgnoreCase).Count() ?? 1);
 
 	/// <summary>The real gap between two spawns of the SAME fate, which is what a person means.</summary>
 	public static double EffectivePerFateCycle(string name)
-		=> EffectiveCycle(name) * (Plugin.Config.RotationMode ? RotationLength() : 1);
+		=> EffectiveCycle(name) * RotationLength(RotationOf(name));
 
 	public static double EffectiveCycle(string name) {
 		var cfg = Plugin.Config;
+		var rotation = RotationOf(name);
+
 		if (cfg.MeasuredIntervals.TryGetValue(name, out var list) && list.Count >= 3) {
 			var sorted = list.OrderBy(x => x).ToList();
 			double perFate = sorted[sorted.Count / 2];
@@ -412,12 +437,12 @@ internal sealed class FateTracker {
 			// again. This method returns the SLOT gap, about 30. Returning the stored number raw
 			// doubled every prediction the moment a third sample landed, and it looked like the
 			// timer drifting rather than the units being wrong.
-			return perFate / (cfg.RotationMode ? RotationLength() : 1);
+			return perFate / RotationLength(rotation);
 		}
 
 		// ⚠ The fallback is already a slot gap, so it is NOT divided. The two branches return the
 		// same unit by different routes, which is exactly the trap above.
-		return cfg.CycleMinutes;
+		return rotation?.SlotMinutes ?? 30.0;
 	}
 
 	/// <summary>
@@ -425,32 +450,33 @@ internal sealed class FateTracker {
 	/// Used by the server bar, which has room for exactly one thing.
 	/// </summary>
 	public (string Name, string Label, double Minutes)? Soonest() {
-		// ⭐ Rotation first: one sighting of ANY member answers 'next pot, which side', which is the
-		// question. Per-FATE timers are the fallback for tracked things that do not rotate.
+		// ⭐ One sighting of ANY member answers 'next pot, which side', which is the question.
 		//
-		// ⭐ No zone check here. There used to be one, and it is now structurally impossible to need:
-		// an anchor cannot outlive the instance it was made in, so "there is a prediction at all"
-		// already means "you are where it applies".
-		if (Plugin.Config.RotationMode)
-			return this.NextInRotation();
-
-		(string, string, double)? best = null;
-
-		foreach (string name in Plugin.Config.TrackedFates) {
-			double? mins = this.MinutesUntilNext(name);
-			if (mins is null)
-				continue;
-
-			Plugin.Config.FateLabels.TryGetValue(name, out string? label);
-			if (best is null || mins.Value < best.Value.Item3)
-				best = (name, label ?? string.Empty, mins.Value);
-		}
-
-		return best;
+		// ⭐ No zone check here. There used to be one, and it is now structurally impossible to need
+		// TWICE over: an anchor cannot outlive the instance it was made in, and NextInRotation only
+		// consults the ring for the territory you are standing in.
+		//
+		// ⚠ A one-member rotation is the non-rotating case, so RotationMode is gone -- it was a
+		// second way to say "count == 1" that could disagree with the list beside it.
+		return this.NextInRotation();
 	}
 
-	public static bool IsTracked(string name)
-		=> Plugin.Config.TrackedFates.Any(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase));
+	/// <summary>Whether any rotation, in any zone, has this FATE as a member.</summary>
+	public static bool IsTracked(string name) => RotationOf(name) is not null;
+
+	/// <summary>
+	/// The server-bar label for a FATE, from its OWN rotation. Empty when it has none.
+	///
+	/// ⚠ Empty is a perfectly good answer, not a missing value -- South Horn has no labels yet
+	/// because nobody has recorded where its two pots spawn. Every caller already renders a blank
+	/// label as "no suffix".
+	/// </summary>
+	public static string LabelFor(string name) {
+		var rotation = RotationOf(name);
+		return rotation is not null && rotation.Labels.TryGetValue(name, out string? label)
+			? label ?? string.Empty
+			: string.Empty;
+	}
 
 	/// <summary>Everything currently in the table, for the discovery command.</summary>
 	public static List<IFate> ActiveFates() {

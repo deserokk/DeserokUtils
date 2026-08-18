@@ -9,6 +9,48 @@ using Newtonsoft.Json;
 namespace DeserokUtils;
 
 /// <summary>
+/// One ring of FATEs that take turns, in one territory.
+///
+/// ⚠⚠ THE TERRITORY IS PART OF THE ROTATION, not a filter applied to it. The Occult Crescent has two
+/// zones with two pot FATEs each, and they are different FATEs on independent rings -- South Horn
+/// runs Persistent Pots / Pleading Pots, North Horn runs Daylight Pottery / In a Pot of Bother.
+/// A single flat list cannot express that: it would make the ring four long and halve every
+/// prediction in both zones.
+///
+/// ⭐ This is the split DeserokUtils.md predicted and asked for -- "what I track" and "what is in
+/// the rotation" were two ideas sharing one list, and the note said to separate them the moment
+/// there were two rotations. There are now two.
+/// </summary>
+[Serializable]
+public sealed class FateRotation {
+	/// <summary>Human name for the zone, for diagnostics only. Nothing keys off it.</summary>
+	public string Zone { get; set; } = string.Empty;
+
+	public uint Territory { get; set; }
+
+	/// <summary>Ring members IN ORDER. The order is which one comes next, so it is load-bearing.</summary>
+	public List<string> Members { get; set; } = new();
+
+	/// <summary>
+	/// Short label per member for the server bar.
+	///
+	/// ⚠⚠ NAME COLLISION, and it is a nasty one now: North Horn's labels are "N" and "S" for the
+	/// NORTH and SOUTH ends OF THAT ZONE -- they have nothing to do with the zones being called
+	/// North Horn and South Horn. A bar reading "36m S" in North Horn means "south side of this
+	/// map", not "South Horn". Rename them the moment that reads wrong to anybody.
+	/// </summary>
+	public Dictionary<string, string> Labels { get; set; } = new();
+
+	/// <summary>
+	/// Minutes between consecutive SLOTS -- one pot to the next pot, whichever it turns out to be.
+	///
+	/// ⚠⚠ NOT the gap between two spawns of the same FATE, which is this times <see cref="Members"/>
+	/// count. Both are "the cycle" in English and mixing them doubles or halves every prediction.
+	/// </summary>
+	public double SlotMinutes { get; set; } = 30.0;
+}
+
+/// <summary>
 /// Persisted settings. Dalamud stores this as JSON next to the plugin.
 ///
 /// ⚠ Observed spawn times live here on purpose: a prediction is only as good as its anchor, and an
@@ -24,7 +66,7 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public int Version { get; set; } = 1;
 
-	public const int CurrentVersion = 4;
+	public const int CurrentVersion = 5;
 
 	/// <summary>
 	/// ⚠⚠ EVERY LIST IN THIS FILE MUST CARRY THIS, AND HERE IS WHY.
@@ -63,42 +105,46 @@ public sealed class Configuration: IPluginConfiguration {
 
 	public bool FateWatchEnabled { get; set; } = true;
 
-	/// <summary>FATE names to track, matched case-insensitively against the live table.</summary>
 	/// <summary>
-	/// ⭐ Confirmed from the live FATE table 2026-08-03, not from a wiki. The two rotate: Daylight
-	/// Pottery (north) at 21:31:35, In a Pot of Bother (south) at 22:01:39 -- thirty minutes and
-	/// four seconds apart, in territory 1346.
+	/// Every FATE ring the plugin knows about, one per territory.
+	///
+	/// ⚠⚠ These FATEs ALTERNATE within their zone. The 30-minute figure is the gap between
+	/// *consecutive members*, so each individual one recurs every 60 minutes. Treating them as two
+	/// independent 30-minute timers predicts each at exactly the moment the OTHER is due --
+	/// confidently, and wrong every single time.
+	///
+	/// ⭐ North Horn confirmed from the live FATE table 2026-08-03: Daylight Pottery (north end) at
+	/// 21:31:35, In a Pot of Bother (south end) at 22:01:39 -- thirty minutes four seconds apart.
+	///
+	/// ⚠⚠ South Horn was in this plugin ONCE AND WAS DELETED. v2's migration removed "Persistent
+	/// Pots" and "Pleading Pots" as wiki guesses that were "different FATEs entirely". They were
+	/// real -- ids 1976 and 1977, confirmed from the Fate sheet 2026-08-12 -- and the wiki was
+	/// describing the OTHER ZONE. The migration's guard even asked the right question ("has this
+	/// ever spawned?") and got the locally-true, globally-wrong answer, because at that point only
+	/// North Horn had ever been visited. Absence of evidence from one territory.
+	///
+	/// ⚠ South Horn's labels are empty because nobody has recorded where its two pots spawn yet.
+	/// Empty labels render fine; fill them in once observed.
 	/// </summary>
 	[JsonProperty(ObjectCreationHandling = ReplaceList)]
-	public List<string> TrackedFates { get; set; } = new() {
-		"Daylight Pottery",
-		"In a Pot of Bother",
+	public List<FateRotation> Rotations { get; set; } = new() {
+		new FateRotation {
+			Zone = "The Occult Crescent: South Horn",
+			Territory = 1252,
+			Members = new List<string> { "Persistent Pots", "Pleading Pots" },
+			SlotMinutes = 30.0,
+		},
+		new FateRotation {
+			Zone = "The Occult Crescent: North Horn",
+			Territory = 1346,
+			Members = new List<string> { "Daylight Pottery", "In a Pot of Bother" },
+			Labels = new Dictionary<string, string> {
+				["Daylight Pottery"] = "N",
+				["In a Pot of Bother"] = "S",
+			},
+			SlotMinutes = 30.0,
+		},
 	};
-
-	/// <summary>
-	/// ⚠⚠ These FATEs ALTERNATE. The 30-minute figure is the gap between *consecutive members*, so
-	/// each individual one recurs every 60 minutes. Treating them as two independent 30-minute
-	/// timers predicts each at exactly the moment the OTHER is due -- confidently, and wrong every
-	/// single time.
-	///
-	/// So the rotation is the unit, not the FATE. TrackedFates is the ring, in order.
-	/// </summary>
-	public bool RotationMode { get; set; } = true;
-
-	/// <summary>
-	/// Minutes between consecutive SLOTS -- i.e. between one pot and the next pot, whichever FATE
-	/// that turns out to be. About 30.
-	///
-	/// ⚠⚠ NOT the gap between two spawns of the same FATE, which is this times the number of members
-	/// in the ring -- about 60. Those two numbers are both "the cycle" in English and mixing them up
-	/// doubles or halves every prediction. This comment used to say the wrong one of the two, and
-	/// that is precisely how MeasuredIntervals came to be read in the wrong unit.
-	///
-	/// ⚠ A DEFAULT, not a fact. Nothing published confirms it and the plugin measures the real
-	/// interval as spawns accumulate -- see MeasuredIntervals. Change it here if the measurement
-	/// disagrees; do not assume this number is right because it is written down.
-	/// </summary>
-	public double CycleMinutes { get; set; } = 30.0;
 
 	/// <summary>Minutes before a predicted spawn to warn at. Descending.</summary>
 	[JsonProperty(ObjectCreationHandling = ReplaceList)]
@@ -112,26 +158,17 @@ public sealed class Configuration: IPluginConfiguration {
 	/// Gaps between consecutive observed spawns OF THE SAME FATE, in minutes. Kept rather than
 	/// averaged away so an outlier is visible as an outlier instead of quietly dragging the mean.
 	///
-	/// ⚠⚠ SAME-FATE gaps, so ~60 -- a different unit from <see cref="CycleMinutes"/>, which is ~30.
+	/// ⚠⚠ SAME-FATE gaps, so ~60 -- a different unit from a rotation's SlotMinutes, which is ~30.
 	/// It has to be: RecordSpawn only ever sees one name twice, so a slot gap is not observable
 	/// here. Divide by the rotation length before using it as a slot -- FateTracker.EffectiveCycle
 	/// is the single place that conversion lives.
+	///
+	/// ⭐ Keyed by FATE NAME, not by rotation, and that is why the rotation refactor could throw the
+	/// old lists away without losing anything: a measured interval is evidence about a FATE, and
+	/// stays true no matter how the rings are arranged around it.
 	/// </summary>
 	[JsonProperty(ObjectCreationHandling = ReplaceList)]
 	public Dictionary<string, List<double>> MeasuredIntervals { get; set; } = new();
-
-	/// <summary>
-	/// Short label per FATE for the server bar -- "N" / "S".
-	///
-	/// ⚠ Separate dictionary rather than a field on a richer TrackedFates type, purely so an
-	/// existing saved config keeps deserialising. Changing the shape of a list that is already on
-	/// disk loses whatever was in it, and the spawn anchors are the expensive thing to lose.
-	/// </summary>
-	[JsonProperty(ObjectCreationHandling = ReplaceList)]
-	public Dictionary<string, string> FateLabels { get; set; } = new() {
-		["Daylight Pottery"] = "N",
-		["In a Pot of Bother"] = "S",
-	};
 
 	/// <summary>Territory each FATE was last seen in, so the bar can hide itself elsewhere.</summary>
 	[JsonProperty(ObjectCreationHandling = ReplaceList)]
@@ -274,19 +311,23 @@ public sealed class Configuration: IPluginConfiguration {
 	/// right about somewhere this was not tested.
 	/// </summary>
 	public void Migrate() {
-		// ⚠ Dedupe ALWAYS, not only on a version bump. A duplicated entry is not cosmetic here: the
-		// rotation length is derived from how many members there are, so one accidental repeat
-		// doubled every prediction (observed: 117.7 min where 60 was correct). Whatever produced
-		// the duplicate, the timing must not depend on nobody ever making one.
-		int before = this.TrackedFates.Count;
-		this.TrackedFates = this.TrackedFates
-			.Where(t => !string.IsNullOrWhiteSpace(t))
-			.Select(t => t.Trim())
-			.Distinct(StringComparer.OrdinalIgnoreCase)
-			.ToList();
-		if (this.TrackedFates.Count != before) {
-			Plugin.Log.Warning($"FateWatch: removed {before - this.TrackedFates.Count} duplicate tracked FATE(s)");
-			this.Save();
+		// ⚠ Dedupe ALWAYS, not only on a version bump. A duplicated member is not cosmetic here: the
+		// rotation length is how many members there are, so one accidental repeat doubled every
+		// prediction (observed: 117.7 min where 60 was correct). Whatever produced the duplicate,
+		// the timing must not depend on nobody ever making one.
+		//
+		// ⭐ The cause is now fixed -- Newtonsoft was appending saved lists onto their initialisers --
+		// but this stays. It cost a day to find once, and the check is three lines.
+		foreach (var rot in this.Rotations) {
+			int before = rot.Members.Count;
+			rot.Members = rot.Members
+				.Where(m => !string.IsNullOrWhiteSpace(m))
+				.Select(m => m.Trim())
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (rot.Members.Count != before)
+				Plugin.Log.Warning(
+					$"FateWatch: removed {before - rot.Members.Count} duplicate member(s) from the {rot.Zone} rotation");
 		}
 
 		if (this.Version < 4) {
@@ -321,20 +362,20 @@ public sealed class Configuration: IPluginConfiguration {
 		if (this.Version >= CurrentVersion)
 			return;
 
-		string[] wikiGuesses = { "Persistent Pots", "Pleading Pots" };
-		foreach (string stale in wikiGuesses) {
-			if (this.LastSeen.ContainsKey(stale))
-				continue;   // it really spawned somewhere; leave it alone
-			this.TrackedFates.RemoveAll(t => string.Equals(t, stale, StringComparison.OrdinalIgnoreCase));
-			this.FateLabels.Remove(stale);
-		}
-
-		foreach (var (name, label) in new[] { ("Daylight Pottery", "N"), ("In a Pot of Bother", "S") }) {
-			if (!this.TrackedFates.Any(t => string.Equals(t, name, StringComparison.OrdinalIgnoreCase)))
-				this.TrackedFates.Add(name);
-			if (!this.FateLabels.ContainsKey(name))
-				this.FateLabels[name] = label;
-		}
+		// ⚠⚠ THE v2 "wiki guess" PURGE LIVED HERE AND IS GONE. It removed "Persistent Pots" and
+		// "Pleading Pots" on the grounds that they were different FATEs entirely. They are ids 1976
+		// and 1977, they are real, and they are South Horn's entire rotation -- the wiki was right
+		// and was describing the zone this plugin had not been to.
+		//
+		// ⭐ Its guard was not careless. It asked "has this ever spawned?" and skipped anything that
+		// had. But the answer came from a config that had only ever seen North Horn, so absence of
+		// evidence in one territory read as evidence of absence everywhere. A guard can only be as
+		// good as the range of the data it consults.
+		//
+		// ⚠ Nothing replaces it. TrackedFates/FateLabels/CycleMinutes/RotationMode no longer exist,
+		// and an unknown key deserialises to nothing and vanishes on the next Save() -- no migration
+		// for a deletion. The Rotations default reproduces the old North Horn ring exactly, and
+		// LastSeen/MeasuredIntervals are keyed by FATE name, so every measurement carries over.
 
 		if (this.Version < 3) {
 			// ⚠ A changed default cannot reach a config that already exists -- the same trap as the
@@ -345,7 +386,7 @@ public sealed class Configuration: IPluginConfiguration {
 
 		this.Version = CurrentVersion;
 		this.Save();
-		Plugin.Log.Information($"config migrated to v{CurrentVersion}: pot FATE names corrected");
+		Plugin.Log.Information($"config migrated to v{CurrentVersion}: FATE rotations are now per-territory");
 	}
 
 	public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
