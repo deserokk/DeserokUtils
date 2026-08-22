@@ -274,6 +274,75 @@ nearest interactable as a last resort. That scan is the one place a list of obje
 it **logs every nearby candidate it rejects**: a missing kind shows up as a named object in the log
 rather than as "the key does nothing near that thing."
 
+# EphemeralMarks
+
+A marker over the heads of the people you **queued in with**, so you can find them in content full
+of identical-looking allies.
+
+Client-side only — nobody else sees anything, and it never touches the shared party markers.
+
+> The default party marks are shared and contested: *"it shows for everyone and everyone tends to
+> fight for use of them."* — Bunny, who asked for this
+
+There is no command. It arms itself when the queue pops and shows inside enabled content.
+
+## Where it shows
+
+Three grouped toggles, not fifteen checkboxes:
+
+| toggle | covers |
+|---|---|
+| PvP | Frontlines, Crystalline Conflict, Rival Wings |
+| Field operations | Eureka, Bozja, Delubrum, Occult Crescent, Diadem, Cosmic Exploration |
+| Alliance raid | the 24-player raids |
+
+⭐ Those are classified from the zone's `TerritoryIntendedUse`, so a **new field operation sorts
+itself** provided it reuses an existing value. It's a rule, not a list of zones to keep updating.
+
+Overworld is deliberately absent: your party is already coloured against grey randoms, so the game
+solves it.
+
+## ⭐ It switches itself off when it would be useless
+
+If you queued with more people than the group-size limit (**5** by default), nothing draws.
+
+Chaotic Raid is a group queue — everyone you entered with is everyone there — so marking all of them
+is the same as marking none. Statics and premade dungeon runs are the same shape. **One number
+catches all of it**, and Chaotic Raid needs no special case: it's excluded by the reason it should
+be, rather than by somebody remembering to type it into a list.
+
+## Design notes
+
+⭐ **The snapshot is one read at one event.** The game freezes your party the moment you queue —
+adding or removing anyone cancels the queue — so there is nothing to poll for. A single read when
+the duty-ready dialog appears is the entire mechanism, and a re-pop after somebody declined
+overwrites it with identical data. No rejection handling, no staleness.
+
+⭐ That also makes the moment low-risk rather than critical: at queue-join, at the pop, or at accept
+would all be the same data. But it has to be **before** you're bound, because by then the game may
+already have rebuilt your premade into an alliance — which is the case the feature exists for.
+
+⚠ A star marks the party leader, a diamond everyone else, with an optional `P2`-style tag — first
+initial plus **live** party slot. Live, not captured, because the instance renumbers you; it falls
+back to the bare initial when they aren't in your party at all, which is exactly when the marker
+matters most. Better a bare `P` than a confidently wrong number.
+
+⚠ **Names are resolved to object ids at 1 Hz, never per frame.** Six hundred object-table entries
+with a string compare each, at frame rate, is the per-frame audit this project keeps re-learning.
+The draw path only looks up by id.
+
+⚠ **The marker is filtered, and the filter is adaptive.** Both position sources jitter sub-pixel
+against the game's own nameplate, and a fixed smoother cannot win — heavy enough to kill the wobble
+is heavy enough to lag every camera pan. So it reads the frame delta and picks its own strength.
+
+⚠ It anchors in **yalms plus pixels**. A pure world offset projects to fewer pixels as distance
+grows, so the marker collapses onto the nameplate exactly when the character is small and far — the
+case it most needs to be clear of.
+
+⚠⚠ Nothing is persisted, and nobody is identified by content or account id — only name and home
+world, held in memory until you leave. It shows where somebody standing in front of you is, which
+the party list already told you.
+
 ## Building
 
 ```
