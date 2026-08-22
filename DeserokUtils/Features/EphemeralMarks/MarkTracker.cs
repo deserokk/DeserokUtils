@@ -48,7 +48,7 @@ internal sealed class MarkTracker: IDisposable {
 	private const string PopAddon = "ContentsFinderConfirm";
 
 	private readonly List<(string Name, uint World, bool Leader)> snapshot = new();
-	private readonly List<(ulong Id, bool Leader)> resolved = new();
+	private readonly List<(ulong Id, bool Leader, string Tag)> resolved = new();
 	private readonly Dictionary<uint, ContentGroup> groupCache = new();
 
 	private DateTime lastResolve = DateTime.MinValue;
@@ -186,18 +186,44 @@ internal sealed class MarkTracker: IDisposable {
 			foreach (var entry in this.snapshot) {
 				if (entry.World == pc.HomeWorld.RowId
 					&& string.Equals(entry.Name, pc.Name.TextValue, StringComparison.Ordinal)) {
-					this.resolved.Add((pc.GameObjectId, entry.Leader));
+					this.resolved.Add((pc.GameObjectId, entry.Leader, Tag(entry.Name, pc.EntityId)));
 					break;
 				}
 			}
 		}
 	}
 
-	public IEnumerable<(Dalamud.Game.ClientState.Objects.Types.IGameObject Object, bool Leader)> Marked() {
-		foreach (var (id, leader) in this.resolved) {
+	/// <summary>
+	/// A Helldivers-style identifier -- first initial plus party slot, so "P2" rather than
+	/// "Peachi Bunni".
+	///
+	/// ⭐ deserok's call after seeing a full name floating over her head: *"we do not want or need a
+	/// name over their head."* He is right, and it is not only clutter -- a name is variable width, so
+	/// a row of marked players jitters as they move, while two glyphs never do.
+	///
+	/// ⚠ The slot is read LIVE rather than captured, so it matches the party list you are looking at.
+	/// The instance rebuilds your party, so the number at the queue pop is not the number you see
+	/// inside. Costs eight comparisons per marked player, once a second, on a pass that is already
+	/// walking the object table.
+	///
+	/// ⚠ Falls back to the initial alone when they are not in your current party -- which happens
+	/// whenever the content splits a premade, and is precisely when the marker matters most. Better a
+	/// bare "P" than a confidently wrong number.
+	/// </summary>
+	private static string Tag(string name, uint entityId) {
+		string initial = name.Length > 0 ? name[..1].ToUpperInvariant() : "?";
+		for (int i = 0; i < Plugin.Party.Length; i++) {
+			if (Plugin.Party[i]?.EntityId == entityId)
+				return $"{initial}{i + 1}";
+		}
+		return initial;
+	}
+
+	public IEnumerable<(Dalamud.Game.ClientState.Objects.Types.IGameObject Object, bool Leader, string Tag)> Marked() {
+		foreach (var (id, leader, tag) in this.resolved) {
 			var obj = Plugin.Objects.SearchById(id);
 			if (obj is not null && obj.IsValid())
-				yield return (obj, leader);
+				yield return (obj, leader, tag);
 		}
 	}
 

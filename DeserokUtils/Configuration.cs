@@ -485,7 +485,17 @@ public sealed class Configuration: IPluginConfiguration {
 	/// moment it was first seen in game -- deserok: *"don't need the name, just the star"*. Still a
 	/// checkbox, because with three friends and only two shapes a name may earn its place again.
 	/// </summary>
-	public bool MarksShowNames { get; set; } = false;
+	/// <summary>
+	/// Show a Helldivers-style tag -- first initial plus party slot, "P2" -- under the marker.
+	///
+	/// ⭐ A NEW KEY replacing MarksShowNames rather than a changed default, on purpose. The name
+	/// default was flipped to false and could not reach an existing config -- exactly the trap this
+	/// file opens with. A new key takes its initialiser; additions are free, edits need a migration.
+	///
+	/// ⚠ OFF. The shapes carry the signal and a variable-width name jitters as people move; two glyphs
+	/// never do. Worth turning on once there are three friends and only two shapes.
+	/// </summary>
+	public bool MarksShowTag { get; set; } = false;
 
 	/// <summary>
 	/// Ignore the content gate entirely. ⚠ FOR TESTING THE MARKER ITSELF -- shape, size, head height
@@ -507,7 +517,18 @@ public sealed class Configuration: IPluginConfiguration {
 	/// clear the name up close and collide with it far away. Configurable because races differ by a
 	/// lot between Lalafell and Roegadyn, and 2.4 was picked rather than measured.
 	/// </summary>
-	public float MarksHeight { get; set; } = 2.4f;
+	public float MarksHeight { get; set; } = 2.0f;
+
+	/// <summary>
+	/// Extra clearance above the anchor, in SCREEN PIXELS (scaled with the marker).
+	///
+	/// ⚠⚠ Both are needed and they do different jobs. A world offset shrinks with distance, so on its
+	/// own the marker collapses onto the character exactly when they are far away and small -- landing
+	/// on the nameplate, which is the moment it most needs to be clear. A pixel offset never shrinks.
+	/// deserok, seeing it at range: *"anchoring to head position was bad anyways, because of distance
+	/// causing overlap with the frame."*
+	/// </summary>
+	public float MarksLift { get; set; } = 34f;
 
 	/// <summary>
 	/// Marker size, on top of an automatic scale derived from the viewport height.
@@ -520,7 +541,10 @@ public sealed class Configuration: IPluginConfiguration {
 	/// ⚠ Viewing distance is unknowable, which is why there is a slider at all rather than the scaling
 	/// trying to be clever about physical screen size.
 	/// </summary>
-	public float MarksScale { get; set; } = 1f;
+	/// ⭐ 2.0 by default: what deserok settled on after seeing it in game at 1440p, where the
+	/// automatic viewport scale is exactly 1. New installs start where he ended up rather than at a
+	/// size he already rejected as too small.
+	public float MarksScale { get; set; } = 2f;
 
 	/// <summary>⚠ A persisted Vector4, so it needs no Replace attribute -- that trap is collections.</summary>
 	/// <summary>

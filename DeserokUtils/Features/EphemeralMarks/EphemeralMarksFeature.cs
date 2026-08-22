@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 
 using Dalamud.Bindings.ImGui;
@@ -43,7 +44,7 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// people, which is the direction to stay away from. "Who I came with" is self-scoping and forgets
 /// itself.
 /// </summary>
-internal sealed class EphemeralMarksFeature: IDisposable {
+internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	public string TabTitle => "Marks";
 
 	private readonly MarkTracker tracker = new();
@@ -106,11 +107,15 @@ internal sealed class EphemeralMarksFeature: IDisposable {
 		// this trying to be clever about physical screen size.
 		float scale = ImGui.GetIO().DisplaySize.Y / 1440f * Plugin.Config.MarksScale;
 
-		foreach (var (obj, isLeader) in this.tracker.Marked()) {
-			// ⚠ Head height in YALMS, not pixels, so it tracks distance the way the nameplate does.
-			// A fixed pixel offset would clear the name up close and collide with it far away.
-			// Configurable because races differ by a lot and this number was picked, not measured.
-			var head = obj.Position with { Y = obj.Position.Y + Plugin.Config.MarksHeight };
+		// ⚠ Keeps the smoothing dictionary bounded: anyone no longer marked is forgotten this frame.
+		this.seenThisFrame.Clear();
+
+		foreach (var (obj, isLeader, tag) in this.tracker.Marked()) {
+			this.seenThisFrame.Add(obj.GameObjectId);
+			// ⚠ The WORLD part of the anchor -- roughly head height, so the marker sits on the body rather
+			// than on the ground. The screen-space lift below is what keeps it clear at distance.
+			var basePos = RenderPosition(obj);
+			var head = basePos with { Y = basePos.Y + Plugin.Config.MarksHeight };
 
 			// ⚠⚠ THE RETURN VALUE IS THE WHOLE GUARD, and ignoring it is the classic bug: a position
 			// behind the camera still yields a screen coordinate -- a mirrored one -- so markers
@@ -118,21 +123,126 @@ internal sealed class EphemeralMarksFeature: IDisposable {
 			if (!Plugin.GameGui.WorldToScreen(head, out Vector2 screen))
 				continue;
 
+			// ⚠⚠ A PIXEL LIFT ON TOP OF THE WORLD OFFSET, and the reason is the opposite of what I first
+			// argued. A world-space offset projects to FEWER pixels as distance grows, so the marker
+			// collapses onto the character exactly when they are far away and small -- overlapping the
+			// nameplate, which is the case it most needs to stay clear of. A pixel offset does not
+			// shrink. The world part anchors it to the body; the pixel part guarantees the gap.
+			screen.Y -= Plugin.Config.MarksLift * scale;
+			screen = this.Smooth(obj.GameObjectId, screen);
+
 			if (isLeader)
 				DrawStar(draw, screen, colour, scale);
 			else
 				DrawReticle(draw, screen, colour, scale);
 
-			if (Plugin.Config.MarksShowNames) {
-				string name = obj.Name.TextValue;
-				var size = ImGui.CalcTextSize(name);
-				var at = new Vector2(screen.X - size.X / 2f, screen.Y + 4f * scale);
-				// ⚠ Shadowed. A light name over snow, sand or a spell effect is otherwise unreadable,
-				// which is most of a Frontline.
-				draw.AddText(at + new Vector2(1f, 1f), Shadow, name);
-				draw.AddText(at, colour, name);
+			if (Plugin.Config.MarksShowTag && tag.Length > 0) {
+				// ⚠ Text scales WITH the marker. At 2x the glyphs were still default size, which reads
+				// as a mistake rather than as a small label.
+				float fontSize = ImGui.GetFontSize() * scale;
+				var size = ImGui.CalcTextSize(tag) * scale;
+				var at = new Vector2(screen.X - size.X / 2f, screen.Y + 3f * scale);
+
+				// ⚠ Shadowed. Two light glyphs over snow, sand or a spell effect are otherwise
+				// unreadable, which is most of a Frontline.
+				draw.AddText(ImGui.GetFont(), fontSize, at + new Vector2(1f, 1f), Shadow, tag);
+				draw.AddText(ImGui.GetFont(), fontSize, at, colour, tag);
 			}
 		}
+
+		// ⚠ Forget anyone no longer marked, so the smoothing map cannot grow across a session.
+		if (this.smoothed.Count > this.seenThisFrame.Count) {
+			foreach (ulong stale in this.smoothed.Keys.Where(k => !this.seenThisFrame.Contains(k)).ToList())
+				this.smoothed.Remove(stale);
+		}
+	}
+
+	private readonly System.Collections.Generic.HashSet<ulong> seenThisFrame = new();
+
+	private readonly System.Collections.Generic.Dictionary<ulong, Vector2> smoothed = new();
+
+	/// <summary>
+	/// A low-pass filter on the screen position.
+	///
+	/// ## ⚠⚠ This treats the symptom, and that is a deliberate concession
+	///
+	/// Both position sources were tried -- the logical `IGameObject.Position` and the render transform
+	/// on the draw object -- and both jitter while the game's own nameplate on the SAME character is
+	/// steady. Rounding to whole pixels then made it dramatically worse, which is the useful clue:
+	/// rounding cannot create motion, only convert sub-pixel motion into whole-pixel snapping. So the
+	/// position genuinely oscillates by under a pixel and anti-aliasing was hiding it.
+	///
+	/// ⭐ The most likely cause is one this code cannot reach: an overlay drawn at present time reads
+	/// a transform at a different point in the frame than the game used to rasterise the character.
+	/// The nameplate is steady because the game draws it with the matching transform. Nothing
+	/// available from outside fixes that, so the honest options were "leave it jittering" or "filter
+	/// it", and filtering wins.
+	///
+	/// ⚠ FRAMERATE-INDEPENDENT, via the exponential form rather than a fixed lerp factor. A plain
+	/// `lerp(a, b, 0.3f)` smooths three times harder at 30fps than at 120 -- so it would feel
+	/// different on each of the three machines this is for, which is the bug one layer up from the one
+	/// being fixed.
+	///
+	/// ⚠ Entries are dropped when a target stops being marked, so the dictionary cannot grow.
+	/// </summary>
+	private Vector2 Smooth(ulong id, Vector2 target) {
+		if (!this.smoothed.TryGetValue(id, out var previous)) {
+			this.smoothed[id] = target;
+			return target;
+		}
+
+		// ⚠ A jump means they teleported, respawned, or came back into view -- snap rather than glide
+		// a marker across the screen. 250px at any sane framerate is not real movement.
+		if (Vector2.DistanceSquared(previous, target) > 250f * 250f) {
+			this.smoothed[id] = target;
+			return target;
+		}
+
+		// ⭐⭐ ADAPTIVE, because a single time constant cannot win. A filter heavy enough to kill the
+		// jitter also lags every camera pan -- deserok: "it does tend to lag behind camera movements
+		// but it's preferable to jitter." It does not have to be a trade: the two signals differ by an
+		// order of magnitude in size. Jitter is sub-pixel frame to frame; a camera pan moves a marker
+		// tens of pixels. So the filter reads the delta and picks its own strength -- heavy while
+		// nearly still, almost absent while genuinely moving.
+		float delta = Vector2.Distance(previous, target);
+		float motion = Math.Clamp(delta / MotionPixels, 0f, 1f);
+		float tau = StillSeconds + (MovingSeconds - StillSeconds) * motion;
+
+		float dt = ImGui.GetIO().DeltaTime;
+		float alpha = 1f - MathF.Exp(-dt / MathF.Max(tau, 0.0001f));
+		var next = Vector2.Lerp(previous, target, Math.Clamp(alpha, 0f, 1f));
+		this.smoothed[id] = next;
+		return next;
+	}
+
+	/// <summary>Delta at which the motion is treated as entirely real and smoothing stops.</summary>
+	private const float MotionPixels = 6f;
+
+	/// <summary>⚠ Heavy -- for when the target is nearly still and every pixel of movement is noise.</summary>
+	private const float StillSeconds = 0.09f;
+
+	/// <summary>⚠ Nearly nothing, so a camera pan is followed the frame it happens.</summary>
+	private const float MovingSeconds = 0.004f;
+
+	/// <summary>
+	/// Where the character is actually DRAWN this frame, not where the game logically thinks it is.
+	///
+	/// ⚠⚠ THIS IS WHY THE MARKER JITTERED. `IGameObject.Position` is the logical position, updated on
+	/// the game's tick; the model you are looking at is interpolated every frame. Anchoring to the
+	/// logical value makes the marker step while the character glides underneath it -- most visible
+	/// when they are moving, which in a Frontline is always. Nameplates do not jitter because they
+	/// follow the render transform, which is what this reads.
+	///
+	/// ⚠ Falls back to the logical position when there is no draw object -- someone loading in, or out
+	/// of render range. A marker in very slightly the wrong place beats no marker.
+	/// </summary>
+	private static unsafe Vector3 RenderPosition(Dalamud.Game.ClientState.Objects.Types.IGameObject obj) {
+		var native = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)obj.Address;
+		if (native is null || native->DrawObject is null)
+			return obj.Position;
+
+		var p = native->DrawObject->Object.Position;
+		return new Vector3(p.X, p.Y, p.Z);
 	}
 
 	private const uint Shadow = 0xC0000000;
@@ -282,9 +392,9 @@ internal sealed class EphemeralMarksFeature: IDisposable {
 			Plugin.Config.MarksColour = colour;
 			Plugin.Config.Save();
 		}
-		bool names = Plugin.Config.MarksShowNames;
-		if (ImGui.Checkbox("Show the name under the marker", ref names)) {
-			Plugin.Config.MarksShowNames = names;
+		bool names = Plugin.Config.MarksShowTag;
+		if (ImGui.Checkbox("Show a P2-style tag under the marker", ref names)) {
+			Plugin.Config.MarksShowTag = names;
 			Plugin.Config.Save();
 		}
 
@@ -301,14 +411,25 @@ internal sealed class EphemeralMarksFeature: IDisposable {
 		ImGui.Spacing();
 		float height = Plugin.Config.MarksHeight;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Height above head##marks", ref height, 1.0f, 4.0f, "%.2f yalms")) {
+		if (ImGui.SliderFloat("Anchor height##marks", ref height, 0.0f, 4.0f, "%.2f yalms")) {
 			Plugin.Config.MarksHeight = height;
 			Plugin.Config.Save();
 		}
 		ImGui.TextWrapped(
-			"In yalms rather than pixels, so it tracks distance the way the nameplate does. Lalafell "
-			+ "and Roegadyn differ by enough that one number will not suit both -- tune it for whoever "
-			+ "you actually play with.");
+			"Where on the character the marker anchors, in yalms -- roughly head height. Lalafell and "
+			+ "Roegadyn differ by enough that one number will not suit both.");
+
+		ImGui.Spacing();
+		float lift = Plugin.Config.MarksLift;
+		ImGui.SetNextItemWidth(160f);
+		if (ImGui.SliderFloat("Clearance##marks", ref lift, 0f, 120f, "%.0f px")) {
+			Plugin.Config.MarksLift = lift;
+			Plugin.Config.Save();
+		}
+		ImGui.TextWrapped(
+			"How far above the anchor it floats, in screen pixels. This is the one that keeps it off "
+			+ "the nameplate at range: a purely world-space offset shrinks with distance, so it "
+			+ "collapses onto someone exactly when they are far away and small.");
 
 		Section("How it picks people");
 		ImGui.TextWrapped(
