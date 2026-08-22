@@ -49,6 +49,12 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 
 	private readonly MarkTracker tracker = new();
 
+	/// <summary>
+	/// ⚠ Constructed here but it builds nothing until a tag is actually drawn -- the atlas is created
+	/// on first use, and the tag is off by default.
+	/// </summary>
+	private readonly MarkFont font = new();
+
 	public EphemeralMarksFeature() {
 		Plugin.Commands.AddHandler("/dsumarks", new CommandInfo(this.OnCommand) {
 			HelpMessage = "/dsumarks -- mark the people you came into large content with. 'on'/'off' to toggle.",
@@ -110,6 +116,17 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		// ⚠ Keeps the smoothing dictionary bounded: anyone no longer marked is forgotten this frame.
 		this.seenThisFrame.Clear();
 
+		// ⭐ Locked ONCE per frame rather than once per marker. Four markers is four lock/unlock pairs
+		// for an answer that cannot change within a frame.
+		//
+		// ⚠ Only touched when tags are on, so the font atlas is never built for anyone who leaves the
+		// setting at its default.
+		bool wantTags = Plugin.Config.MarksShowTag;
+		float fontPx = ImGui.GetFontSize() * scale;
+		if (wantTags)
+			fontPx = this.font.Prepare(fontPx);
+		using var locked = wantTags ? this.font.TryLock() : null;
+
 		foreach (var (obj, isLeader, tag) in this.tracker.Marked()) {
 			this.seenThisFrame.Add(obj.GameObjectId);
 			// ⚠ The WORLD part of the anchor -- roughly head height, so the marker sits on the body rather
@@ -136,17 +153,39 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			else
 				DrawReticle(draw, screen, colour, scale);
 
-			if (Plugin.Config.MarksShowTag && tag.Length > 0) {
-				// ⚠ Text scales WITH the marker. At 2x the glyphs were still default size, which reads
-				// as a mistake rather than as a small label.
-				float fontSize = ImGui.GetFontSize() * scale;
-				var size = ImGui.CalcTextSize(tag) * scale;
-				var at = new Vector2(screen.X - size.X / 2f, screen.Y + 3f * scale);
+			if (wantTags && tag.Length > 0) {
+				// ⚠⚠ Measured with the SAME font and size it is drawn at. Measuring with the default
+				// font and scaling the result would centre the tag against metrics belonging to a
+				// different typeface -- invisible at one glyph, visibly off at two.
+				//
+				// ⚠ Via the font stack, because this ImGui binding's ImFontPtr has no CalcTextSizeA.
+				// Pushed and popped per marker rather than around the loop: two glyphs is nothing to
+				// measure, and a push that cannot outlive its own if-block cannot be leaked.
+				Vector2 glyphs;
+				if (locked is not null) {
+					ImGui.PushFont(locked.ImFont);
+					glyphs = ImGui.CalcTextSize(tag);
+					ImGui.PopFont();
+				}
+				else {
+					glyphs = ImGui.CalcTextSize(tag) * (fontPx / ImGui.GetFontSize());
+				}
+
+				// ⚠ Rounded to whole pixels. A glyph quad landing on a half pixel is resampled even
+				// when the atlas size is exactly right, which would undo most of the point of building
+				// the font. ⭐ Safe here in a way it was NOT for the marker itself: rounding the shape
+				// position made the jitter dramatically worse, but that was the smoothing input --
+				// this rounds only the final text placement, and the smoothed value it comes from is
+				// already stable when standing still.
+				var at = new Vector2(
+					MathF.Round(screen.X - glyphs.X / 2f),
+					MathF.Round(screen.Y + 3f * scale));
 
 				// ⚠ Shadowed. Two light glyphs over snow, sand or a spell effect are otherwise
 				// unreadable, which is most of a Frontline.
-				draw.AddText(ImGui.GetFont(), fontSize, at + new Vector2(1f, 1f), Shadow, tag);
-				draw.AddText(ImGui.GetFont(), fontSize, at, colour, tag);
+				var face = locked is not null ? locked.ImFont : ImGui.GetFont();
+				draw.AddText(face, fontPx, at + new Vector2(1f, 1f), Shadow, tag);
+				draw.AddText(face, fontPx, at, colour, tag);
 			}
 		}
 
@@ -465,5 +504,6 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		Plugin.PluginInterface.UiBuilder.Draw -= this.DrawOverlay;
 		Plugin.Commands.RemoveHandler("/dsumarks");
 		this.tracker.Dispose();
+		this.font.Dispose();
 	}
 }
