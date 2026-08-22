@@ -53,6 +53,17 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	/// <summary>Last decision, for the tab. Purely diagnostic.</summary>
 	private string lastDecision = "nothing yet";
 
+	/// <summary>
+	/// Which PvP/non-PvP resolutions have already been reported, so the line is written once per
+	/// answer instead of once per press.
+	///
+	/// ⭐ Naturally bounded and so deliberately never swept: the key is a contested action name plus a
+	/// bool, and only 103 names are contested at all. The ceiling is ~206 short strings even if you
+	/// macro every one of them, which is not worth a sweep -- unlike EmoteQuiet's per-sender map,
+	/// where the key space is "every player you ever see".
+	/// </summary>
+	private readonly System.Collections.Generic.HashSet<string> ambiguityLogged = new();
+
 	public IfMouseoverFeature() {
 		Plugin.Commands.AddHandler("/ifmo", new CommandInfo(this.OnIfMouseover) {
 			HelpMessage = "/ifmo <command with {mo}> -- picks the first target the action would land on. Chain with {mo|2}, end with |noop to send nothing.",
@@ -174,7 +185,13 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 		// invisible in game -- the macro just quietly validates against the other action's rules --
 		// and this project has now written empty diagnostic logs three times by gating the one line
 		// that would have explained the failure.
-		if (found is { Ambiguous: true }) {
+		//
+		// ⚠⚠ But ONCE per answer, not once per press. The answer is a pure function of the name and
+		// whether you are in PvP, so every repeat is the same line -- and a key repeater is normal
+		// input here, so "once per press" means bursts of three or four a second. Six minutes of
+		// casual testing in Crystalline Conflict produced 22 identical lines; a real match would bury
+		// whatever you opened the log to read.
+		if (found is { Ambiguous: true } && ambiguityLogged.Add($"{name}|{preferPvp}")) {
 			Plugin.Log.Information($"IfMouseover: \"{name}\" exists as both a PvP and a non-PvP action; "
 				+ $"using the {(found.Value.Pvp ? "PvP" : "non-PvP")} row ({found.Value.Id}). "
 				+ $"verb={(span?.PvpVerb == true ? "/pvpac" : "/ac")} inPvp={ActionLookup.InPvp}");
