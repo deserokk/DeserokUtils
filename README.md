@@ -77,8 +77,8 @@ The Gold Saucer draw and sheathe animations are separate emotes, not a replaceme
 toggle — so they can't be bound as one key and cost two hotbar slots.
 
 `/drawsheathe` reads whether your weapon is out and plays the right one. The emote is silently
-refused while moving or jumping, so those fall back to the game's own toggle and one key covers every
-case. Both emote commands are configurable, and holding the key collapses to a single toggle.
+refused while moving or jumping — or if you don't own it, since the two are bought separately — so
+all of those fall back to the game's own toggle and one key covers every case. Both emote commands are configurable, and holding the key collapses to a single toggle.
 
 ## EmoteQuiet
 
@@ -128,8 +128,12 @@ allies. A star for the party leader, a diamond for everyone else.
 fights over.
 
 The party is captured when the queue pops and frozen, so it survives the game reshuffling your
-premade into an alliance. Shows in PvP, field operations and alliance raids; colour, size and height
-are all configurable.
+premade into an alliance. Shows in PvP, field operations, alliance raids and deep dungeons; colour,
+size and height are all configurable.
+
+⭐ Deep dungeons are in for a different reason than the rest: there's nobody to be told apart from in
+a party of four friends, but Palace of the Dead and Heaven-on-High are dark randomised mazes and you
+lose each other constantly. Same overlay, second job.
 
 ⭐ It switches itself off when you queued as the whole group, since marking everyone is the same as
 marking nobody.
