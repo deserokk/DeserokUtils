@@ -435,6 +435,108 @@ public sealed class Configuration: IPluginConfiguration {
 	[JsonProperty(ObjectCreationHandling = ReplaceList)]
 	public List<string> EmoteQuietFamilies { get; set; } = new() { "Cheer " };
 
+	// ── EphemeralMarks ───────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Mark the people you came into large content with. Client-side only; nobody else sees it.
+	///
+	/// ⚠ ON by default, unlike FcBuffs and EmoteQuiet. Those act on the world -- one spends stock,
+	/// the other changes what strangers see. This draws a triangle on your own screen and is invisible
+	/// to everyone else, so there is nothing to opt into.
+	/// </summary>
+	public bool MarksEnabled { get; set; } = true;
+
+	/// <summary>
+	/// If you came in with more than this many people, mark nobody.
+	///
+	/// ⭐⭐ THE DEGENERACY GUARD, and deserok's simplification of a fifteen-checkbox content list.
+	/// When the premade IS the whole group -- Chaotic Raid, a static, a premade dungeon -- marking
+	/// everyone is the same as marking nobody. The content this exists for caps premades anyway:
+	/// Frontlines at 4, Crystalline Conflict at 2, and full-8 alliance premades are rare.
+	///
+	/// ⭐ So 5 clears every legitimate case and excludes content you enter as a whole group -- which
+	/// means **Chaotic Raid needs no special case**. It is excluded by the reason it should be,
+	/// rather than by somebody remembering to type it into a list.
+	/// </summary>
+	public int MarksMaxGroupSize { get; set; } = 5;
+
+	/// <summary>
+	/// ⭐ Three grouped toggles rather than one per content type. `TerritoryIntendedUse` does the
+	/// classification underneath, so a new field operation sorts itself; the reader sees three boxes.
+	///
+	/// ⚠ Dungeons and normal raids are deliberately absent — four or eight names is easy to read, and
+	/// with one friend you are already half the group.
+	/// </summary>
+	public bool MarksInPvp { get; set; } = true;
+
+	/// <inheritdoc cref="MarksInPvp"/>
+	public bool MarksInFieldOps { get; set; } = true;
+
+	/// <summary>
+	/// 24 players who all look alike. ⭐ Included after Bunny argued it is a PvE Frontline and was
+	/// right: nameplate colour separates party from alliance, NOT your friends from the randoms in
+	/// your own party. Cover is the sharpest case -- it can kill the caster, so which ally is under
+	/// the cursor changes whether the risk is worth taking.
+	/// </summary>
+	public bool MarksInAllianceRaid { get; set; } = true;
+
+	/// <summary>
+	/// ⚠ OFF. The marker is the signal; the name is clutter once you know the shapes. Confirmed the
+	/// moment it was first seen in game -- deserok: *"don't need the name, just the star"*. Still a
+	/// checkbox, because with three friends and only two shapes a name may earn its place again.
+	/// </summary>
+	public bool MarksShowNames { get; set; } = false;
+
+	/// <summary>
+	/// Ignore the content gate entirely. ⚠ FOR TESTING THE MARKER ITSELF -- shape, size, head height
+	/// -- somewhere convenient rather than waiting for a Frontline.
+	///
+	/// ⚠ Deliberately NOT implemented by adding Trial to the content list. That list says where the
+	/// feature is useful; adding a content type to make testing easy would leave it also saying where
+	/// it was once convenient, and those are different facts that would drift apart.
+	///
+	/// ⭐ The group-size guard still applies, so this is a gate bypass rather than a "show everything"
+	/// switch.
+	/// </summary>
+	public bool MarksEverywhere { get; set; } = false;
+
+	/// <summary>
+	/// How far above a character the marker floats, in yalms.
+	///
+	/// ⚠ YALMS, not pixels, so it tracks distance the way the nameplate does -- a pixel offset would
+	/// clear the name up close and collide with it far away. Configurable because races differ by a
+	/// lot between Lalafell and Roegadyn, and 2.4 was picked rather than measured.
+	/// </summary>
+	public float MarksHeight { get; set; } = 2.4f;
+
+	/// <summary>
+	/// Marker size, on top of an automatic scale derived from the viewport height.
+	///
+	/// ⚠⚠ SIZE IN RAW PIXELS IS WRONG ACROSS SCREENS. The same 26px marker is a larger fraction of a
+	/// 1080p screen than a 1440p one -- and the three people who will use this run 1440p large, 1440p
+	/// small, and 1080p. So the drawing divides by viewport height against a 1440 baseline, which makes
+	/// the default already correct on all three, and this multiplier is left for taste.
+	///
+	/// ⚠ Viewing distance is unknowable, which is why there is a slider at all rather than the scaling
+	/// trying to be clever about physical screen size.
+	/// </summary>
+	public float MarksScale { get; set; } = 1f;
+
+	/// <summary>⚠ A persisted Vector4, so it needs no Replace attribute -- that trap is collections.</summary>
+	/// <summary>
+	/// ⚠⚠ NOT yellow, blue or red -- those are the three Frontlines team colours, and a marker that
+	/// matches a team colour is worse than no marker: it reads as faction information, which is the
+	/// one thing you must not misread in PvP. deserok caught this before it shipped.
+	///
+	/// ⚠ Orange was the suggested alternative and is also avoided, narrowly: it sits between red and
+	/// yellow and is close to Immortal Flames' branding.
+	///
+	/// ⭐ Magenta instead. It is the colour furthest from all three team colours, no FFXIV UI element
+	/// uses it, and it is not the white of a target reticle -- so it cannot be mistaken for "this is
+	/// my current target" either. Picker in the tab for anyone who disagrees.
+	/// </summary>
+	public System.Numerics.Vector4 MarksColour { get; set; } = new(1f, 0.32f, 0.85f, 1f);
+
 	public bool AlertToast { get; set; } = true;
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;

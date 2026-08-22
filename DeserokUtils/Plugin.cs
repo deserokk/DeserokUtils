@@ -12,6 +12,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using DeserokUtils.Features.CastWatch;
 using DeserokUtils.Features.DrawSheathe;
 using DeserokUtils.Features.EmoteQuiet;
+using DeserokUtils.Features.EphemeralMarks;
 using DeserokUtils.Features.FateWatch;
 using DeserokUtils.Features.IfMouseover;
 using DeserokUtils.Features.Interact;
@@ -69,6 +70,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly List<IDisposable> features = new();
 	private readonly FateWatchFeature fateWatch;
 	private readonly FcBuffsFeature fcBuffs;
+	private readonly EphemeralMarksFeature marks;
 
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
@@ -128,6 +130,9 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(emoteQuiet);
 		var ifMouseover = new IfMouseoverFeature();
 		this.features.Add(ifMouseover);
+		var marks = new EphemeralMarksFeature();
+		this.features.Add(marks);
+		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
 
@@ -143,6 +148,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, drawSheathe.TabTitle, string.Empty, drawSheathe.DrawTab),
 			new TabEntry(null, emoteQuiet.TabTitle, string.Empty, emoteQuiet.DrawTab),
 			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
+			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
@@ -164,6 +170,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private void OnFrameworkUpdate(IFramework framework) {
 		this.fateWatch.Tick();
 		this.fcBuffs.Tick();
+		this.marks.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
