@@ -126,12 +126,13 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 			return line;
 		if (span.Value.Start > tokenAt)
 			return line;
-		if (ActionLookup.Resolve(span.Value.Name) is null)
+		if (ActionLookup.Resolve(span.Value.Name, span.Value.PvpVerb || ActionLookup.InPvp) is null)
 			return line;
 
 		string quoted = line.Remove(span.Value.Start, span.Value.Length)
 			.Insert(span.Value.Start, $"\"{span.Value.Name}\"");
-		Trace($"/ifmo: added the quotes \"{span.Value.Name}\" needs -- /ac rejects unquoted multi-word names.");
+		Trace($"/ifmo: added the quotes \"{span.Value.Name}\" needs -- the action commands reject "
+			+ "unquoted multi-word names.");
 		return quoted;
 	}
 
@@ -159,8 +160,25 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	/// the mouseover bug happened: an allowlist cannot contain what nobody thought to name.
 	/// </summary>
 	private (string? Placeholder, bool Send, string Why) Decide(string payload, string[] chain) {
-		string? name = ActionLookup.ActionNameIn(payload)?.Name;
-		uint? actionId = name is null ? null : ActionLookup.Resolve(name);
+		var span = ActionLookup.ActionNameIn(payload);
+		string? name = span?.Name;
+
+		// ⭐ Either half is sufficient: an explicit /pvpac verb, or the client saying you are in PvP.
+		// The verb matters because you can write a PvP macro anywhere, and the zone matters because
+		// almost nobody types /pvpac -- they write /ac and expect the bar in front of them.
+		bool preferPvp = span?.PvpVerb == true || ActionLookup.InPvp;
+		var found = name is null ? null : ActionLookup.Resolve(name, preferPvp);
+		uint? actionId = found?.Id;
+
+		// ⚠ Logged UNCONDITIONALLY when the name was contested, not behind Diag. A wrong pick here is
+		// invisible in game -- the macro just quietly validates against the other action's rules --
+		// and this project has now written empty diagnostic logs three times by gating the one line
+		// that would have explained the failure.
+		if (found is { Ambiguous: true }) {
+			Plugin.Log.Information($"IfMouseover: \"{name}\" exists as both a PvP and a non-PvP action; "
+				+ $"using the {(found.Value.Pvp ? "PvP" : "non-PvP")} row ({found.Value.Id}). "
+				+ $"verb={(span?.PvpVerb == true ? "/pvpac" : "/ac")} inPvp={ActionLookup.InPvp}");
+		}
 
 		if (actionId is null) {
 			// ⚠ Degrade, but SAY so. Without the action we cannot ask whether anything would work, so
@@ -196,8 +214,8 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 				(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)self.Address,
 				who);
 
-			Trace($"/ifmo: {name} ({actionId}) on <{seg}> = {who->NameString}: "
-				+ $"CanUseActionOnTarget={can}, rangeOrLoS={status}{Explain(status)}");
+			Trace($"/ifmo: {name} ({actionId}{(found!.Value.Pvp ? ", PvP" : "")}) on <{seg}> "
+				+ $"= {who->NameString}: CanUseActionOnTarget={can}, rangeOrLoS={status}{Explain(status)}");
 
 			if (can && status == 0)
 				return ($"<{seg}>", true, $"{name} lands on {who->NameString} via <{seg}>");
