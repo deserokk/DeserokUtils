@@ -224,7 +224,24 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// toggle happen here instead". Moving and jumping pass it: you asked to draw, and drawing while
 	/// running is ordinary. A cutscene fails it: the game is saying no on purpose.
 	/// </summary>
-	internal static string? EmoteRefusedBecause() {
+	/// <summary>
+	/// Which emote command a press would send right now. ⭐ One place, so the ownership check and the
+	/// send cannot disagree about which emote is in question -- checking one and sending the other is
+	/// exactly the bug this was added to fix.
+	/// </summary>
+	internal static string CommandFor(bool weaponOut) =>
+		(weaponOut ? Plugin.Config.SheatheCommand : Plugin.Config.DrawCommand).Trim();
+
+	internal static string? EmoteRefusedBecause(string? command = null) {
+		// ⚠⚠ FIRST, because it is the only durable one. Moving and jumping pass in a second; an emote
+		// you do not own never becomes available, so checking it first means the diagnostic names the
+		// fact worth acting on rather than whichever transient state happened to also be true.
+		//
+		// ⭐ Bunny, 2026-08-22: she owns Draw Weapon and not Sheathe Weapon, so sheathing did nothing
+		// at all -- the command was refused and nothing took over. See EmoteUnlock.
+		if (command is not null && EmoteUnlock.LockedBecause(command) is string locked)
+			return locked;
+
 		if (PlayerIsMoving() == true)
 			return "moving";
 
@@ -242,7 +259,8 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	private void OnDrawSheathe(string command, string arguments) {
 		string arg = arguments.Trim().ToLowerInvariant();
 		bool? weaponOut = WeaponIsOut();
-		string? refused = EmoteRefusedBecause();
+		string? refused = EmoteRefusedBecause(
+			weaponOut is null ? null : CommandFor(weaponOut.Value));
 
 		if (arg is "state" or "status" or "?") {
 			this.ReportState(weaponOut, refused);
@@ -317,7 +335,7 @@ internal sealed class DrawSheatheFeature: IDisposable {
 
 	/// <summary>The Gold Saucer animation. Silently refused while moving, which is why the branch exists.</summary>
 	private void PlayEmote(bool weaponOut, string? refused) {
-		string line = (weaponOut ? Plugin.Config.SheatheCommand : Plugin.Config.DrawCommand).Trim();
+		string line = CommandFor(weaponOut);
 		if (line.Length == 0) {
 			// ⚠ A blank box must not fail quietly. From outside, a key that does nothing is
 			// indistinguishable from the state read being broken, and that is the wrong half to go
@@ -469,7 +487,8 @@ internal sealed class DrawSheatheFeature: IDisposable {
 		ImGui.Spacing();
 
 		bool? weaponOut = WeaponIsOut();
-		string? refused = EmoteRefusedBecause();
+		string? refused = EmoteRefusedBecause(
+			weaponOut is null ? null : CommandFor(weaponOut.Value));
 
 		Section("Right now");
 		switch (weaponOut) {
