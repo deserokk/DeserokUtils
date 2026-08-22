@@ -36,6 +36,17 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// the caster, so deserok is selective, and which ally is under the cursor changes whether the risk
 /// is worth taking. That is decision-relevant, not convenience.
 ///
+/// ## ⚠⚠ Deep dungeons are in for a SECOND reason, and the rule above does not cover them
+///
+/// A deep dungeon party is four people who are all your friends, so by the table above it should be
+/// excluded outright -- there is nobody to be told apart from. deserok, 2026-08-22, after a
+/// Heaven-on-High run: *"we lose each other constantly."*
+///
+/// ⭐ So the overlay does two jobs and only one of them was designed: **identification** in a crowd of
+/// lookalikes, and **wayfinding** in a dark randomised maze. The second needs no crowd at all. Worth
+/// stating outright, because the exclusion rules below are written for the first job and will keep
+/// reading as though they are the whole story.
+///
 /// ## What it deliberately is not
 ///
 /// ⚠ Not a command to mark someone -- that means marking during the chaos, which is exactly when you
@@ -388,8 +399,8 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 
 		Section("Where");
 		ImGui.TextWrapped(
-			"Three groups rather than a checkbox per content type. The game's own zone classification "
-			+ "does the sorting underneath, so new field operations look after themselves.");
+			"Grouped rather than a checkbox per content type. The game's own zone classification does "
+			+ "the sorting underneath, so new field operations and deep dungeons look after themselves.");
 		ImGui.Spacing();
 		Toggle("PvP", "Frontlines, Crystalline Conflict, Rival Wings",
 			Plugin.Config.MarksInPvp, v => Plugin.Config.MarksInPvp = v);
@@ -397,6 +408,8 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			Plugin.Config.MarksInFieldOps, v => Plugin.Config.MarksInFieldOps = v);
 		Toggle("Alliance raid", "24 players, and your friends look like the other 21",
 			Plugin.Config.MarksInAllianceRaid, v => Plugin.Config.MarksInAllianceRaid = v);
+		Toggle("Deep dungeon", "Palace of the Dead, Heaven-on-High, Eureka Orthos -- for finding each other in the maze, not for telling you apart",
+			Plugin.Config.MarksInDeepDungeon, v => Plugin.Config.MarksInDeepDungeon = v);
 
 		ImGui.Spacing();
 		ImGui.TextWrapped(

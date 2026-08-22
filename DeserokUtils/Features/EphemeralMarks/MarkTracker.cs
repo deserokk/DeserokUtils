@@ -8,7 +8,7 @@ using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 namespace DeserokUtils.Features.EphemeralMarks;
 
 /// <summary>Which broad kind of content you are standing in, for the three grouped toggles.</summary>
-internal enum ContentGroup { None, Pvp, FieldOps, AllianceRaid }
+internal enum ContentGroup { None, Pvp, FieldOps, AllianceRaid, DeepDungeon }
 
 /// <summary>
 /// Remembers who you queued with, and finds them again once you are inside.
@@ -124,6 +124,7 @@ internal sealed class MarkTracker: IDisposable {
 			ContentGroup.Pvp => Plugin.Config.MarksInPvp,
 			ContentGroup.FieldOps => Plugin.Config.MarksInFieldOps,
 			ContentGroup.AllianceRaid => Plugin.Config.MarksInAllianceRaid,
+			ContentGroup.DeepDungeon => Plugin.Config.MarksInDeepDungeon,
 			_ => false,
 		};
 
@@ -243,6 +244,14 @@ internal sealed class MarkTracker: IDisposable {
 			18 or 28 or 37 or 39 => ContentGroup.Pvp,                    // Frontline, CC, CC custom, Rival Wings
 			26 or 41 or 47 or 48 or 52 or 53 or 60 or 61 => ContentGroup.FieldOps,
 			8 => ContentGroup.AllianceRaid,
+
+			// ⚠ 31 ONLY, which is the deep dungeon FLOORS -- 52 zones covering Palace of the Dead,
+			// Heaven-on-High, Eureka Orthos and Pilgrim's Traverse, and nothing else. There is a
+			// tempting second value: those three also appear under use 12, but 12 is a raid category
+			// that also holds Alexander, Heart of the Creator and the Eorzean Subterrane. Taking both
+			// would quietly switch marks on for half the raid tier.
+			31 => ContentGroup.DeepDungeon,
+
 			_ => ContentGroup.None,
 		};
 

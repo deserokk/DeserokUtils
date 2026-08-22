@@ -481,6 +481,29 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool MarksInAllianceRaid { get; set; } = true;
 
 	/// <summary>
+	/// Deep dungeons -- Palace of the Dead, Heaven-on-High, Eureka Orthos, Pilgrim's Traverse.
+	///
+	/// ⚠⚠ THIS ONE IS IN FOR A DIFFERENT REASON THAN THE OTHERS, and the difference is worth keeping
+	/// straight. Every group above answers *which of these identical allies is my friend* -- the
+	/// marker discriminates. A deep dungeon party is four people who are all your friends, so by that
+	/// test it should be excluded. deserok, 2026-08-22, after a Heaven-on-High run: *"we lose each
+	/// other constantly."*
+	///
+	/// ⭐ The value there is **wayfinding, not identification**. The floors are dark randomised mazes
+	/// and the marker says where somebody IS, which is a separate job the same overlay happens to do.
+	///
+	/// ⭐ Note the size threshold never fires here and needs no exception: a deep dungeon party caps at
+	/// four, so the snapshot is at most three, always under the limit of five. The guard that exists
+	/// to catch "the premade is the whole group" would have excluded this on principle -- it does not,
+	/// only because the numbers happen to fall the right way. Worth knowing before anyone raises that
+	/// limit.
+	///
+	/// ⭐ New key, so it reaches existing configs at this default -- additions are free, edits are what
+	/// need a migration.
+	/// </summary>
+	public bool MarksInDeepDungeon { get; set; } = true;
+
+	/// <summary>
 	/// ⚠ OFF. The marker is the signal; the name is clutter once you know the shapes. Confirmed the
 	/// moment it was first seen in game -- deserok: *"don't need the name, just the star"*. Still a
 	/// checkbox, because with three friends and only two shapes a name may earn its place again.
