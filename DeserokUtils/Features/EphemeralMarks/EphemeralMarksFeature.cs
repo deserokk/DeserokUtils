@@ -54,6 +54,11 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// now. ⚠ Not a whitelist of people you care about -- bigger, and it means keeping a list of specific
 /// people, which is the direction to stay away from. "Who I came with" is self-scoping and forgets
 /// itself.
+///
+/// ⚠⚠ THE SHAPE OVERRIDES ARE NOT AN EXCEPTION TO THAT, and the distinction is the whole reason they
+/// were acceptable. They are consulted only for people the snapshot ALREADY produced, and can change
+/// nothing except which glyph is drawn. The moment one influences who gets marked, it has become the
+/// whitelist above. See <see cref="Configuration.MarksOverrides"/>.
 /// </summary>
 internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	public string TabTitle => "Marks";
@@ -138,7 +143,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			fontPx = this.font.Prepare(fontPx);
 		using var locked = wantTags ? this.font.TryLock() : null;
 
-		foreach (var (obj, isLeader, tag) in this.tracker.Marked()) {
+		foreach (var (obj, isLeader, tag, key) in this.tracker.Marked()) {
 			this.seenThisFrame.Add(obj.GameObjectId);
 			// ⚠ The WORLD part of the anchor -- roughly head height, so the marker sits on the body rather
 			// than on the ground. The screen-space lift below is what keeps it clear at distance.
@@ -159,10 +164,15 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			screen.Y -= Plugin.Config.MarksLift * scale;
 			screen = this.Smooth(obj.GameObjectId, screen);
 
-			if (isLeader)
-				DrawStar(draw, screen, colour, scale);
-			else
-				DrawReticle(draw, screen, colour, scale);
+			// ⭐ An override beats the leader star, deliberately. Two reasons, deserok 2026-08-23:
+			// it is simpler, and *"anyone who cares enough to have a shape would also care enough to
+			// know who the leader is"*. The alternative -- leader wins -- means somebody's chosen glyph
+			// silently disappears whenever that person happens to be leading, which is the worst kind
+			// of intermittent.
+			//
+			// ⚠⚠ This is the ONLY thing an override touches. It cannot make somebody marked; `key`
+			// only exists for people already in the snapshot.
+			MarkShapes.Draw(draw, ShapeFor(key, isLeader), screen, colour, scale);
 
 			if (wantTags && tag.Length > 0) {
 				// ⚠⚠ Measured with the SAME font and size it is drawn at. Measuring with the default
@@ -298,74 +308,23 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	private const uint Shadow = 0xC0000000;
 
 	/// <summary>
-	/// An outlined diamond with a filled point and a small detached square above it.
+	/// Which glyph this person gets: an override if they have one, otherwise the leader/member default.
 	///
-	/// ⭐ Deliberately in the visual language of the game's own target reticle -- a marker that looks
-	/// like it belongs reads faster than one that looks like a debug overlay. **Outlines rather than a
-	/// solid shape**, which is what keeps it legible over a bright or busy background instead of
-	/// becoming a blob.
+	/// ⚠ A linear scan, in the draw loop, and that is fine here in a way the object-table scan was
+	/// NOT. That one was ~600 entries with a string compare each, every frame. This is at most four
+	/// markers against a handful of hand-typed overrides -- a couple of dozen compares -- and doing it
+	/// per frame rather than at the 1 Hz resolve is what makes an edit in the tab show up instantly.
 	///
-	/// ⚠⚠ But not a colour a target reticle uses, and that is the point. A friend marker mistakable
-	/// for "this is my current target" would be a worse misread than no marker at all. Same family,
-	/// different signal.
-	///
-	/// ⚠ Every stroke is drawn twice, dark then coloured. Thin light lines vanish against snow.
+	/// ⚠⚠ Note what this function CANNOT do: it is only ever called for somebody already in the
+	/// snapshot, so an override cannot add anyone. Keep it that way.
 	/// </summary>
-	private static void DrawReticle(ImDrawListPtr draw, Vector2 at, uint colour, float s) {
-		float halfWidth = 10f * s, tall = 32f * s, shoulder = 12.5f * s, square = 5f * s, gap = 8f * s;
-		// ⚠ Stroke weights scale too, but with a floor -- a sub-pixel line does not anti-alias into
-		// something faint, it flickers as the marker moves.
-		float heavy = MathF.Max(1.5f, 3f * s), light = MathF.Max(1f, 1.6f * s);
-
-		var left = new Vector2(at.X - halfWidth, at.Y - shoulder);
-		var right = new Vector2(at.X + halfWidth, at.Y - shoulder);
-		var top = new Vector2(at.X, at.Y - tall);
-
-		// Lower half solid so the tip reads at a glance; upper half open so it does not become a lump
-		// at distance.
-		draw.AddTriangleFilled(left, right, at, Shadow);
-		draw.AddTriangleFilled(
-			left + new Vector2(1.5f * s, -0.5f * s), right + new Vector2(-1.5f * s, -0.5f * s),
-			at + new Vector2(0f, -1.5f * s), colour);
-
-		draw.AddQuad(top, right, at, left, Shadow, heavy);
-		draw.AddQuad(top, right, at, left, colour, light);
-
-		var sqA = new Vector2(at.X - square, at.Y - tall - gap - square * 2f);
-		var sqB = new Vector2(at.X + square, at.Y - tall - gap);
-		draw.AddRect(sqA, sqB, Shadow, 0f, ImDrawFlags.None, heavy);
-		draw.AddRect(sqA, sqB, colour, 0f, ImDrawFlags.None, light);
-	}
-
-	/// <summary>
-	/// A five-pointed star, for the party leader.
-	///
-	/// ⭐ deserok's idea, and it is asymmetric in exactly the useful direction: from the leader's
-	/// client everyone else is a diamond, while from Bunny's and Q's the leader is a star. They follow
-	/// him, so "where is he" is the question they are actually asking, and a distinct SHAPE answers it
-	/// faster than a distinct colour -- shape survives peripheral vision and colour blindness, colour
-	/// does not.
-	///
-	/// ⚠ Bigger than the diamond on purpose. It is the one you are looking for.
-	/// </summary>
-	private static void DrawStar(ImDrawListPtr draw, Vector2 at, uint colour, float s) {
-		float outer = 19f * s, inner = 7.9f * s, lift = 18f * s;
-		float heavy = MathF.Max(1.6f, 3.5f * s), light = MathF.Max(1f, 1.8f * s);
-		var centre = new Vector2(at.X, at.Y - lift);
-
-		Span<Vector2> points = stackalloc Vector2[10];
-		for (int i = 0; i < 10; i++) {
-			// Start at the top and alternate outer/inner radius. -PI/2 puts a point upward.
-			float angle = -MathF.PI / 2f + i * MathF.PI / 5f;
-			float radius = (i % 2 == 0) ? outer : inner;
-			points[i] = centre + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
+	private static MarkShape ShapeFor(string key, bool leader) {
+		foreach (var over in Plugin.Config.MarksOverrides) {
+			if (over.Who.Length > 0 && string.Equals(over.Who.Trim(), key, StringComparison.OrdinalIgnoreCase))
+				return over.Shape;
 		}
 
-		// ⚠ AddPolyline, not ten AddLine calls. Separate lines double-draw every corner -- which on a
-		// star is ten lumpy joins -- and emit roughly twice the geometry. One closed polyline mitres
-		// the corners properly and is the primitive this is for.
-		draw.AddPolyline(ref points[0], 10, Shadow, ImDrawFlags.Closed, heavy);
-		draw.AddPolyline(ref points[0], 10, colour, ImDrawFlags.Closed, light);
+		return leader ? Plugin.Config.MarksLeaderShape : Plugin.Config.MarksMemberShape;
 	}
 
 	// ── the tab ──────────────────────────────────────────────────────────────────────────────
@@ -438,6 +397,58 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			+ "same as marking nobody. Frontlines caps premades at 4 and Crystalline Conflict at 2, so "
 			+ "5 clears every real case while excluding content you enter as a whole group.");
 
+		Section("Shapes");
+		var leaderShape = Plugin.Config.MarksLeaderShape;
+		if (ShapePicker("Party leader##marks", ref leaderShape)) {
+			Plugin.Config.MarksLeaderShape = leaderShape;
+			Plugin.Config.Save();
+		}
+		var memberShape = Plugin.Config.MarksMemberShape;
+		if (ShapePicker("Everyone else##marks", ref memberShape)) {
+			Plugin.Config.MarksMemberShape = memberShape;
+			Plugin.Config.Save();
+		}
+
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"Give a specific person their own shape. Type their name and home world exactly as the "
+			+ "nameplate shows them, e.g. Nuvok Stone@Balmung.");
+		ImGui.TextDisabled(
+			"This only changes the shape for people already being marked. It never marks anyone.");
+		ImGui.Spacing();
+
+		// ⚠ Indexed, and REMOVAL BREAKS OUT of the loop rather than continuing. Mutating the list
+		// mid-enumeration is the ordinary version of this bug; the ids also stop matching the rows.
+		for (int i = 0; i < Plugin.Config.MarksOverrides.Count; i++) {
+			var entry = Plugin.Config.MarksOverrides[i];
+
+			ImGui.SetNextItemWidth(190f);
+			string who = entry.Who;
+			if (ImGui.InputText($"##marksWho{i}", ref who, 64)) {
+				entry.Who = who;
+				Plugin.Config.Save();
+			}
+
+			ImGui.SameLine();
+			var shape = entry.Shape;
+			if (ShapePicker($"##marksShape{i}", ref shape, 120f)) {
+				entry.Shape = shape;
+				Plugin.Config.Save();
+			}
+
+			ImGui.SameLine();
+			if (ImGui.Button($"Remove##marksDel{i}")) {
+				Plugin.Config.MarksOverrides.RemoveAt(i);
+				Plugin.Config.Save();
+				break;
+			}
+		}
+
+		if (ImGui.Button("+ Add a person##marks")) {
+			Plugin.Config.MarksOverrides.Add(new MarkOverride());
+			Plugin.Config.Save();
+		}
+
 		Section("Appearance");
 		var colour = Plugin.Config.MarksColour;
 		if (ImGui.ColorEdit4("Marker colour##marks", ref colour, ImGuiColorEditFlags.NoInputs)) {
@@ -492,6 +503,28 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.TextWrapped(
 			"⚠ A party formed after you are already inside will not be marked. Matching is by name and "
 			+ "home world, nothing is stored, and the list is discarded when you leave.");
+	}
+
+	/// <summary>
+	/// ⚠ Iterates the enum rather than a hand-written array, so a new shape appears in every picker
+	/// the moment it exists. A parallel list is the kind of thing that stays correct until somebody
+	/// adds the eighth shape and only remembers six places.
+	/// </summary>
+	private static bool ShapePicker(string label, ref MarkShape value, float width = 160f) {
+		bool changed = false;
+		ImGui.SetNextItemWidth(width);
+		if (ImGui.BeginCombo(label, MarkShapes.Label(value))) {
+			foreach (MarkShape option in Enum.GetValues<MarkShape>()) {
+				if (ImGui.Selectable(MarkShapes.Label(option), option == value)) {
+					value = option;
+					changed = true;
+				}
+			}
+
+			ImGui.EndCombo();
+		}
+
+		return changed;
 	}
 
 	private static void Toggle(string label, string hint, bool value, Action<bool> set) {

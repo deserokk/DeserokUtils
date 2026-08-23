@@ -48,7 +48,7 @@ internal sealed class MarkTracker: IDisposable {
 	private const string PopAddon = "ContentsFinderConfirm";
 
 	private readonly List<(string Name, uint World, bool Leader)> snapshot = new();
-	private readonly List<(ulong Id, bool Leader, string Tag)> resolved = new();
+	private readonly List<(ulong Id, bool Leader, string Tag, string Key)> resolved = new();
 	private readonly Dictionary<uint, ContentGroup> groupCache = new();
 
 	private DateTime lastResolve = DateTime.MinValue;
@@ -187,7 +187,12 @@ internal sealed class MarkTracker: IDisposable {
 			foreach (var entry in this.snapshot) {
 				if (entry.World == pc.HomeWorld.RowId
 					&& string.Equals(entry.Name, pc.Name.TextValue, StringComparison.Ordinal)) {
-					this.resolved.Add((pc.GameObjectId, entry.Leader, Tag(entry.Name, pc.EntityId)));
+					// ⚠ Built from the LIVE character rather than the snapshot, so the world is the one the
+					// user can actually see on the nameplate and type into the box.
+					string world = "";
+					try { world = pc.HomeWorld.ValueNullable?.Name.ExtractText() ?? ""; } catch { }
+					this.resolved.Add((pc.GameObjectId, entry.Leader, Tag(entry.Name, pc.EntityId),
+						$"{pc.Name.TextValue}@{world}"));
 					break;
 				}
 			}
@@ -220,11 +225,11 @@ internal sealed class MarkTracker: IDisposable {
 		return initial;
 	}
 
-	public IEnumerable<(Dalamud.Game.ClientState.Objects.Types.IGameObject Object, bool Leader, string Tag)> Marked() {
-		foreach (var (id, leader, tag) in this.resolved) {
+	public IEnumerable<(Dalamud.Game.ClientState.Objects.Types.IGameObject Object, bool Leader, string Tag, string Key)> Marked() {
+		foreach (var (id, leader, tag, key) in this.resolved) {
 			var obj = Plugin.Objects.SearchById(id);
 			if (obj is not null && obj.IsValid())
-				yield return (obj, leader, tag);
+				yield return (obj, leader, tag, key);
 		}
 	}
 

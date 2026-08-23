@@ -9,6 +9,17 @@ using Newtonsoft.Json;
 namespace DeserokUtils;
 
 /// <summary>
+/// A glyph chosen for one specific character. See <see cref="Configuration.MarksOverrides"/> for the
+/// limits on what this is allowed to influence.
+/// </summary>
+public sealed class MarkOverride {
+	/// <summary>⚠ <c>Name@World</c> as typed. Matched case-insensitively; never parsed into an id.</summary>
+	public string Who { get; set; } = string.Empty;
+
+	public Features.EphemeralMarks.MarkShape Shape { get; set; } = Features.EphemeralMarks.MarkShape.Heart;
+}
+
+/// <summary>
 /// One ring of FATEs that take turns, in one territory.
 ///
 /// ⚠⚠ THE TERRITORY IS PART OF THE ROTATION, not a filter applied to it. The Occult Crescent has two
@@ -502,6 +513,40 @@ public sealed class Configuration: IPluginConfiguration {
 	/// need a migration.
 	/// </summary>
 	public bool MarksInDeepDungeon { get; set; } = true;
+
+	/// <summary>
+	/// The glyph for the party leader, and for everyone else. Bunny, #dev-notes 2026-08-22:
+	/// *"Add different symbols for marks please :) Heart is needed^"*
+	/// </summary>
+	public Features.EphemeralMarks.MarkShape MarksLeaderShape { get; set; } =
+		Features.EphemeralMarks.MarkShape.Star;
+
+	/// <inheritdoc cref="MarksLeaderShape"/>
+	public Features.EphemeralMarks.MarkShape MarksMemberShape { get; set; } =
+		Features.EphemeralMarks.MarkShape.Reticle;
+
+	/// <summary>
+	/// Per-person glyph overrides, keyed <c>Name@World</c>, case-insensitive.
+	///
+	/// ## ⚠⚠ THIS IS THE ONE THING IN MARKS THAT IS WRITTEN TO DISK. Read before extending it.
+	///
+	/// Everything else about this feature is deliberately ephemeral -- the snapshot dies when you
+	/// leave, and the design notes say *"nothing is persisted"*. That sentence is now qualified rather
+	/// than true, so it needs to be qualified HERE, where the exception lives.
+	///
+	/// ⭐ What makes it acceptable is the narrow shape deserok drew, 2026-08-23: *"We don't apply said
+	/// marks all the time, or change how the plugin works, we simply allow a shape override to exist
+	/// when they would already be applied."*
+	///
+	/// ⚠⚠ So: **an entry here can never cause somebody to be marked.** It only changes the glyph for
+	/// someone already in the snapshot. Wire it anywhere into the decision of WHO gets a marker and it
+	/// becomes the "list of people you care about" that this feature rejected twice on the record --
+	/// bigger, and a roster to maintain.
+	///
+	/// ⚠ A name and a home world, typed by the user, and nothing else. Never an account or content id.
+	/// </summary>
+	[JsonProperty(ObjectCreationHandling = ReplaceList)]
+	public List<MarkOverride> MarksOverrides { get; set; } = new();
 
 	/// <summary>
 	/// ⚠ OFF. The marker is the signal; the name is clutter once you know the shapes. Confirmed the
