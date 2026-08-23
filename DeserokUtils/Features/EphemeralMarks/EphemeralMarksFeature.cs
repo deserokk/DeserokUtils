@@ -461,8 +461,11 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 
 		ImGui.Spacing();
 		ImGui.TextWrapped(
+			// ⚠ A placeholder, never a real character. An example name in shipped UI reads as an
+			// endorsement of that person, or as the author signing their own plugin, and neither is
+			// what a format hint is for.
 			"Give a specific person their own shape. Type their name and home world exactly as the "
-			+ "nameplate shows them, e.g. Nuvok Stone@Balmung.");
+			+ "nameplate shows them, e.g. First Last@Server.");
 		ImGui.TextDisabled(
 			"This only changes the shape for people already being marked. It never marks anyone.");
 		ImGui.Spacing();
