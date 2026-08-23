@@ -16,7 +16,11 @@ public sealed class MarkOverride {
 	/// <summary>⚠ <c>Name@World</c> as typed. Matched case-insensitively; never parsed into an id.</summary>
 	public string Who { get; set; } = string.Empty;
 
-	public Features.EphemeralMarks.MarkShape Shape { get; set; } = Features.EphemeralMarks.MarkShape.Heart;
+	public Features.EphemeralMarks.MarkShape Shape { get; set; } = Features.EphemeralMarks.MarkShape.Icon;
+
+	/// <summary>Font Awesome codepoint, used when <see cref="Shape"/> is Icon. Defaults to a heart,
+	/// which is the reason this whole feature exists.</summary>
+	public int Glyph { get; set; } = (int)Dalamud.Interface.FontAwesomeIcon.Heart;
 }
 
 /// <summary>
@@ -77,7 +81,7 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public int Version { get; set; } = 1;
 
-	public const int CurrentVersion = 5;
+	public const int CurrentVersion = 6;
 
 	/// <summary>
 	/// ⚠⚠ EVERY LIST IN THIS FILE MUST CARRY THIS, AND HERE IS WHY.
@@ -525,6 +529,12 @@ public sealed class Configuration: IPluginConfiguration {
 	public Features.EphemeralMarks.MarkShape MarksMemberShape { get; set; } =
 		Features.EphemeralMarks.MarkShape.Reticle;
 
+	/// <summary>Font Awesome codepoints for the two defaults, used when their shape is Icon.</summary>
+	public int MarksLeaderGlyph { get; set; } = (int)Dalamud.Interface.FontAwesomeIcon.Star;
+
+	/// <inheritdoc cref="MarksLeaderGlyph"/>
+	public int MarksMemberGlyph { get; set; } = (int)Dalamud.Interface.FontAwesomeIcon.Heart;
+
 	/// <summary>
 	/// Per-person glyph overrides, keyed <c>Name@World</c>, case-insensitive.
 	///
@@ -705,6 +715,40 @@ public sealed class Configuration: IPluginConfiguration {
 		// and an unknown key deserialises to nothing and vanishes on the next Save() -- no migration
 		// for a deletion. The Rotations default reproduces the old North Horn ring exactly, and
 		// LastSeen/MeasuredIntervals are keyed by FATE name, so every measurement carries over.
+
+		if (this.Version < 6) {
+			// ⚠⚠ MarkShape 2-6 were hand-rolled Heart/Circle/Triangle/Square/Cross and are gone. The
+			// numbers cannot simply be reused: a saved 2 would become whatever now sits at 2. So the
+			// five are rewritten onto the Font Awesome glyph that replaced them.
+			//
+			// ⭐ Only deserok and Bunny ever ran those values, and only in a dev build -- but the whole
+			// point of the lesson in ORIENTATION is that an enum's MEANING changing cannot reach an
+			// existing config on its own, exactly like a changed default cannot.
+			var retired = new Dictionary<int, Dalamud.Interface.FontAwesomeIcon> {
+				[2] = Dalamud.Interface.FontAwesomeIcon.Heart,
+				[3] = Dalamud.Interface.FontAwesomeIcon.Circle,
+				[4] = Dalamud.Interface.FontAwesomeIcon.Play,
+				[5] = Dalamud.Interface.FontAwesomeIcon.Square,
+				[6] = Dalamud.Interface.FontAwesomeIcon.Times,
+			};
+
+			if (retired.TryGetValue((int)this.MarksLeaderShape, out var lead)) {
+				this.MarksLeaderShape = Features.EphemeralMarks.MarkShape.Icon;
+				this.MarksLeaderGlyph = (int)lead;
+			}
+
+			if (retired.TryGetValue((int)this.MarksMemberShape, out var member)) {
+				this.MarksMemberShape = Features.EphemeralMarks.MarkShape.Icon;
+				this.MarksMemberGlyph = (int)member;
+			}
+
+			foreach (var over in this.MarksOverrides) {
+				if (!retired.TryGetValue((int)over.Shape, out var glyph))
+					continue;
+				over.Shape = Features.EphemeralMarks.MarkShape.Icon;
+				over.Glyph = (int)glyph;
+			}
+		}
 
 		if (this.Version < 3) {
 			// ⚠ A changed default cannot reach a config that already exists -- the same trap as the

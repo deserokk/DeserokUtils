@@ -14,13 +14,20 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// choices into whatever now sits at that index.
 /// </remarks>
 public enum MarkShape {
+	/// <summary>The bespoke reticle. ⭐ Kept vector because it is deliberately in FFXIV's own visual
+	/// language, which no general-purpose icon set can imitate.</summary>
 	Reticle = 0,
+
+	/// <summary>The tuned five-point star. Kept vector for the same reason.</summary>
 	Star = 1,
-	Heart = 2,
-	Circle = 3,
-	Triangle = 4,
-	Square = 5,
-	Cross = 6,
+
+	// ⚠⚠ 2-6 WERE Heart, Circle, Triangle, Square and Cross, hand-rolled as vector outlines and
+	// retired within the hour. Font Awesome ships all of them and 1377 more, drawn properly. The
+	// numbers stay reserved and a migration maps them onto Icon -- reusing them would silently turn
+	// somebody's saved heart into whatever now sits at 2.
+
+	/// <summary>A Font Awesome glyph, chosen by codepoint. See the Icon fields on the config.</summary>
+	Icon = 7,
 }
 
 /// <summary>
@@ -44,24 +51,84 @@ internal static class MarkShapes {
 	public static string Label(MarkShape shape) => shape switch {
 		MarkShape.Reticle => "Reticle",
 		MarkShape.Star => "Star",
-		MarkShape.Heart => "Heart",
-		MarkShape.Circle => "Circle",
-		MarkShape.Triangle => "Triangle",
-		MarkShape.Square => "Square",
-		MarkShape.Cross => "Cross",
-		_ => shape.ToString(),
+		MarkShape.Icon => "Icon",
+		_ => "Icon",
 	};
 
-	public static void Draw(ImDrawListPtr draw, MarkShape shape, Vector2 at, uint colour, float s) {
+	public static void Draw(
+		ImDrawListPtr draw, MarkShape shape, int glyph, ImFontPtr? icons, float iconPx,
+		Vector2 at, uint colour, float s) {
 		switch (shape) {
-			case MarkShape.Star: DrawStar(draw, at, colour, s); break;
-			case MarkShape.Heart: DrawHeart(draw, at, colour, s); break;
-			case MarkShape.Circle: DrawRing(draw, at, colour, s); break;
-			case MarkShape.Triangle: DrawPolygon(draw, at, colour, s, 3, -MathF.PI / 2f); break;
-			case MarkShape.Square: DrawPolygon(draw, at, colour, s, 4, -MathF.PI / 4f); break;
-			case MarkShape.Cross: DrawCross(draw, at, colour, s); break;
-			default: DrawReticle(draw, at, colour, s); break;
+			case MarkShape.Star:
+				DrawStar(draw, at, colour, s);
+				break;
+
+			// ⚠ Legacy 2-6 land here too, which is intentional: the migration rewrites them, but a
+			// config that has not been migrated yet still draws something sensible rather than
+			// silently falling back to a reticle.
+			case MarkShape.Icon:
+			case (MarkShape)2:
+			case (MarkShape)3:
+			case (MarkShape)4:
+			case (MarkShape)5:
+			case (MarkShape)6:
+				DrawGlyph(draw, glyph, icons, iconPx, at, colour, s);
+				break;
+
+			default:
+				DrawReticle(draw, at, colour, s);
+				break;
 		}
+	}
+
+	/// <summary>
+	/// A Font Awesome glyph with a shadow layer behind it -- the Honorific approach, and deserok's
+	/// call after I spent a while tuning bezier curves: *"theres hearts, triangles, hell, all kinds of
+	/// random shapes... can't we just do our own outline by making one glyph, and then adding a
+	/// shadowlayer to it."*
+	///
+	/// ⭐⭐ This replaces five hand-rolled outlines with 1382 properly drawn shapes, and it is strictly
+	/// less code. The curve-fitting was the wrong instinct: the answer was already shipped in Dalamud.
+	///
+	/// ## ⚠ The shape rule is AMENDED here, not broken
+	///
+	/// Every other glyph is an outline because a filled shape becomes a blob over a bright background.
+	/// Font Awesome icons are solid. But outlining was the MEANS -- the end is staying readable over
+	/// snow and spell effects, and a solid glyph ringed in dark achieves that better than a thin
+	/// stroke, which is why map markers in most games look like this.
+	///
+	/// ⚠ Eight offsets, not four. Four leaves the diagonals bare and the halo visibly square at the
+	/// corners; eight closes it for one more pass over two glyphs.
+	///
+	/// ⚠ Falls back to the reticle while the atlas is still building, rather than drawing nothing. A
+	/// marker that blinks out for a few frames after a settings change reads as a bug.
+	/// </summary>
+	private static void DrawGlyph(
+		ImDrawListPtr draw, int glyph, ImFontPtr? icons, float iconPx, Vector2 at, uint colour, float s) {
+		if (icons is not { } face || glyph <= 0) {
+			DrawReticle(draw, at, colour, s);
+			return;
+		}
+
+		string text = char.ConvertFromUtf32(glyph);
+		ImGui.PushFont(face);
+		var size = ImGui.CalcTextSize(text);
+		ImGui.PopFont();
+
+		// ⚠ Rounded, for the same reason the tag is: a glyph quad on a half pixel is resampled even
+		// when the atlas size is exactly right.
+		var origin = new Vector2(
+			MathF.Round(at.X - size.X / 2f),
+			MathF.Round(at.Y - 18f * s - size.Y / 2f));
+
+		float halo = MathF.Max(1.4f, 2.2f * s);
+		for (int i = 0; i < 8; i++) {
+			float angle = i * MathF.PI / 4f;
+			var offset = new Vector2(MathF.Cos(angle) * halo, MathF.Sin(angle) * halo);
+			draw.AddText(face, iconPx, origin + offset, Shadow, text);
+		}
+
+		draw.AddText(face, iconPx, origin, colour, text);
 	}
 
 	/// <summary>
@@ -123,90 +190,6 @@ internal static class MarkShapes {
 		// star is ten lumpy joins -- and emit roughly twice the geometry. One closed polyline mitres
 		// the corners properly and is the primitive this is for.
 		Stroke(draw, points, heavy, light, colour);
-	}
-
-	/// <summary>
-	/// ⭐ Sampled from the standard heart curve rather than drawn from arcs, so it is one closed
-	/// polyline like every other shape here and gets the same mitred corners and the same two-pass
-	/// stroke for free.
-	///
-	/// ⚠ The curve is generated top-down in screen space, so the parametric Y is NEGATED -- the maths
-	/// convention puts +Y upward and ImGui puts it downward. Without that the heart is upside down,
-	/// which reads as a slightly odd blob rather than as an obvious bug.
-	///
-	/// ⚠ 28 samples. Fewer shows flats along the lobes at 2x on a 1440p screen; more is invisible.
-	/// </summary>
-	private static void DrawHeart(ImDrawListPtr draw, Vector2 at, uint colour, float s) {
-		const int N = 28;
-		float lift = 20f * s;
-		// The curve spans about 32 units wide; this brings it to roughly the star's footprint.
-		float k = 1.15f * s;
-		float heavy = MathF.Max(1.6f, 3.5f * s), light = MathF.Max(1f, 1.8f * s);
-		var centre = new Vector2(at.X, at.Y - lift);
-
-		Span<Vector2> points = stackalloc Vector2[N];
-		for (int i = 0; i < N; i++) {
-			float t = i * MathF.Tau / N;
-			float x = 16f * MathF.Pow(MathF.Sin(t), 3f);
-			float y = 13f * MathF.Cos(t) - 5f * MathF.Cos(2f * t)
-				- 2f * MathF.Cos(3f * t) - MathF.Cos(4f * t);
-			points[i] = centre + new Vector2(x * k, -y * k);
-		}
-
-		Stroke(draw, points, heavy, light, colour);
-	}
-
-	/// <summary>⚠ Not AddCircle: it takes a segment count and the default adapts to radius, so a ring
-	/// drawn small then scaled up goes visibly polygonal. Sampling it here keeps it smooth at 2.5x.</summary>
-	private static void DrawRing(ImDrawListPtr draw, Vector2 at, uint colour, float s) {
-		const int N = 24;
-		float radius = 15f * s, lift = 18f * s;
-		float heavy = MathF.Max(1.6f, 3.5f * s), light = MathF.Max(1f, 1.8f * s);
-		var centre = new Vector2(at.X, at.Y - lift);
-
-		Span<Vector2> points = stackalloc Vector2[N];
-		for (int i = 0; i < N; i++) {
-			float angle = i * MathF.Tau / N;
-			points[i] = centre + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
-		}
-
-		Stroke(draw, points, heavy, light, colour);
-	}
-
-	/// <summary>A regular polygon -- triangle and square share this, differing only in rotation.</summary>
-	private static void DrawPolygon(ImDrawListPtr draw, Vector2 at, uint colour, float s, int sides, float rotation) {
-		float radius = 16f * s, lift = 18f * s;
-		float heavy = MathF.Max(1.6f, 3.5f * s), light = MathF.Max(1f, 1.8f * s);
-		var centre = new Vector2(at.X, at.Y - lift);
-
-		Span<Vector2> points = stackalloc Vector2[8];
-		for (int i = 0; i < sides; i++) {
-			float angle = rotation + i * MathF.Tau / sides;
-			points[i] = centre + new Vector2(MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
-		}
-
-		draw.AddPolyline(ref points[0], sides, Shadow, ImDrawFlags.Closed, heavy);
-		draw.AddPolyline(ref points[0], sides, colour, ImDrawFlags.Closed, light);
-	}
-
-	/// <summary>
-	/// An X. ⚠ Two strokes rather than a closed outline, so it is the one shape that cannot use
-	/// <see cref="Stroke"/> -- a polyline through four corners would draw a bowtie.
-	/// </summary>
-	private static void DrawCross(ImDrawListPtr draw, Vector2 at, uint colour, float s) {
-		float arm = 13f * s, lift = 18f * s;
-		float heavy = MathF.Max(1.8f, 4f * s), light = MathF.Max(1.2f, 2.1f * s);
-		var centre = new Vector2(at.X, at.Y - lift);
-
-		var a1 = centre + new Vector2(-arm, -arm);
-		var a2 = centre + new Vector2(arm, arm);
-		var b1 = centre + new Vector2(arm, -arm);
-		var b2 = centre + new Vector2(-arm, arm);
-
-		draw.AddLine(a1, a2, Shadow, heavy);
-		draw.AddLine(b1, b2, Shadow, heavy);
-		draw.AddLine(a1, a2, colour, light);
-		draw.AddLine(b1, b2, colour, light);
 	}
 
 	/// <summary>The two-pass stroke every closed shape shares. Dark underneath, colour on top.</summary>

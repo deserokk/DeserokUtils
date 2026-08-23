@@ -4,6 +4,7 @@ using System.Numerics;
 
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Command;
+using Dalamud.Interface;
 
 namespace DeserokUtils.Features.EphemeralMarks;
 
@@ -69,7 +70,14 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	/// ⚠ Constructed here but it builds nothing until a tag is actually drawn -- the atlas is created
 	/// on first use, and the tag is off by default.
 	/// </summary>
-	private readonly MarkFont font = new();
+	private readonly MarkFont font = new(MarkFace.Axis);
+
+	/// <summary>
+	/// ⚠ A second atlas, and it earns its keep: the glyphs have to be rasterised at the size they are
+	/// drawn for exactly the reason the tag did. Built lazily like the other one, so a config using
+	/// only the reticle and star never pays for it.
+	/// </summary>
+	private readonly MarkFont iconFont = new(MarkFace.Icons);
 
 	public EphemeralMarksFeature() {
 		Plugin.Commands.AddHandler("/dsumarks", new CommandInfo(this.OnCommand) {
@@ -143,6 +151,16 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			fontPx = this.font.Prepare(fontPx);
 		using var locked = wantTags ? this.font.TryLock() : null;
 
+		// ⭐ Prepared only if some glyph is actually in use. Checking costs a walk of at most a handful
+		// of config entries once per frame, and it keeps the icon atlas from existing at all for
+		// anyone happy with the two vector shapes.
+		bool wantIcons = UsesIcons();
+		float iconPx = 30f * scale;
+		if (wantIcons)
+			iconPx = this.iconFont.Prepare(iconPx);
+		using var iconLock = wantIcons ? this.iconFont.TryLock() : null;
+		ImFontPtr? iconFace = iconLock is not null ? iconLock.ImFont : null;
+
 		foreach (var (obj, isLeader, tag, key) in this.tracker.Marked()) {
 			this.seenThisFrame.Add(obj.GameObjectId);
 			// ⚠ The WORLD part of the anchor -- roughly head height, so the marker sits on the body rather
@@ -172,7 +190,8 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			//
 			// ⚠⚠ This is the ONLY thing an override touches. It cannot make somebody marked; `key`
 			// only exists for people already in the snapshot.
-			MarkShapes.Draw(draw, ShapeFor(key, isLeader), screen, colour, scale);
+			var (shape, glyph) = ShapeFor(key, isLeader);
+			MarkShapes.Draw(draw, shape, glyph, iconFace, iconPx, screen, colour, scale);
 
 			if (wantTags && tag.Length > 0) {
 				// ⚠⚠ Measured with the SAME font and size it is drawn at. Measuring with the default
@@ -318,13 +337,35 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	/// ⚠⚠ Note what this function CANNOT do: it is only ever called for somebody already in the
 	/// snapshot, so an override cannot add anyone. Keep it that way.
 	/// </summary>
-	private static MarkShape ShapeFor(string key, bool leader) {
+	/// <summary>
+	/// Whether anything currently configured needs the icon atlas.
+	///
+	/// ⚠ Deliberately does NOT ask which people are marked -- it asks what is configured, so the
+	/// answer is stable and the atlas does not get built and dropped as party members come and go.
+	/// </summary>
+	private static bool UsesIcons() {
+		if (Plugin.Config.MarksLeaderShape != MarkShape.Reticle && Plugin.Config.MarksLeaderShape != MarkShape.Star)
+			return true;
+		if (Plugin.Config.MarksMemberShape != MarkShape.Reticle && Plugin.Config.MarksMemberShape != MarkShape.Star)
+			return true;
+
 		foreach (var over in Plugin.Config.MarksOverrides) {
-			if (over.Who.Length > 0 && string.Equals(over.Who.Trim(), key, StringComparison.OrdinalIgnoreCase))
-				return over.Shape;
+			if (over.Shape != MarkShape.Reticle && over.Shape != MarkShape.Star)
+				return true;
 		}
 
-		return leader ? Plugin.Config.MarksLeaderShape : Plugin.Config.MarksMemberShape;
+		return false;
+	}
+
+	private static (MarkShape Shape, int Glyph) ShapeFor(string key, bool leader) {
+		foreach (var over in Plugin.Config.MarksOverrides) {
+			if (over.Who.Length > 0 && string.Equals(over.Who.Trim(), key, StringComparison.OrdinalIgnoreCase))
+				return (over.Shape, over.Glyph);
+		}
+
+		return leader
+			? (Plugin.Config.MarksLeaderShape, Plugin.Config.MarksLeaderGlyph)
+			: (Plugin.Config.MarksMemberShape, Plugin.Config.MarksMemberGlyph);
 	}
 
 	// ── the tab ──────────────────────────────────────────────────────────────────────────────
@@ -398,14 +439,23 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			+ "5 clears every real case while excluding content you enter as a whole group.");
 
 		Section("Shapes");
+		ImGui.Text("Party leader");
+		ImGui.SameLine(130f);
 		var leaderShape = Plugin.Config.MarksLeaderShape;
-		if (ShapePicker("Party leader##marks", ref leaderShape)) {
+		int leaderGlyph = Plugin.Config.MarksLeaderGlyph;
+		if (this.GlyphPicker("leader", ref leaderShape, ref leaderGlyph)) {
 			Plugin.Config.MarksLeaderShape = leaderShape;
+			Plugin.Config.MarksLeaderGlyph = leaderGlyph;
 			Plugin.Config.Save();
 		}
+
+		ImGui.Text("Everyone else");
+		ImGui.SameLine(130f);
 		var memberShape = Plugin.Config.MarksMemberShape;
-		if (ShapePicker("Everyone else##marks", ref memberShape)) {
+		int memberGlyph = Plugin.Config.MarksMemberGlyph;
+		if (this.GlyphPicker("member", ref memberShape, ref memberGlyph)) {
 			Plugin.Config.MarksMemberShape = memberShape;
+			Plugin.Config.MarksMemberGlyph = memberGlyph;
 			Plugin.Config.Save();
 		}
 
@@ -431,8 +481,10 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 
 			ImGui.SameLine();
 			var shape = entry.Shape;
-			if (ShapePicker($"##marksShape{i}", ref shape, 120f)) {
+			int entryGlyph = entry.Glyph;
+			if (this.GlyphPicker($"over{i}", ref shape, ref entryGlyph, 110f)) {
 				entry.Shape = shape;
+				entry.Glyph = entryGlyph;
 				Plugin.Config.Save();
 			}
 
@@ -505,23 +557,94 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			+ "home world, nothing is stored, and the list is discarded when you leave.");
 	}
 
+	/// ⭐ A shortlist for the empty search, because opening a picker onto 1382 alphabetical entries
+	/// starting with "AddressBook" is worse than six good ones. Typing searches everything.
+	private static readonly FontAwesomeIcon[] Popular = {
+		FontAwesomeIcon.Heart, FontAwesomeIcon.Star, FontAwesomeIcon.Crown, FontAwesomeIcon.Skull,
+		FontAwesomeIcon.Paw, FontAwesomeIcon.Cat, FontAwesomeIcon.Ghost, FontAwesomeIcon.Snowflake,
+		FontAwesomeIcon.Gem, FontAwesomeIcon.Bolt, FontAwesomeIcon.Fire, FontAwesomeIcon.Moon,
+		FontAwesomeIcon.Sun, FontAwesomeIcon.Leaf, FontAwesomeIcon.Fish, FontAwesomeIcon.Dragon,
+		FontAwesomeIcon.Crosshairs, FontAwesomeIcon.LocationArrow, FontAwesomeIcon.Bullseye,
+		FontAwesomeIcon.Anchor, FontAwesomeIcon.Bell, FontAwesomeIcon.Cookie,
+	};
+
+	/// ⚠ Built once. Enum.GetValues over 1382 entries per frame would be the per-frame audit again,
+	/// in a tab nobody has open most of the time.
+	private static (string Name, int Char)[]? allIcons;
+
+	private static (string Name, int Char)[] AllIcons() =>
+		allIcons ??= Enum.GetValues<FontAwesomeIcon>()
+			.Select(i => (Name: i.ToString(), Char: (int)i))
+			.Where(i => i.Char > 0)
+			.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
+			.ToArray();
+
+	private string iconFilter = string.Empty;
+
 	/// <summary>
-	/// ⚠ Iterates the enum rather than a hand-written array, so a new shape appears in every picker
-	/// the moment it exists. A parallel list is the kind of thing that stays correct until somebody
-	/// adds the eighth shape and only remembers six places.
+	/// Shape, plus a glyph picker when the shape is Icon.
+	///
+	/// ⚠ The search is capped at 80 results and SAYS SO when it truncates. A silent cap reads as
+	/// "that icon does not exist", which would send somebody looking for a bug that is not there.
 	/// </summary>
-	private static bool ShapePicker(string label, ref MarkShape value, float width = 160f) {
+	private bool GlyphPicker(string id, ref MarkShape shape, ref int glyph, float width = 150f) {
 		bool changed = false;
+
 		ImGui.SetNextItemWidth(width);
-		if (ImGui.BeginCombo(label, MarkShapes.Label(value))) {
-			foreach (MarkShape option in Enum.GetValues<MarkShape>()) {
-				if (ImGui.Selectable(MarkShapes.Label(option), option == value)) {
-					value = option;
+		if (ImGui.BeginCombo($"##shape{id}", MarkShapes.Label(shape))) {
+			foreach (MarkShape option in new[] { MarkShape.Reticle, MarkShape.Star, MarkShape.Icon }) {
+				if (ImGui.Selectable(MarkShapes.Label(option), option == shape)) {
+					shape = option;
 					changed = true;
 				}
 			}
 
 			ImGui.EndCombo();
+		}
+
+		if (shape != MarkShape.Icon)
+			return changed;
+
+		ImGui.SameLine();
+		// ⚠ Copied out of the ref parameter: a ref cannot be captured by the lambda.
+		int chosen = glyph;
+		string current = AllIcons().FirstOrDefault(i => i.Char == chosen).Name ?? "pick";
+		if (ImGui.Button($"{current}##pick{id}"))
+			ImGui.OpenPopup($"glyphs{id}");
+
+		if (ImGui.BeginPopup($"glyphs{id}")) {
+			ImGui.SetNextItemWidth(220f);
+			string filter = this.iconFilter;
+			if (ImGui.InputTextWithHint($"##filter{id}", "search 1382 icons", ref filter, 32))
+				this.iconFilter = filter;
+
+			var matches = this.iconFilter.Trim().Length == 0
+				? Popular.Select(i => (Name: i.ToString(), Char: (int)i))
+				: AllIcons().Where(i => i.Name.Contains(this.iconFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+			var shown = matches.Take(80).ToList();
+
+			if (ImGui.BeginChild($"list{id}", new Vector2(240f, 260f))) {
+				foreach (var (name, code) in shown) {
+					// ⭐ The glyph itself beside the name -- Dalamud's prebuilt icon font is fine here,
+					// since a menu is drawn at one size and never scaled.
+					using (Plugin.PluginInterface.UiBuilder.IconFontHandle.Push())
+						ImGui.Text(char.ConvertFromUtf32(code));
+
+					ImGui.SameLine();
+					if (ImGui.Selectable($"{name}##{id}{code}", code == glyph)) {
+						glyph = code;
+						changed = true;
+						ImGui.CloseCurrentPopup();
+					}
+				}
+
+				if (shown.Count == 80)
+					ImGui.TextDisabled("...first 80. Narrow the search.");
+			}
+
+			ImGui.EndChild();
+			ImGui.EndPopup();
 		}
 
 		return changed;
@@ -551,5 +674,6 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		Plugin.Commands.RemoveHandler("/dsumarks");
 		this.tracker.Dispose();
 		this.font.Dispose();
+		this.iconFont.Dispose();
 	}
 }

@@ -27,7 +27,16 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// ⭐ Uses the game's own **Axis** face, which is what FFXIV sets its own UI in, so the tag reads as
 /// part of the game rather than as an overlay.
 /// </summary>
-internal sealed class MarkFont: IDisposable {
+/// <summary>Which face to rasterise. ⭐ Same debounce and same lifecycle either way.</summary>
+internal enum MarkFace {
+	/// <summary>The game's own UI face, for the P2 tag.</summary>
+	Axis,
+
+	/// <summary>Dalamud's Font Awesome, for the marker glyphs -- 1382 shapes, already shipped.</summary>
+	Icons,
+}
+
+internal sealed class MarkFont(MarkFace face): IDisposable {
 	/// ⚠ Bounds, because the size comes from a slider multiplied by a resolution ratio. The slider
 	/// runs 0.4-2.5 and the ratio is 0.75 at 1080p through 1.5 at 4K, so the raw product spans roughly
 	/// 5px to 64px -- and a 5px atlas is unreadable while nothing needs more than this ceiling.
@@ -88,8 +97,14 @@ internal sealed class MarkFont: IDisposable {
 	private void Rebuild() {
 		int px = this.wantPx;
 		try {
-			var built = Plugin.PluginInterface.UiBuilder.FontAtlas
-				.NewGameFontHandle(new GameFontStyle(GameFontFamily.Axis, px));
+			var atlas = Plugin.PluginInterface.UiBuilder.FontAtlas;
+
+			// ⚠ Dalamud ships a prebuilt icon font, and using it would put the blur straight back --
+			// it exists at one fixed size. Building our own at the drawn size is the whole point.
+			var built = face == MarkFace.Icons
+				? atlas.NewDelegateFontHandle(e => e.OnPreBuild(
+					tk => tk.AddFontAwesomeIconFont(new SafeFontConfig { SizePx = px })))
+				: atlas.NewGameFontHandle(new GameFontStyle(GameFontFamily.Axis, px));
 
 			// ⚠ Swap first, dispose second. Disposing the old handle before the new one is assigned
 			// would leave a frame able to observe a disposed handle.
@@ -98,13 +113,13 @@ internal sealed class MarkFont: IDisposable {
 			this.builtPx = px;
 			old?.Dispose();
 
-			Plugin.Log.Information($"EphemeralMarks: tag font rebuilt at {px}px (Axis).");
+			Plugin.Log.Information($"EphemeralMarks: {face} font rebuilt at {px}px.");
 		}
 		catch (Exception ex) {
 			// ⚠ Never let a font build take the overlay down. builtPx stays put, so this retries on
 			// the next size change rather than every frame.
 			this.builtPx = px;
-			Plugin.Log.Error(ex, $"EphemeralMarks: could not build the tag font at {px}px; using the default font.");
+			Plugin.Log.Error(ex, $"EphemeralMarks: could not build the {face} font at {px}px.");
 		}
 	}
 
