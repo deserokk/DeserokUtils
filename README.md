@@ -123,8 +123,8 @@ activate whatever is under the cursor — a key-and-wheel dungeon can eat a raid
 
 Marks the people you queued in with, so you can find them in content full of identical-looking
 allies. A star for the party leader and a reticle for everyone else — or any of Font Awesome's 1382
-icons, searchable from the tab. A specific person can be given their own shape, so a friend always
-looks the same.
+icons, searchable from the tab. A specific person can be given their own shape and
+colour, so a friend always looks the same.
 
 ⭐ Client-side only — nobody else sees it, and it never touches the shared party markers everyone
 fights over.
