@@ -21,6 +21,16 @@ public sealed class MarkOverride {
 	/// <summary>Font Awesome codepoint, used when <see cref="Shape"/> is Icon. Defaults to a heart,
 	/// which is the reason this whole feature exists.</summary>
 	public int Glyph { get; set; } = (int)Dalamud.Interface.FontAwesomeIcon.Heart;
+
+	/// <summary>
+	/// This person's own colour, or null to use the shared marker colour.
+	///
+	/// ⭐ NULLABLE RATHER THAN ALWAYS SET, deliberately. If every override carried a colour, it would
+	/// be seeded from the shared one at the moment it was created and then silently stop tracking it
+	/// -- so changing the marker colour later would move everybody except the people you had
+	/// customised, which is the opposite of what "I only changed their shape" implies.
+	/// </summary>
+	public System.Numerics.Vector4? Colour { get; set; }
 }
 
 /// <summary>

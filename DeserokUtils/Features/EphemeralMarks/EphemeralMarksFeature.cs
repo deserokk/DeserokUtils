@@ -125,7 +125,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			return;
 
 		var draw = ImGui.GetBackgroundDrawList();
-		uint colour = ImGui.ColorConvertFloat4ToU32(Plugin.Config.MarksColour);
+		uint sharedColour = ImGui.ColorConvertFloat4ToU32(Plugin.Config.MarksColour);
 
 		// ⭐⭐ SCALED TO THE VIEWPORT, then by the user's slider. A marker sized in raw pixels occupies
 		// a bigger FRACTION of a 1080p screen than a 1440p one, so the three people who will use this
@@ -190,7 +190,11 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			//
 			// ⚠⚠ This is the ONLY thing an override touches. It cannot make somebody marked; `key`
 			// only exists for people already in the snapshot.
-			var (shape, glyph) = ShapeFor(key, isLeader);
+			// ⚠ Shadowing `colour` on purpose: everything below this point -- the glyph AND the tag --
+			// must use the same one, or a customised person gets a pink tag under a green marker.
+			var (shape, glyph, own) = StyleFor(key, isLeader);
+			uint colour = own is null ? sharedColour : ImGui.ColorConvertFloat4ToU32(own.Value);
+
 			MarkShapes.Draw(draw, shape, glyph, iconFace, iconPx, screen, colour, scale);
 
 			if (wantTags && tag.Length > 0) {
@@ -357,15 +361,15 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		return false;
 	}
 
-	private static (MarkShape Shape, int Glyph) ShapeFor(string key, bool leader) {
+	private static (MarkShape Shape, int Glyph, Vector4? Colour) StyleFor(string key, bool leader) {
 		foreach (var over in Plugin.Config.MarksOverrides) {
 			if (over.Who.Length > 0 && string.Equals(over.Who.Trim(), key, StringComparison.OrdinalIgnoreCase))
-				return (over.Shape, over.Glyph);
+				return (over.Shape, over.Glyph, over.Colour);
 		}
 
 		return leader
-			? (Plugin.Config.MarksLeaderShape, Plugin.Config.MarksLeaderGlyph)
-			: (Plugin.Config.MarksMemberShape, Plugin.Config.MarksMemberGlyph);
+			? (Plugin.Config.MarksLeaderShape, Plugin.Config.MarksLeaderGlyph, null)
+			: (Plugin.Config.MarksMemberShape, Plugin.Config.MarksMemberGlyph, null);
 	}
 
 	// ── the tab ──────────────────────────────────────────────────────────────────────────────
@@ -467,7 +471,10 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			"Give a specific person their own shape. Type their name and home world exactly as the "
 			+ "nameplate shows them, e.g. First Last@Server.");
 		ImGui.TextDisabled(
-			"This only changes the shape for people already being marked. It never marks anyone.");
+			"This only changes how someone already being marked looks. It never marks anyone.");
+		ImGui.TextDisabled(
+			"Tick the box for a colour of their own. Avoid red, blue and yellow in PvP - they are the "
+			+ "Frontline team colours.");
 		ImGui.Spacing();
 
 		// ⚠ Indexed, and REMOVAL BREAKS OUT of the loop rather than continuing. Mutating the list
@@ -489,6 +496,28 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 				entry.Shape = shape;
 				entry.Glyph = entryGlyph;
 				Plugin.Config.Save();
+			}
+
+			// ⭐ A checkbox for "own colour" plus a swatch, rather than a swatch that is always live.
+			// Unticked means this person follows the shared colour, and keeps following it when you
+			// change it later -- see MarkOverride.Colour for why that is worth the extra control.
+			ImGui.SameLine();
+			bool ownColour = entry.Colour is not null;
+			if (ImGui.Checkbox($"##marksOwnCol{i}", ref ownColour)) {
+				entry.Colour = ownColour ? Plugin.Config.MarksColour : null;
+				Plugin.Config.Save();
+			}
+
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip("Give this person their own colour, instead of the shared one.");
+
+			if (entry.Colour is { } own) {
+				ImGui.SameLine();
+				var col = own;
+				if (ImGui.ColorEdit4($"##marksCol{i}", ref col, ImGuiColorEditFlags.NoInputs)) {
+					entry.Colour = col;
+					Plugin.Config.Save();
+				}
 			}
 
 			ImGui.SameLine();
