@@ -114,11 +114,17 @@ internal static class AchievementLink {
 			return string.Empty;
 
 		at++;
-		int length = d[at++];
-		if (length <= 0 || at + length > d.Length)
+
+		// ⚠⚠ THE LENGTH IS A PACKED INTEGER TOO, so it carries the same +1 bias as the id and must be
+		// decoded the same way -- 0x29 means 40 bytes, not 41. Reading it raw appended the chunk's
+		// trailing 0x03 to the name, which then failed the cross-check against two strings that print
+		// IDENTICALLY. A whole diagnostic round was spent on "these are the same string" because the
+		// difference was an invisible control character.
+		uint? length = ReadPackedInt(d, ref at);
+		if (length is null or 0 || at + length > d.Length)
 			return string.Empty;
 
-		return Encoding.UTF8.GetString(d, at, length);
+		return Encoding.UTF8.GetString(d, at, (int)length.Value);
 	}
 
 	/// <summary>Every achievement link in a message, with the payload it came from.</summary>
