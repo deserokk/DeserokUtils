@@ -152,10 +152,8 @@ internal sealed class FcBuffPolicy {
 	private HashSet<string> lastObserved = new();
 
 	/// <summary>
-	/// The wanted buff that is missing and has not been tried recently, or null.
-	///
-	/// ⚠ One at a time on purpose. Two activations in flight would race for the same window, and the
-	/// second would read a list the first is in the middle of changing.
+	/// Every wanted buff that is missing and has not been tried recently. Empty when there is
+	/// nothing to do.
 	/// </summary>
 	public List<string> AllToActivate() {
 		var result = new List<string>();

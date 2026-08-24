@@ -11,11 +11,6 @@ namespace DeserokUtils.Features.FcBuffs;
 /// <summary>
 /// Keep the FC buffs running, because the failure is never "we did not know how" -- it is eight
 /// hours of grinding before anybody looks up.
-///
-/// ⚠⚠ READING ONLY at this stage. Nothing here presses anything yet, on purpose: the activation
-/// half depends on facts that only the running game can settle (see the tab), and the last time
-/// this project guessed between three candidate causes it rewrote the half that was already
-/// correct. Instrument first, then act.
 /// </summary>
 internal sealed class FcBuffsFeature: IDisposable {
 	private readonly FcActionRecorder recorder = new();
@@ -220,8 +215,7 @@ internal sealed class FcBuffsFeature: IDisposable {
 
 		// ⭐ Dump the WHOLE list array, empties included. The matching scan above only ever shows
 		// entries that look like actions, which is precisely why a stale leftover is invisible to it
-		// -- a ghost row names a real buff. Seeing the raw shape is the only way to find out what,
-		// if anything, marks the live end of the list.
+		// -- a ghost row names a real buff.
 		Plugin.Log.Information("FcBuffs raw array 58 (index: text):");
 		for (int i = 0; i < 80; i++) {
 			string? s = FcBuffReader.ReadStringArray(58, i);
@@ -230,8 +224,8 @@ internal sealed class FcBuffsFeature: IDisposable {
 			Plugin.Log.Information($"  [{i,2}] \"{s}\"");
 		}
 
-		// The odd entries between the names are unexplored, and one of them may be what separates a
-		// live row from a leftover.
+		// What separates a live row from a leftover is entry 7, the list's own count -- see
+		// FcBuffReader.InactiveCount. The rest of the odd entries are still unexplored.
 		Plugin.Chat.Print("[FcBuffs] raw array 58 written to the log, empty entries included.");
 	}
 
@@ -332,11 +326,13 @@ internal sealed class FcBuffsFeature: IDisposable {
 	}
 
 	/// <summary>
-	/// The one command this whole feature is currently for. Dumps every source at once so the three
-	/// open questions get answered together rather than one guess at a time:
-	///   1. do FC buffs appear in the player's status list, with a real countdown?
-	///   2. do the agent's three timers agree with them once the age is subtracted?
-	///   3. what unit are the agent timers in?
+	/// Dumps every source at once so they can be compared side by side rather than one guess at a
+	/// time. The three questions it was written to settle are settled -- the measurements are on
+	/// FcBuffReader.PlayerStatuses and FcBuffReader.RawTimers -- and it stays as the way to re-check
+	/// them against a live game:
+	///   1. do FC buffs appear in the player's status list, with a real countdown? (yes; no)
+	///   2. do the agent's three timers agree with them once the age is subtracted? (yes)
+	///   3. what unit are the agent timers in? (seconds)
 	/// </summary>
 	private static void Probe() {
 		// ⭐ Every line goes to BOTH chat and dalamud.log. Chat is where you read it now; the log is
@@ -455,8 +451,8 @@ internal sealed class FcBuffsFeature: IDisposable {
 				if (rows.Count == 0)
 					continue;
 				string best = rows.OrderByDescending(r => r.Tier).First().Text;
-				// Exact again: the row scan is now bounded by the game's own count, so the ghost rows
-				// past the live end are no longer included.
+				// An exact number: the row scan is bounded by the game's own count, so the ghost rows
+				// past the live end are not included.
 				this.stockLabels[a.Name] = $"{rows.Count}x, best: {best}";
 			}
 		}

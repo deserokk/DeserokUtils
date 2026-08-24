@@ -5,8 +5,17 @@ using Dalamud.Interface.ManagedFontAtlas;
 
 namespace DeserokUtils.Features.EphemeralMarks;
 
+/// <summary>Which face to rasterise. ⭐ Same debounce and same lifecycle either way.</summary>
+internal enum MarkFace {
+	/// <summary>The game's own UI face, for the P2 tag.</summary>
+	Axis,
+
+	/// <summary>Dalamud's Font Awesome, for the marker glyphs -- 1382 shapes, already shipped.</summary>
+	Icons,
+}
+
 /// <summary>
-/// The tag font, rasterised at the size it is actually drawn at.
+/// A font rasterised at the size it is actually drawn at.
 ///
 /// ## ⚠⚠ Why the tag was blurry while the shapes were crisp
 ///
@@ -24,18 +33,9 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// ⭐ deserok's framing, and it is the correct fix rather than a nicer resample: *"can we select a
 /// fontsize close to the scale? Like lets say 1x = 12pt, someone picks 2x, can we just move to 24pt"*.
 ///
-/// ⭐ Uses the game's own **Axis** face, which is what FFXIV sets its own UI in, so the tag reads as
-/// part of the game rather than as an overlay.
+/// ⭐ The tag uses the game's own **Axis** face, which is what FFXIV sets its own UI in, so it reads
+/// as part of the game rather than as an overlay.
 /// </summary>
-/// <summary>Which face to rasterise. ⭐ Same debounce and same lifecycle either way.</summary>
-internal enum MarkFace {
-	/// <summary>The game's own UI face, for the P2 tag.</summary>
-	Axis,
-
-	/// <summary>Dalamud's Font Awesome, for the marker glyphs -- 1382 shapes, already shipped.</summary>
-	Icons,
-}
-
 internal sealed class MarkFont(MarkFace face): IDisposable {
 	/// ⚠ Bounds, because the size comes from a slider multiplied by a resolution ratio. The slider
 	/// runs 0.4-2.5 and the ratio is 0.75 at 1080p through 1.5 at 4K, so the raw product spans roughly

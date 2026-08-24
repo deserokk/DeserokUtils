@@ -77,9 +77,6 @@ internal sealed class CastWatchFeature: IDisposable {
 
 		(ActionType type, uint id) = resolved.Value;
 
-		// Snapshot the placeholders NOW. A fallback macro resolves in well under a second, but by
-		// the time it reaches a later line the mouse has moved -- so reading <mo> at check time
-		// answers "where is the cursor now", not "who did the spell go to".
 		WatchContext context = WatchContext.Capture();
 		this.watcher.Arm(id, name, type, context, filter);
 		Plugin.Diag($"armed {name} ({type} {id}) filter={filter} | {context.Summary()}");

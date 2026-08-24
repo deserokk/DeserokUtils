@@ -381,11 +381,6 @@ internal sealed class FateTracker {
 	}
 
 	/// <summary>
-	/// The configured cycle, unless enough real intervals have been measured to disagree with it.
-	/// ⭐ Median rather than mean: one missed observation produces a double-length gap, and a mean
-	/// would let that single outlier drag every prediction late.
-	/// </summary>
-	/// <summary>
 	/// The rotation for a territory, or null if that zone has none.
 	///
 	/// ⭐ Territory is how a rotation is FOUND now, rather than a filter applied afterwards. The
@@ -424,6 +419,11 @@ internal sealed class FateTracker {
 	public static double EffectivePerFateCycle(string name)
 		=> EffectiveCycle(name) * RotationLength(RotationOf(name));
 
+	/// <summary>
+	/// The configured cycle, unless enough real intervals have been measured to disagree with it.
+	/// ⭐ Median rather than mean: one missed observation produces a double-length gap, and a mean
+	/// would let that single outlier drag every prediction late.
+	/// </summary>
 	public static double EffectiveCycle(string name) {
 		var cfg = Plugin.Config;
 		var rotation = RotationOf(name);
@@ -455,9 +455,6 @@ internal sealed class FateTracker {
 		// ⭐ No zone check here. There used to be one, and it is now structurally impossible to need
 		// TWICE over: an anchor cannot outlive the instance it was made in, and NextInRotation only
 		// consults the ring for the territory you are standing in.
-		//
-		// ⚠ A one-member rotation is the non-rotating case, so RotationMode is gone -- it was a
-		// second way to say "count == 1" that could disagree with the list beside it.
 		return this.NextInRotation();
 	}
 

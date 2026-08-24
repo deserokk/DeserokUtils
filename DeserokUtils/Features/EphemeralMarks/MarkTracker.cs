@@ -7,7 +7,7 @@ using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 
 namespace DeserokUtils.Features.EphemeralMarks;
 
-/// <summary>Which broad kind of content you are standing in, for the three grouped toggles.</summary>
+/// <summary>Which broad kind of content you are standing in, for the four grouped toggles.</summary>
 internal enum ContentGroup { None, Pvp, FieldOps, AllianceRaid, DeepDungeon }
 
 /// <summary>

@@ -101,9 +101,8 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 	}
 
 	/// <param name="nameFilter">
-	/// Comma-separated substrings an addon's name must contain. Empty keeps the previous set --
-	/// a filter that matches everything is available but has to be asked for by name, because it
-	/// is the setting that made the first recording useless.
+	/// Comma-separated substrings an addon's name must contain. Empty records everything that
+	/// survives the known-noise blocklist.
 	/// </param>
 	public void Toggle(string nameFilter) {
 		if (this.armed) {

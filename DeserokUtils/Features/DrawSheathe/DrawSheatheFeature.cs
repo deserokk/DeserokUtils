@@ -13,7 +13,7 @@ namespace DeserokUtils.Features.DrawSheathe;
 
 /// <summary>
 /// One key that draws or sheathes, whichever is currently correct -- and picks the fancy emote or
-/// the game's own toggle depending on whether you are moving.
+/// the game's own toggle depending on whether the emote would actually play.
 ///
 ///   /drawsheathe
 ///
@@ -112,13 +112,7 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	}
 
 	/// <summary>
-	/// The game's own sheathe cooldown, purely for display. NOT used as a gate.
-	///
-	/// ⚠⚠ Because nobody knows which direction it counts. `SheatheCooldown` is a float on
-	/// WeaponState and FFXIVClientStructs documents neither its unit nor its sign convention -- it is
-	/// as plausibly "seconds elapsed since the last change", which only ever grows, as it is
-	/// "seconds remaining". Gating on `> 0` under the first reading would dead-lock the key on the
-	/// first press and look exactly like the spam bug it was added to fix.
+	/// The game's own sheathe cooldown. Displayed in the tab, and gated on by PressTooSoonBecause.
 	///
 	/// ⭐ SETTLED 2026-08-17, BY WATCHING IT RATHER THAN GUESSING: it counts DOWN. Traced at 0 while
 	/// idle, set to 1.0 by a weapon-state change, and decaying at 1.0/second -- `0.895 -> 1`,
@@ -126,10 +120,12 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// set it: the queued emote does so as surely as the direct call. So `> 0` is safe to gate on and
 	/// PressTooSoonBecause now does.
 	///
-	/// ⚠ The doc above said "displayed, not obeyed" for exactly one build, because the other reading
-	/// -- seconds elapsed, only ever climbing -- would have dead-locked the key on the first press
-	/// and looked identical to the spam bug being fixed. One round of evidence cost nothing and
-	/// removed the ambiguity completely.
+	/// ⚠ It shipped as "displayed, not obeyed" for exactly one build, because FFXIVClientStructs
+	/// documents neither the unit nor the sign convention of this float, and "seconds elapsed since
+	/// the last change" -- which only ever grows -- was as plausible a reading as "seconds
+	/// remaining". Gating on `> 0` under THAT reading would have dead-locked the key on the first
+	/// press and looked identical to the spam bug being fixed. One round of evidence cost nothing
+	/// and removed the ambiguity completely.
 	/// </summary>
 	internal static unsafe float? SheatheCooldown() {
 		UIState* ui = UIState.Instance();
@@ -156,12 +152,11 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// a property of somebody's hardware, and this is an accessibility setting rather than a tuning
 	/// detail to bury in a constant.
 	///
-	/// ⭐⭐ THIS IS THE GAME'S OWN COOLDOWN, MEASURED. `WeaponState.SheatheCooldown` is set to 1.0 by
-	/// a weapon-state change and decays to 0 at 1.0/second -- traced 2026-08-17 as 0 at rest, then
-	/// `0.895 -> 1`, `0.487 -> 1`, `0.583 -> 1` across a burst, and 0.891 exactly 102 ms after a
-	/// change. It counts DOWN, and BOTH paths set it: the emote does it as surely as the direct call.
-	/// So one gate covers both, with no invented constant, and it is the same one second the default
-	/// keybind enforces -- which is why the default key never glitched.
+	/// ⭐⭐ THE SECOND RULE IS THE GAME'S OWN COOLDOWN, MEASURED -- see <see cref="SheatheCooldown"/>
+	/// for the trace that settled which direction it counts. It counts DOWN, and BOTH paths set it:
+	/// the emote does it as surely as the direct call. So one gate covers both, with no invented
+	/// constant, and it is the same one second the default keybind enforces -- which is why the
+	/// default key never glitched.
 	///
 	/// ⚠⚠ It replaced a guard that waited for the weapon state to reach what the last press asked
 	/// for. That guard was not wrong, it was just too fast to help: the flag flips within ~100 ms, so
@@ -196,6 +191,14 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	}
 
 	/// <summary>
+	/// Which emote command a press would send right now. ⭐ One place, so the ownership check and the
+	/// send cannot disagree about which emote is in question -- checking one and sending the other is
+	/// exactly the bug this was added to fix.
+	/// </summary>
+	internal static string CommandFor(bool weaponOut) =>
+		(weaponOut ? Plugin.Config.SheatheCommand : Plugin.Config.DrawCommand).Trim();
+
+	/// <summary>
 	/// Why the emote would be refused right now, or null if it would play.
 	///
 	/// ⚠⚠ THE QUESTION IS NOT "AM I MOVING". It only looked that way because moving was the first
@@ -224,14 +227,6 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// toggle happen here instead". Moving and jumping pass it: you asked to draw, and drawing while
 	/// running is ordinary. A cutscene fails it: the game is saying no on purpose.
 	/// </summary>
-	/// <summary>
-	/// Which emote command a press would send right now. ⭐ One place, so the ownership check and the
-	/// send cannot disagree about which emote is in question -- checking one and sending the other is
-	/// exactly the bug this was added to fix.
-	/// </summary>
-	internal static string CommandFor(bool weaponOut) =>
-		(weaponOut ? Plugin.Config.SheatheCommand : Plugin.Config.DrawCommand).Trim();
-
 	internal static string? EmoteRefusedBecause(string? command = null) {
 		// ⚠⚠ FIRST, because it is the only durable one. Moving and jumping pass in a second; an emote
 		// you do not own never becomes available, so checking it first means the diagnostic names the
@@ -333,7 +328,7 @@ internal sealed class DrawSheatheFeature: IDisposable {
 		Plugin.Log.Information($"DrawSheathe conditions: moving={moving} cooldown={cooldown}; {string.Join(", ", set)}");
 	}
 
-	/// <summary>The Gold Saucer animation. Silently refused while moving, which is why the branch exists.</summary>
+	/// <summary>The Gold Saucer animation. Silently refused in the cases EmoteRefusedBecause lists, which is why the branch exists.</summary>
 	private void PlayEmote(bool weaponOut, string? refused) {
 		string line = CommandFor(weaponOut);
 		if (line.Length == 0) {
@@ -375,9 +370,9 @@ internal sealed class DrawSheatheFeature: IDisposable {
 	/// variation), and that is the call that animates. Whatever the flag really selects, it is not
 	/// "skip the animation" -- and no amount of staring at the parameter list would have said so.
 	///
-	/// ⚠ So the arguments do NOT vary with movement. `moving` chooses BETWEEN the emote and this
-	/// function; it changes nothing about how this function is called. A future reader looking for
-	/// the "moving" variant of the call should stop here: there isn't one.
+	/// ⚠ So the arguments do NOT vary with movement. The refusal reason chooses BETWEEN the emote and
+	/// this function; it changes nothing about how this function is called. A future reader looking
+	/// for the "moving" variant of the call should stop here: there isn't one.
 	///
 	/// ⚠ It returns a bool. Nothing here can act on a refusal -- there is no second thing to try --
 	/// but a false is logged, because "the key did nothing" and "the client said no" look identical

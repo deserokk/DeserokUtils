@@ -113,8 +113,6 @@ public sealed class FateRotation {
 [Serializable]
 public sealed class Configuration: IPluginConfiguration {
 	/// <summary>
-	/// 1 = initial. 2 = real Occult Crescent pot FATE names, replacing wiki guesses that turned out
-	/// to be different FATEs entirely.
 	/// ⚠ A default only applies to a config that does not exist yet. Once one is on disk, changing
 	/// a default here is INERT -- the migration below is what actually reaches an existing install.
 	/// </summary>
@@ -639,11 +637,6 @@ public sealed class Configuration: IPluginConfiguration {
 	public List<MarkOverride> MarksOverrides { get; set; } = new();
 
 	/// <summary>
-	/// ⚠ OFF. The marker is the signal; the name is clutter once you know the shapes. Confirmed the
-	/// moment it was first seen in game -- deserok: *"don't need the name, just the star"*. Still a
-	/// checkbox, because with three friends and only two shapes a name may earn its place again.
-	/// </summary>
-	/// <summary>
 	/// Show a Helldivers-style tag -- first initial plus party slot, "P2" -- under the marker.
 	///
 	/// ⭐ A NEW KEY replacing MarksShowNames rather than a changed default, on purpose. The name
@@ -724,10 +717,7 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool AlertSound { get; set; } = true;
 
 	/// <summary>
-	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot. The v1 defaults were two FATE
-	/// names taken from a wiki that turned out to be different FATEs; they never spawned, so they
-	/// can be removed safely -- but only if they were never actually seen, in case the wiki was
-	/// right about somewhere this was not tested.
+	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
 	/// </summary>
 	public void Migrate() {
 		// ⚠ Dedupe ALWAYS, not only on a version bump. A duplicated member is not cosmetic here: the

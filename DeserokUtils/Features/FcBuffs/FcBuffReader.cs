@@ -14,9 +14,9 @@ internal readonly record struct FcAction(
 internal readonly record struct PlayerStatus(uint StatusId, string Name, float RemainingSeconds);
 
 /// <summary>
-/// Everything this feature READS. Kept apart from the feature itself because the whole question at
-/// this stage is which of these sources actually answers "is the buff on, and for how long" -- and
-/// they disagree in ways that matter.
+/// Everything this feature READS. Kept apart from the feature itself because "is the buff on" and
+/// "for how long" come from different sources -- the status list and the agent timers -- and they
+/// disagree in ways that matter.
 /// </summary>
 internal static class FcBuffReader {
 	/// <summary>
@@ -221,18 +221,6 @@ internal static class FcBuffReader {
 		row < 0 ? null : ReadStringArray(ListStringArray, InactiveListBase + (row * InactiveListStride));
 
 	/// <summary>
-	/// Rows of the inactive list holding the given buff, in list order.
-	///
-	/// ⚠⚠ Stops at the first EMPTY entry rather than scanning a fixed length. The array keeps STALE
-	/// values in slots the window is no longer showing -- measured: it still listed a Reduced Rates
-	/// as active minutes after that buff expired, and carried more inactive entries than the window
-	/// displayed. Scanning past the live end therefore returns rows that look perfectly valid and
-	/// are not there.
-	///
-	/// ⚠ So this is a floor on the stock, never an exact count, and it is deliberately not used to
-	/// report "how many are left" as though it were.
-	/// </summary>
-	/// <summary>
 	/// How many rows of the inactive list are real, from the game's own "14/15" counter.
 	/// Null when the window is shut or the entry does not parse.
 	/// </summary>
@@ -246,6 +234,7 @@ internal static class FcBuffReader {
 		return int.TryParse(head.Trim(), out int n) ? n : null;
 	}
 
+	/// <summary>Rows of the inactive list holding the given buff, in list order.</summary>
 	public static List<(int Row, int Tier, string Text)> RowsHolding(string family) {
 		var rows = new List<(int, int, string)>();
 		string wanted = NormaliseName(family);
@@ -284,7 +273,8 @@ internal static class FcBuffReader {
 	}
 
 	/// <summary>
-	/// Confirms the open context menu really is "Execute Action" first, "Discard Action" second.
+	/// Item 0 of the open context menu, read from the addon's OWN AtkValues. What the caller checks
+	/// the menu's order against before firing an index at it.
 	///
 	/// ⚠⚠ THE ONE DESTRUCTIVE MISTAKE AVAILABLE IN THIS FEATURE. Item 0 executes; item 1 DISCARDS,
 	/// which destroys a bought action outright. Firing an index into a menu whose order is assumed
@@ -294,11 +284,8 @@ internal static class FcBuffReader {
 	/// was not the row, the Actions tab was 4 and not 3, the list carried ghost rows, and the filter
 	/// hid two whole steps. The order is checked because the track record says to check it.
 	///
-	/// ⚠ Returns false when the menu text cannot be found at all, so an unreadable menu refuses
+	/// ⚠ Returns null when the menu text cannot be read at all, so an unreadable menu refuses
 	/// rather than proceeds.
-	/// </summary>
-	/// <summary>
-	/// Item 0 of the open context menu, read from the addon's OWN AtkValues.
 	///
 	/// ⚠⚠ Layout measured 2026-08-07: value 0 is the ITEM COUNT, and the labels start at value 8.
 	/// Values past base+count are STALE -- a live 2-item menu still carried "View Company Profile",

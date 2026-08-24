@@ -37,7 +37,7 @@ namespace DeserokUtils.Features.AchievementData;
 /// </summary>
 internal sealed unsafe class AchievementPreload: IDisposable {
 	/// ⚠ The client is not ready for this the instant Login fires, so the attempt is deferred rather
-	/// than fired on the event. A couple of seconds, checked on the existing tick, no new timer.
+	/// than fired on the event. Five seconds, checked on the existing tick, no new timer.
 	private static readonly TimeSpan Settle = TimeSpan.FromSeconds(5);
 
 	private bool doneThisLogin;

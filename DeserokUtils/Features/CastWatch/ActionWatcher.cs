@@ -15,9 +15,6 @@ namespace DeserokUtils.Features.CastWatch;
 ///
 /// Why ONE armed action and no list: the game runs a single macro at a time -- starting another
 /// cancels the first -- so a second slot could never be reached. See README.
-///
-/// Cost when disarmed: two comparisons per UseAction call. UseAction fires a few times a second
-/// at most, so an idle watcher is free.
 /// </summary>
 internal sealed unsafe class ActionWatcher: IDisposable {
 	/// <summary>
@@ -174,8 +171,6 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				// here is your enemy rather than you, a "not self" filter would be reading the
 				// wrong thing and the whole target-class idea needs a different signal.
 				ulong selfId = Plugin.Objects.LocalPlayer?.GameObjectId ?? 0;
-				// ⚠ watchedAdjusted is printed so the open question -- which way the game maps an upgrade --
-				// gets answered by ordinary use rather than by a separate experiment.
 				string who = targetId == selfId ? "SELF"
 					: targetId is 0 or 0xE0000000 ? "none"
 					: $"0x{targetId:X}";

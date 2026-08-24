@@ -21,7 +21,7 @@ internal enum ActivationStep {
 }
 
 /// <summary>
-/// Performs ONE activation, one step per tick.
+/// Performs one window session's worth of activations, one step per tick.
 ///
 /// ⚠⚠ A step machine rather than a function, because every step waits on the game: an addon does
 /// not exist the frame after it is asked for, and the confirmation dialog does not exist the frame

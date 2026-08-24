@@ -84,28 +84,6 @@ internal static class MarkShapes {
 		}
 	}
 
-	/// <summary>
-	/// A Font Awesome glyph with a shadow layer behind it -- the Honorific approach, and deserok's
-	/// call after I spent a while tuning bezier curves: *"theres hearts, triangles, hell, all kinds of
-	/// random shapes... can't we just do our own outline by making one glyph, and then adding a
-	/// shadowlayer to it."*
-	///
-	/// ⭐⭐ This replaces five hand-rolled outlines with 1382 properly drawn shapes, and it is strictly
-	/// less code. The curve-fitting was the wrong instinct: the answer was already shipped in Dalamud.
-	///
-	/// ## ⚠ The shape rule is AMENDED here, not broken
-	///
-	/// Every other glyph is an outline because a filled shape becomes a blob over a bright background.
-	/// Font Awesome icons are solid. But outlining was the MEANS -- the end is staying readable over
-	/// snow and spell effects, and a solid glyph ringed in dark achieves that better than a thin
-	/// stroke, which is why map markers in most games look like this.
-	///
-	/// ⚠ Eight offsets, not four. Four leaves the diagonals bare and the halo visibly square at the
-	/// corners; eight closes it for one more pass over two glyphs.
-	///
-	/// ⚠ Falls back to the reticle while the atlas is still building, rather than drawing nothing. A
-	/// marker that blinks out for a few frames after a settings change reads as a bug.
-	/// </summary>
 	// ── the picker, shared by every feature that lets you choose a marker ────
 	//
 	// ⭐ Extracted here the moment a SECOND feature wanted it, rather than copied. One place
@@ -204,6 +182,28 @@ internal static class MarkShapes {
 		return changed;
 	}
 
+	/// <summary>
+	/// A Font Awesome glyph with a shadow layer behind it -- the Honorific approach, and deserok's
+	/// call after I spent a while tuning bezier curves: *"theres hearts, triangles, hell, all kinds of
+	/// random shapes... can't we just do our own outline by making one glyph, and then adding a
+	/// shadowlayer to it."*
+	///
+	/// ⭐⭐ This replaces five hand-rolled outlines with 1382 properly drawn shapes, and it is strictly
+	/// less code. The curve-fitting was the wrong instinct: the answer was already shipped in Dalamud.
+	///
+	/// ## ⚠ The shape rule is AMENDED here, not broken
+	///
+	/// Every other glyph is an outline because a filled shape becomes a blob over a bright background.
+	/// Font Awesome icons are solid. But outlining was the MEANS -- the end is staying readable over
+	/// snow and spell effects, and a solid glyph ringed in dark achieves that better than a thin
+	/// stroke, which is why map markers in most games look like this.
+	///
+	/// ⚠ Eight offsets, not four. Four leaves the diagonals bare and the halo visibly square at the
+	/// corners; eight closes it for one more pass over two glyphs.
+	///
+	/// ⚠ Falls back to the reticle while the atlas is still building, rather than drawing nothing. A
+	/// marker that blinks out for a few frames after a settings change reads as a bug.
+	/// </summary>
 	private static void DrawGlyph(
 		ImDrawListPtr draw, int glyph, ImFontPtr? icons, float iconPx, Vector2 at, uint colour, float s) {
 		if (icons is not { } face || glyph <= 0) {

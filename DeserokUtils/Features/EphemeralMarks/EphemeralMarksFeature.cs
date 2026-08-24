@@ -56,10 +56,10 @@ namespace DeserokUtils.Features.EphemeralMarks;
 /// people, which is the direction to stay away from. "Who I came with" is self-scoping and forgets
 /// itself.
 ///
-/// ⚠⚠ THE SHAPE OVERRIDES ARE NOT AN EXCEPTION TO THAT, and the distinction is the whole reason they
-/// were acceptable. They are consulted only for people the snapshot ALREADY produced, and can change
-/// nothing except which glyph is drawn. The moment one influences who gets marked, it has become the
-/// whitelist above. See <see cref="Configuration.MarksOverrides"/>.
+/// ⚠⚠ THE PER-PERSON OVERRIDES ARE NOT AN EXCEPTION TO THAT, and the distinction is the whole reason
+/// they were acceptable. They are consulted only for people the snapshot ALREADY produced, and can
+/// change nothing except which glyph is drawn and what colour it is. The moment one influences who
+/// gets marked, it has become the whitelist above. See <see cref="Configuration.MarksOverrides"/>.
 /// </summary>
 internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	public string TabTitle => "Marks";
@@ -191,8 +191,8 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			// silently disappears whenever that person happens to be leading, which is the worst kind
 			// of intermittent.
 			//
-			// ⚠⚠ This is the ONLY thing an override touches. It cannot make somebody marked; `key`
-			// only exists for people already in the snapshot.
+			// ⚠⚠ The glyph and the colour are the ONLY things an override touches. It cannot make
+			// somebody marked; `key` only exists for people already in the snapshot.
 			// ⚠ Shadowing `colour` on purpose: everything below this point -- the glyph AND the tag --
 			// must use the same one, or a customised person gets a pink tag under a green marker.
 			var (shape, glyph, own) = StyleFor(key, isLeader);
@@ -280,8 +280,6 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	/// `lerp(a, b, 0.3f)` smooths three times harder at 30fps than at 120 -- so it would feel
 	/// different on each of the three machines this is for, which is the bug one layer up from the one
 	/// being fixed.
-	///
-	/// ⚠ Entries are dropped when a target stops being marked, so the dictionary cannot grow.
 	/// </summary>
 	private Vector2 Smooth(ulong id, Vector2 target) {
 		if (!this.smoothed.TryGetValue(id, out var previous)) {
@@ -346,17 +344,6 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	private const uint Shadow = 0xC0000000;
 
 	/// <summary>
-	/// Which glyph this person gets: an override if they have one, otherwise the leader/member default.
-	///
-	/// ⚠ A linear scan, in the draw loop, and that is fine here in a way the object-table scan was
-	/// NOT. That one was ~600 entries with a string compare each, every frame. This is at most four
-	/// markers against a handful of hand-typed overrides -- a couple of dozen compares -- and doing it
-	/// per frame rather than at the 1 Hz resolve is what makes an edit in the tab show up instantly.
-	///
-	/// ⚠⚠ Note what this function CANNOT do: it is only ever called for somebody already in the
-	/// snapshot, so an override cannot add anyone. Keep it that way.
-	/// </summary>
-	/// <summary>
 	/// Whether anything currently configured needs the icon atlas.
 	///
 	/// ⚠ Deliberately does NOT ask which people are marked -- it asks what is configured, so the
@@ -376,6 +363,18 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		return false;
 	}
 
+	/// <summary>
+	/// Which glyph and colour this person gets: an override if they have one, otherwise the
+	/// leader/member default with the shared colour.
+	///
+	/// ⚠ A linear scan, in the draw loop, and that is fine here in a way the object-table scan was
+	/// NOT. That one was ~600 entries with a string compare each, every frame. This is at most four
+	/// markers against a handful of hand-typed overrides -- a couple of dozen compares -- and doing it
+	/// per frame rather than at the 1 Hz resolve is what makes an edit in the tab show up instantly.
+	///
+	/// ⚠⚠ Note what this function CANNOT do: it is only ever called for somebody already in the
+	/// snapshot, so an override cannot add anyone. Keep it that way.
+	/// </summary>
 	private static (MarkShape Shape, int Glyph, Vector4? Colour) StyleFor(string key, bool leader) {
 		foreach (var over in Plugin.Config.MarksOverrides) {
 			if (over.Who.Length > 0 && string.Equals(over.Who.Trim(), key, StringComparison.OrdinalIgnoreCase))

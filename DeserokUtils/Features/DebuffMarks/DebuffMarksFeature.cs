@@ -355,9 +355,7 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	/// <summary>
 	/// Every status id carrying this name, matched case-insensitively and memoised.
 	///
-	/// ⚠ Empty when nothing matches, and the tab SAYS so -- a typo would otherwise be a feature that
-	/// silently never fires, which is the hardest failure to debug from the other end of a Discord
-	/// message.
+	/// ⚠ Empty when nothing matches, which is what the tab reports as "no such status".
 	///
 	/// ⚠ The sheet walk happens once per distinct name, not per scan. It is a few thousand string
 	/// extractions and belongs nowhere near a 10 Hz loop.
