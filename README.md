@@ -25,6 +25,7 @@ One URL, several plugins. Then find DeserokUtils in the normal plugin installer.
 | **Interact** | operate the thing in front of you, without touching menus | `/dsuinteract` |
 | **EphemeralMarks** | mark the people you queued into big content with | `/dsumarks` |
 | **AchievementData** | makes achievement links in chat actually go to the achievement | none |
+| **DebuffMarks** | icon over the head of anyone carrying a status you name | `/dsudebuffs` |
 
 **On by default:** FateWatch, EphemeralMarks, the server-bar entry.
 **Off until you ask:** FcBuffs, EmoteQuiet, diagnostics.
