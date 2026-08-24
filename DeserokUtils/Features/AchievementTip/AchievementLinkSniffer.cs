@@ -106,56 +106,71 @@ internal sealed unsafe class AchievementLinkSniffer: IDisposable {
 	/// instead of by trying three conversions and seeing which feels right.
 	/// </summary>
 	private void DumpLinks() {
-		string[] addons = { "ChatLog", "ChatLogPanel_0", "ChatLogPanel_1", "ChatLogPanel_2", "ChatLogPanel_3" };
-		int found = 0;
+		var report = new StringBuilder();
+		int found = 0, panels = 0;
 
-		foreach (string name in addons) {
-			// ⚠ GetAddonByName hands back an AtkUnitBasePtr wrapper on this API, not a raw pointer --
-			// already noted in FcBuffsFeature, and the second time it has cost a compile.
-			var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName(name).Address;
+		// ⚠ ChatLogPanel_0 is the main tab; 1-3 are the detached ones. ChatLog itself holds the input
+		// box and tabs, not the text, so it is not searched here.
+		for (int panel = 0; panel < 4; panel++) {
+			string name = $"ChatLogPanel_{panel}";
+			var addon = (AddonChatLogPanel*)Plugin.GameGui.GetAddonByName(name).Address;
 			if (addon is null)
 				continue;
-			Plugin.Log.Information(
-				$"AchievementTip: addon {name} at ({addon->X},{addon->Y}) scale={addon->Scale} "
-				+ $"visible={addon->IsVisible} nodes={addon->UldManager.NodeListCount}");
 
-			for (int i = 0; i < addon->UldManager.NodeListCount; i++) {
-				var node = addon->UldManager.NodeList[i];
-				if (node is null || node->Type != NodeType.Text)
-					continue;
+			panels++;
+			var text = addon->ChatText;
+			bool visible = addon->AtkUnitBase.IsVisible;
 
-				var text = (AtkTextNode*)node;
-				var list = text->LinkData;
-				if (list is null)
-					continue;
+			// ⭐ Report the NEGATIVE cases explicitly. "No links found" has at least four causes --
+			// addon absent, addon hidden, node absent, list empty -- and they call for completely
+			// different next steps. Collapsing them into one message is how you end up debugging the
+			// wrong one, which is the instrument-the-candidates-apart lesson from CastWatch.
+			if (text is null) {
+				report.Append($"{name}: visible={visible}, but ChatText is null. ");
+				Plugin.Log.Information($"AchievementTip: {name} present, visible={visible}, ChatText null.");
+				continue;
+			}
 
-				int shown = 0;
-				// ⚠ StdList enumerates as Pointer<LinkData>, not LinkData -- hence .Value.
+			var list = text->LinkData;
+			int here = 0;
+
+			if (list is not null) {
 				foreach (var entry in *list) {
 					var link = entry.Value;
 					if (link is null)
 						continue;
 
 					found++;
-					if (++shown > 40)
+					if (++here > 40)
 						break;
 
 					Plugin.Log.Information(
-						$"AchievementTip:   [{name} node{i}] type={link->LinkType} id={link->LinkId} "
+						$"AchievementTip:   [{name}] type={link->LinkType} id={link->LinkId} "
 						+ $"index={link->LinkIndex} group={link->LinkGroupId} "
 						+ $"int1={link->IntValue1} uint1={link->UIntValue1} "
 						+ $"int2={link->IntValue2} uint2={link->UIntValue2} "
 						+ $"rect=({link->MinX},{link->MinY})-({link->MaxX},{link->MaxY})");
 				}
-
-				if (shown > 40)
-					Plugin.Log.Information($"AchievementTip:   [{name} node{i}] ...more than 40 links, truncated.");
 			}
+
+			report.Append($"{name}: visible={visible}, links={here}{(list is null ? " (no list)" : "")}. ");
+			Plugin.Log.Information(
+				$"AchievementTip: {name} visible={visible} at ({addon->AtkUnitBase.X},{addon->AtkUnitBase.Y}) "
+				+ $"scale={addon->AtkUnitBase.Scale} links={here}");
 		}
 
+		if (panels == 0) {
+			Plugin.Chat.PrintError(
+				"[AchievementTip] no ChatLogPanel addon exists at all. That is the answer for a "
+				+ "replacement chat plugin: there is no native chat log to read.");
+			Plugin.Log.Information("AchievementTip: no ChatLogPanel_0..3 addon found.");
+			return;
+		}
+
+		Plugin.Chat.Print($"[AchievementTip] {report}");
 		Plugin.Chat.Print(found > 0
-			? $"[AchievementTip] dumped {found} chat link(s) to the log."
-			: "[AchievementTip] no chat links found. Is an achievement or item link visible in the log?");
+			? $"[AchievementTip] {found} link(s) dumped to the log."
+			: "[AchievementTip] panels exist but hold no links -- scroll an item or achievement link into view and retry.");
 	}
 
 	private void Disarm(string why) {
