@@ -71,6 +71,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly FateWatchFeature fateWatch;
 	private readonly FcBuffsFeature fcBuffs;
 	private readonly EphemeralMarksFeature marks;
+	private readonly Features.AchievementData.AchievementPreload achievements;
 
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
@@ -133,12 +134,10 @@ public sealed class Plugin: IDalamudPlugin {
 		var marks = new EphemeralMarksFeature();
 		this.features.Add(marks);
 
-		var achievementTip = new Features.AchievementTip.AchievementTipFeature();
-		this.features.Add(achievementTip);
-
-		// ⚠ The reconnaissance that found the link format, kept while the feature is unproven. Hidden
-		// command, hook disabled until armed. Delete once the click path has been used in anger.
-		this.features.Add(new Features.AchievementTip.AchievementLinkSniffer());
+		// ⚠ No tab and no command: one request per login and nothing else. See the class for why the
+		// tooltip feature that used to sit here is gone.
+		this.achievements = new Features.AchievementData.AchievementPreload();
+		this.features.Add(this.achievements);
 		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
@@ -178,6 +177,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.fateWatch.Tick();
 		this.fcBuffs.Tick();
 		this.marks.Tick();
+		this.achievements.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
