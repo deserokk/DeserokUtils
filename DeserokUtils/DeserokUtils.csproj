@@ -9,7 +9,7 @@
 	<PropertyGroup>
 		<Product>DeserokUtils</Product>
 		<AssemblyName>DeserokUtils</AssemblyName>
-		<Version>1.10.1</Version>
+		<Version>1.10.2</Version>
 		<Authors>deserokk</Authors>
 		<Description>A bucket of small FFXIV utilities.</Description>
 		<PackageProjectUrl>https://github.com/deserokk/DeserokUtils</PackageProjectUrl>
@@ -21,7 +21,19 @@
 		     block leaves it attached to the new neighbour, and nothing said so. CS1591 is off
 		     because undocumented members are fine here; it is misplaced ones that cost. -->
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<!-- ⚠ Into obj, not bin. The comments here are heavier than the code, so the generated
+		     XML added 60KB to a 130KB zip. The compiler checks are the point; nothing reads the
+		     file at runtime, so it has no business being shipped to anyone. -->
+		<DocumentationFile>obj\$(Configuration)\$(AssemblyName).xml</DocumentationFile>
 		<NoWarn>$(NoWarn);CS1591</NoWarn>
 	</PropertyGroup>
+
+	<!-- ⚠ The build copies the doc XML into the output folder, and DalamudPackager zips whatever it
+	     finds there, so without this the shipped plugin carries 60KB of extracted comments on a
+	     130KB zip. BeforeTargets pins this between the copy and the packaging step; both of those
+	     hang off AfterTargets="Build", so plain ordering is not enough. -->
+	<Target Name="DropDocXmlBeforePackaging" AfterTargets="Build" BeforeTargets="DefaultDalamudPackagerRelease">
+		<Delete Files="$(OutputPath)$(AssemblyName).xml" />
+	</Target>
 
 </Project>
