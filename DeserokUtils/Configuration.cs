@@ -560,8 +560,36 @@ public sealed class Configuration: IPluginConfiguration {
 	/// <summary>Mark anyone carrying a status you are watching. See DebuffMarksFeature.</summary>
 	public bool DebuffMarksEnabled { get; set; } = true;
 
-	/// <inheritdoc cref="MarksScale"/>
-	public float DebuffMarksScale { get; set; } = 2f;
+	/// <summary>
+	/// ⚠ 1.0, not the 2.0 EphemeralMarks uses. A solid Font Awesome glyph reads far larger than an
+	/// outlined reticle at the same nominal size -- deserok, on the first skull: *"massive though, 2x
+	/// is a bad default for these."*
+	///
+	/// ⚠ This reaches new installs only. A changed default cannot touch a config that already exists,
+	/// which is the trap recorded in ORIENTATION -- deserok sets his own back to 1.
+	/// </summary>
+	public float DebuffMarksScale { get; set; } = 1f;
+
+	/// <inheritdoc cref="MarksHeight"/>
+	public float DebuffMarksHeight { get; set; } = 2.0f;
+
+	/// <inheritdoc cref="MarksLift"/>
+	public float DebuffMarksLift { get; set; } = 34f;
+
+	/// <summary>
+	/// Draw a marker on YOURSELF, so the height and clearance can be set without hunting for a target.
+	///
+	/// ⭐ deserok's idea, from having actually configured the other one: *"to configure, we had to go to
+	/// an explorer mode to render the marks, when a simple show on self toggle for configuring would be
+	/// ideal."* Tuning a position against a thing you can only see in specific content is a bad loop.
+	///
+	/// ⚠ Persisted and defaulting OFF. It is deliberately not auto-cleared when the window closes --
+	/// that would be surprising, and someone may want to walk around checking it.
+	/// </summary>
+	public bool DebuffMarksPreview { get; set; }
+
+	/// <inheritdoc cref="DebuffMarksPreview"/>
+	public bool MarksPreview { get; set; }
 
 	/// <summary>
 	/// ⚠ Empty by default, so the feature costs one bool test until somebody actually wants it.

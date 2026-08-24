@@ -143,7 +143,10 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	}
 
 	private void Draw() {
-		if (!Plugin.Config.DebuffMarksEnabled || this.hits.Count == 0)
+		// ⚠ The preview has to survive the "nothing is marked" early-out, or it would be invisible in
+		// exactly the situation it exists for: standing somewhere quiet, setting the height.
+		bool preview = Plugin.Config.DebuffMarksPreview;
+		if (!Plugin.Config.DebuffMarksEnabled || (this.hits.Count == 0 && !preview))
 			return;
 
 		var draw = ImGui.GetBackgroundDrawList();
@@ -167,18 +170,31 @@ internal sealed class DebuffMarksFeature: IDisposable {
 			var watch = Plugin.Config.DebuffMarks[entry];
 			this.seenThisFrame.Add(id);
 
-			var head = obj.Position with { Y = obj.Position.Y + 2.0f };
+			var head = obj.Position with { Y = obj.Position.Y + Plugin.Config.DebuffMarksHeight };
 
 			// ⚠⚠ The return value is the whole guard: a position behind the camera still yields a
 			// coordinate, a mirrored one, so ignoring it floats markers over empty space behind you.
 			if (!Plugin.GameGui.WorldToScreen(head, out Vector2 screen))
 				continue;
 
-			screen.Y -= 34f * scale;
+			screen.Y -= Plugin.Config.DebuffMarksLift * scale;
 			screen = this.Smooth(id, screen, dt);
 
 			MarkShapes.Draw(draw, watch.Shape, watch.Glyph, face, iconPx, screen,
 				ImGui.ColorConvertFloat4ToU32(watch.Colour), scale);
+		}
+
+		// ⭐ The preview, drawn last so it sits over everything else. Uses the first watched entry so it
+		// previews the shape you are actually configuring, and falls back to a plain skull when the list
+		// is empty -- which is the state somebody setting this up for the first time is in.
+		if (preview && Plugin.Objects.LocalPlayer is { } me) {
+			var watch = Plugin.Config.DebuffMarks.Count > 0 ? Plugin.Config.DebuffMarks[0] : new DebuffMark();
+			var head = me.Position with { Y = me.Position.Y + Plugin.Config.DebuffMarksHeight };
+			if (Plugin.GameGui.WorldToScreen(head, out Vector2 self)) {
+				self.Y -= Plugin.Config.DebuffMarksLift * scale;
+				MarkShapes.Draw(draw, watch.Shape, watch.Glyph, face, iconPx, self,
+					ImGui.ColorConvertFloat4ToU32(watch.Colour), scale);
+			}
 		}
 
 		// ⚠ Forget anyone no longer marked, so the smoothing map cannot grow across a session.
@@ -228,10 +244,30 @@ internal sealed class DebuffMarksFeature: IDisposable {
 		ImGui.SameLine();
 		ImGui.TextDisabled($"({this.hits.Count} marked right now)");
 
+		bool preview = Plugin.Config.DebuffMarksPreview;
+		if (ImGui.Checkbox("Show one on me (for positioning)##debuffs", ref preview)) {
+			Plugin.Config.DebuffMarksPreview = preview;
+			Plugin.Config.Save();
+		}
+
 		float scale = Plugin.Config.DebuffMarksScale;
 		ImGui.SetNextItemWidth(160f);
 		if (ImGui.SliderFloat("Size##debuffs", ref scale, 0.4f, 2.5f, "%.2fx")) {
 			Plugin.Config.DebuffMarksScale = scale;
+			Plugin.Config.Save();
+		}
+
+		float height = Plugin.Config.DebuffMarksHeight;
+		ImGui.SetNextItemWidth(160f);
+		if (ImGui.SliderFloat("Anchor height##debuffs", ref height, 0f, 4f, "%.2f yalms")) {
+			Plugin.Config.DebuffMarksHeight = height;
+			Plugin.Config.Save();
+		}
+
+		float lift = Plugin.Config.DebuffMarksLift;
+		ImGui.SetNextItemWidth(160f);
+		if (ImGui.SliderFloat("Clearance##debuffs", ref lift, 0f, 120f, "%.0f px")) {
+			Plugin.Config.DebuffMarksLift = lift;
 			Plugin.Config.Save();
 		}
 

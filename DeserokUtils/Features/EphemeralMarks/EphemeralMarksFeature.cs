@@ -121,7 +121,10 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 	/// can interact with.
 	/// </summary>
 	private void DrawOverlay() {
-		if (!Plugin.Config.MarksEnabled || this.tracker.Idle is not null)
+		// ⚠ The preview deliberately bypasses the content gate. Setting the height used to mean finding
+		// somewhere the marks actually render -- deserok configured the first version from a Trial.
+		bool preview = Plugin.Config.MarksPreview;
+		if (!Plugin.Config.MarksEnabled || (this.tracker.Idle is not null && !preview))
 			return;
 
 		var draw = ImGui.GetBackgroundDrawList();
@@ -230,6 +233,18 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 				var face = locked is not null ? locked.ImFont : ImGui.GetFont();
 				draw.AddText(face, fontPx, at + new Vector2(1f, 1f), Shadow, tag);
 				draw.AddText(face, fontPx, at, colour, tag);
+			}
+		}
+
+		// ⭐ The preview, drawn last. Uses the MEMBER shape rather than the leader star: it is the one
+		// most people see most of the time, and it is the smaller of the two, so a height that clears
+		// the nameplate for it clears for the star as well.
+		if (preview && Plugin.Objects.LocalPlayer is { } me) {
+			var selfHead = me.Position with { Y = me.Position.Y + Plugin.Config.MarksHeight };
+			if (Plugin.GameGui.WorldToScreen(selfHead, out Vector2 selfScreen)) {
+				selfScreen.Y -= Plugin.Config.MarksLift * scale;
+				MarkShapes.Draw(draw, Plugin.Config.MarksMemberShape, Plugin.Config.MarksMemberGlyph,
+					iconFace, iconPx, selfScreen, sharedColour, scale);
 			}
 		}
 
@@ -539,6 +554,12 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			Plugin.Config.MarksColour = colour;
 			Plugin.Config.Save();
 		}
+		bool previewToggle = Plugin.Config.MarksPreview;
+		if (ImGui.Checkbox("Show one on me (for positioning)##marks", ref previewToggle)) {
+			Plugin.Config.MarksPreview = previewToggle;
+			Plugin.Config.Save();
+		}
+
 		bool names = Plugin.Config.MarksShowTag;
 		if (ImGui.Checkbox("Show a P2-style tag under the marker", ref names)) {
 			Plugin.Config.MarksShowTag = names;
