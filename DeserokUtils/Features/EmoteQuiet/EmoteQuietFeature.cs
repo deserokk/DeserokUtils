@@ -81,7 +81,7 @@ internal sealed class EmoteQuietFeature: IDisposable {
 			return;
 		}
 
-		Plugin.Chat.PrintError($"[EmoteQuiet] unknown argument \"{arg}\". Use on, off, reset, or sniff.");
+		Plugin.Chat.PrintError($"[EmoteQuiet] unknown argument \"{arg}\". Use on, off, others, reset, or sniff.");
 	}
 
 	private void ReportState() {

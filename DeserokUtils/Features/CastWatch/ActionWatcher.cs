@@ -118,6 +118,46 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		Plugin.Log.Information($"CastWatch: resolved ActionManager.UseAction at 0x{addr:X} (hook enabled only while armed)");
 	}
 
+	/// <summary>
+	/// Whether an observed action is the one being watched.
+	///
+	/// ⭐ ONE copy of this rule, because the second copy is what broke it. The upgrade-chain
+	/// match lived only here in the detour, while the hardcast check in CastWatchFeature compared
+	/// raw id against raw id -- so the level-sync fix worked for instants and oGCDs and silently
+	/// did not for anything with a cast bar, which is the case a callout is most wanted for.
+	///
+	/// ⚠ <paramref name="adjusted"/> and <paramref name="watchedAdjusted"/> come back out because
+	/// the diagnostic prints them. They are not a second answer -- the bool is the answer.
+	/// </summary>
+	internal bool MatchesWatch(ActionType actionType, uint actionId, out uint adjusted, out uint watchedAdjusted) {
+		// ⚠ HQ items arrive as id + 1,000,000. Without normalising, watching a Phoenix Down
+		// would match the NQ stack and quietly ignore an HQ one -- a gap that only shows up
+		// for whoever happens to be carrying the HQ version.
+		adjusted = actionType == ActionType.Action
+			? ActionManager.Instance()->GetAdjustedActionId(actionId)
+			: NormalizeItemId(actionId);
+		// ⚠⚠ BOTH DIRECTIONS, and only one of them used to exist. Adjusting the OBSERVED id
+		// covers "you watched Sheltron and the game cast Holy Sheltron". It does nothing for the
+		// reverse -- you watched Holy Sheltron, got synced to 75, and the game cast plain
+		// Sheltron -- which is the common case, because people write macros naming the ability
+		// they have at cap and then run roulettes all week.
+		//
+		// ⭐ deserok found this: "it's the watch that's vulnerable, ifwatch looking for the capped
+		// spell and not the lower versions." The failure is silent -- the action goes off, the
+		// callout never fires, and nothing anywhere says why.
+		//
+		// ⚠ Which direction GetAdjustedActionId actually resolves is NOT assumed. Both sides are
+		// adjusted and all four combinations compared, so it is correct whichever way the game
+		// happens to map it, and the detour's diagnostic prints every id so real use settles it.
+		watchedAdjusted = this.WatchedType == ActionType.Action && this.WatchedId != 0
+			? ActionManager.Instance()->GetAdjustedActionId(this.WatchedId)
+			: this.WatchedId;
+
+		return actionType == this.WatchedType
+			&& (actionId == this.WatchedId || adjusted == this.WatchedId
+				|| actionId == watchedAdjusted || adjusted == watchedAdjusted);
+	}
+
 	private bool Detour(
 		ActionManager* actionManager,
 		ActionType actionType,
@@ -134,32 +174,7 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 		// catches -- and therefore it must also log, or a broken watcher looks like a silent one.
 		try {
 			if (this.ArmIsLive) {
-				// ⚠ HQ items arrive as id + 1,000,000. Without normalising, watching a Phoenix Down
-				// would match the NQ stack and quietly ignore an HQ one -- a gap that only shows up
-				// for whoever happens to be carrying the HQ version.
-				uint adjusted = actionType == ActionType.Action
-					? ActionManager.Instance()->GetAdjustedActionId(actionId)
-					: NormalizeItemId(actionId);
-				// ⚠⚠ BOTH DIRECTIONS, and only one of them used to exist. Adjusting the OBSERVED id
-				// covers "you watched Sheltron and the game cast Holy Sheltron". It does nothing for the
-				// reverse -- you watched Holy Sheltron, got synced to 75, and the game cast plain
-				// Sheltron -- which is the common case, because people write macros naming the ability
-				// they have at cap and then run roulettes all week.
-				//
-				// ⭐ deserok found this: "it's the watch that's vulnerable, ifwatch looking for the capped
-				// spell and not the lower versions." The failure is silent -- the action goes off, the
-				// callout never fires, and nothing anywhere says why.
-				//
-				// ⚠ Which direction GetAdjustedActionId actually resolves is NOT assumed. Both sides are
-				// adjusted and all four combinations compared, so it is correct whichever way the game
-				// happens to map it, and the diagnostic below prints every id so real use settles it.
-				uint watchedAdjusted = this.WatchedType == ActionType.Action && this.WatchedId != 0
-					? ActionManager.Instance()->GetAdjustedActionId(this.WatchedId)
-					: this.WatchedId;
-
-				bool match = actionType == this.WatchedType
-					&& (actionId == this.WatchedId || adjusted == this.WatchedId
-						|| actionId == watchedAdjusted || adjusted == watchedAdjusted);
+				bool match = this.MatchesWatch(actionType, actionId, out uint adjusted, out uint watchedAdjusted);
 
 				// ⚠ DIAGNOSTIC. Every UseAction seen while armed is reported, matched or not,
 				// together with the ORIGINAL's return value. Without this, "it passed anyway"

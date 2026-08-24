@@ -78,6 +78,8 @@ internal static class ActionLookup {
 	}
 
 	/// <summary>What a name resolved to, and whether the choice was contested.</summary>
+	/// <param name="Id">The action id to send. Never zero -- a name that matched nothing returns null instead.</param>
+	/// <param name="Pvp">Which map it came out of, not which map was asked for.</param>
 	/// <param name="Ambiguous">
 	/// The name exists in both maps, so the PvP decision actually mattered. Traced when true, because
 	/// this is the case where a silent wrong answer is possible.

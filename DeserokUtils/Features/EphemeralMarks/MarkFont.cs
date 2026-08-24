@@ -116,8 +116,9 @@ internal sealed class MarkFont(MarkFace face): IDisposable {
 			Plugin.Log.Information($"EphemeralMarks: {face} font rebuilt at {px}px.");
 		}
 		catch (Exception ex) {
-			// ⚠ Never let a font build take the overlay down. builtPx stays put, so this retries on
-			// the next size change rather than every frame.
+			// ⚠ Never let a font build take the overlay down. builtPx is set even on failure, which
+			// is what stops a font that cannot build from retrying every single frame -- it waits
+			// for the next size change instead.
 			this.builtPx = px;
 			Plugin.Log.Error(ex, $"EphemeralMarks: could not build the {face} font at {px}px.");
 		}

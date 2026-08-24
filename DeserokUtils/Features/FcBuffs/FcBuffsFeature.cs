@@ -288,7 +288,10 @@ internal sealed class FcBuffsFeature: IDisposable {
 		Plugin.Diag("opened the FC window via AgentFreeCompany.Show()");
 	}
 
-	/// <summary>What is on right now, one line per STATUS -- see FcBuffReader.ActiveFamilies.</summary>
+	/// <summary>
+	/// What is on right now, one line per STATUS. Deliberately not FcBuffReader.ActiveFamilies,
+	/// which collapses tiers to one entry per family and so cannot say WHICH tier you are carrying.
+	/// </summary>
 	private static void Summary() {
 		var active = FcBuffReader.ActiveStatuses();
 		if (active.Count == 0) {

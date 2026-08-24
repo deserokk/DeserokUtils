@@ -30,9 +30,9 @@ internal readonly record struct TabEntry(string? Group, string Title, string Sum
 /// The window still knows nothing about any feature -- it is handed descriptors, so a new utility
 /// never edits this file.
 ///
-/// ⭐ Grouping exists because the macro tools crossed the threshold: CastWatch, /ifmo and the icon
-/// resolver are three faces of "FFXIV macros are bad". Five top-level tabs was fine; seven, with two
-/// of them near-duplicates of a third, is where a reader starts hunting. Anything ungrouped stays a
+/// ⭐ Grouping exists because the macro tools crossed the threshold: CastWatch and /ifmo are two
+/// faces of "FFXIV macros are bad". Five top-level tabs was fine; what starts a reader hunting is
+/// near-duplicates sitting apart from each other in a longer list. Anything ungrouped stays a
 /// plain top-level tab, which is every other feature -- grouping is earned by having relatives, not
 /// applied on principle.
 /// </summary>

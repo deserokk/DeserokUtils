@@ -262,11 +262,14 @@ internal sealed class InteractFeature: IDisposable {
 			"Then go operate things: a lever, a key on the floor, a wheel, an aetheryte, an NPC. Both "
 			+ "presses of Confirm are logged, so the target-then-use split shows up too.");
 
-		Section("The guard, once it exists");
+		Section("Guards");
 		ImGui.TextWrapped(
-			"It will refuse while you are casting, because interacting always produces a cast bar -- so "
-			+ "\"am I already interacting\" is a question the game answers itself, and it stays correct "
-			+ "at every animation length rather than at whichever one got measured.");
+			"Refuses while you are casting: interacting produces a cast bar, so \"am I already "
+			+ "interacting\" is a question the game answers itself, correct at every animation length "
+			+ "rather than at whichever one got measured.");
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"Aetherytes produce no cast bar, so a one-second floor between presses covers those.");
 	}
 
 	/// <summary>ImGui.SeparatorText does not exist in this binding version; this is the stand-in.</summary>

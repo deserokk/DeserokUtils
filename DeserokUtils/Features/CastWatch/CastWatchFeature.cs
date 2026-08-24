@@ -116,7 +116,7 @@ internal sealed class CastWatchFeature: IDisposable {
 		// ⚠ The filter applies to the hardcast path too. A Raise cast at yourself is impossible, but
 		// a mitigation is not -- and a filter that silently only covered instants would be right
 		// for oGCDs and quietly wrong for everything with a cast bar.
-		bool casting = IsCastingWatched(this.watcher.WatchedId, this.watcher.WatchedType, this.watcher.Filter, this.watcher.Context);
+		bool casting = this.IsCastingWatched(this.watcher.Filter, this.watcher.Context);
 		bool pass = this.watcher.Fired || casting;
 
 		// One-shot: reading disarms, so a stale arm can never leak a callout into a later macro.
@@ -417,11 +417,27 @@ internal sealed class CastWatchFeature: IDisposable {
 	/// <summary>
 	/// The hardcast case: nothing has resolved yet, but the cast bar is up and it is the watched
 	/// action. Instant casts never reach this -- the hook catches those instead.
+	///
+	/// ⚠ Matching goes through <see cref="ActionWatcher.MatchesWatch"/> rather than comparing ids
+	/// here. It used to compare raw id against raw id, which meant the level-sync fix covered
+	/// instants and oGCDs and quietly missed every hardcast -- the exact failure it was written
+	/// for, on the half of the feature where a callout matters most.
+	///
+	/// ⚠ The cast bar also reports its own CastActionType, which is NOT read. The observed type is
+	/// taken as the watched type, so the type comparison is a no-op on this path and behaviour is
+	/// whatever it has always been. Whether that byte is the same enumeration is unmeasured, so it
+	/// is printed by the diagnostic instead of trusted -- same treatment the adjust direction got.
 	/// </summary>
-	private static bool IsCastingWatched(uint id, ActionType type, TargetFilter filter, WatchContext? context) {
+	private bool IsCastingWatched(TargetFilter filter, WatchContext? context) {
 		var player = Plugin.Objects.LocalPlayer;
-		if (player is null || !player.IsCasting || player.CastActionId != id)
+		if (player is null || !player.IsCasting)
 			return false;
+
+		if (!this.watcher.MatchesWatch(this.watcher.WatchedType, player.CastActionId, out _, out _)) {
+			Plugin.Diag($"casting id={player.CastActionId} castType={player.CastActionType}"
+				+ $" vs watch {this.watcher.WatchedId} ({this.watcher.WatchedType}) -- no match");
+			return false;
+		}
 
 		if (filter == TargetFilter.Any || context is null)
 			return true;

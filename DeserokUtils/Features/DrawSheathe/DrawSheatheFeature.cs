@@ -57,7 +57,7 @@ internal sealed class DrawSheatheFeature: IDisposable {
 
 	public DrawSheatheFeature() {
 		Plugin.Commands.AddHandler("/drawsheathe", new CommandInfo(this.OnDrawSheathe) {
-			HelpMessage = "/drawsheathe -- draw or sheathe, whichever is correct. Emote when standing still, the game's own toggle when moving. Add 'state' to report what it reads.",
+			HelpMessage = "/drawsheathe -- draw or sheathe, whichever is correct. Emote when it will play, the game's own toggle when it will not. Add 'state' to report what it reads.",
 		});
 	}
 
@@ -476,9 +476,9 @@ internal sealed class DrawSheatheFeature: IDisposable {
 		this.sniffer.ExpireIfDue();
 
 		ImGui.TextWrapped(
-			"One key that draws or sheathes, whichever is currently correct. Standing still it plays "
-			+ "the Gold Saucer emote; moving it uses the game's own toggle, because the emote is "
-			+ "silently refused while you are moving.");
+			"One key that draws or sheathes, whichever is currently correct. It plays the Gold Saucer "
+			+ "emote when that will work, and falls back to the game's own toggle when it will not -- "
+			+ "while moving, while jumping, or if you do not own that emote.");
 		ImGui.Spacing();
 
 		bool? weaponOut = WeaponIsOut();
@@ -530,9 +530,9 @@ internal sealed class DrawSheatheFeature: IDisposable {
 			Plugin.Config.Save();
 		}
 		ImGui.TextWrapped(
-			"The emote does nothing while you are moving or jumping, so those fall back to the game's "
-			+ "own toggle and one key covers everything. Off, the key only ever sends the emote, which "
-			+ "is the old behaviour.");
+			"The emote does nothing while you are moving or jumping, or if you do not own it, so those "
+			+ "fall back to the game's own toggle and one key covers everything. Off, the key only ever "
+			+ "sends the emote, which is the old behaviour.");
 		ImGui.Spacing();
 		ImGui.TextWrapped(
 			"Worth knowing this switch is here: the fallback is the only part that calls into the "

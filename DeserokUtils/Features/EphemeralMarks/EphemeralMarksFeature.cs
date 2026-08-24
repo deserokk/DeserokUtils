@@ -441,7 +441,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			Plugin.Config.Save();
 		}
 		ImGui.Indent();
-		ImGui.TextDisabled("ignores the three toggles above, for tuning the marker somewhere convenient");
+		ImGui.TextDisabled("ignores the four toggles above, for tuning the marker somewhere convenient");
 		ImGui.Unindent();
 
 		Section("Group size limit");

@@ -115,9 +115,10 @@ public sealed class Plugin: IDalamudPlugin {
 		Config.Migrate();
 
 		// ── features ─────────────────────────────────────────────────────────────────────────
-		// Each registers its own commands in its constructor and hands back a tab. Adding a second
-		// is two lines here plus one new folder. No interface yet on purpose: a contract written
-		// against a single implementation is a guess about what the second one will need.
+		// Each registers its own commands in its constructor and hands back a tab. Adding another
+		// is two lines here plus one new folder. Still no IFeature interface, and at ten features
+		// that is a measured result rather than the original guess -- see MainWindow, where the
+		// implementations turned out to agree on nothing except how they present.
 		var castWatch = new CastWatchFeature();
 		this.features.Add(castWatch);
 		this.fateWatch = new FateWatchFeature();
@@ -147,8 +148,8 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(interact);
 
 		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
-		// having relatives: the macro tools are three faces of one complaint, everything else stands
-		// alone. Adding a sixth utility is still one line here and one folder.
+		// having relatives: the macro tools are two faces of one complaint, everything else stands
+		// alone. Adding another utility is still one line here and one folder.
 		const string macros = "Macros";
 		this.mainWindow = new MainWindow([
 			new TabEntry(macros, castWatch.TabTitle, castWatch.Summary, castWatch.DrawTab),
