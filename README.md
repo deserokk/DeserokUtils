@@ -24,6 +24,7 @@ One URL, several plugins. Then find DeserokUtils in the normal plugin installer.
 | **Mouseover** | one macro line that tries `<mo>` and falls back cleanly | `/ifmo` |
 | **Interact** | operate the thing in front of you, without touching menus | `/dsuinteract` |
 | **EphemeralMarks** | mark the people you queued into big content with | `/dsumarks` |
+| **AchievementData** | makes achievement links in chat actually go to the achievement | none |
 
 **On by default:** FateWatch, EphemeralMarks, the server-bar entry.
 **Off until you ask:** FcBuffs, EmoteQuiet, diagnostics.
