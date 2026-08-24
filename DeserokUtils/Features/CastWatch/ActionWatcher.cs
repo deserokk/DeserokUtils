@@ -143,8 +143,26 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				uint adjusted = actionType == ActionType.Action
 					? ActionManager.Instance()->GetAdjustedActionId(actionId)
 					: NormalizeItemId(actionId);
+				// ⚠⚠ BOTH DIRECTIONS, and only one of them used to exist. Adjusting the OBSERVED id
+				// covers "you watched Sheltron and the game cast Holy Sheltron". It does nothing for the
+				// reverse -- you watched Holy Sheltron, got synced to 75, and the game cast plain
+				// Sheltron -- which is the common case, because people write macros naming the ability
+				// they have at cap and then run roulettes all week.
+				//
+				// ⭐ deserok found this: "it's the watch that's vulnerable, ifwatch looking for the capped
+				// spell and not the lower versions." The failure is silent -- the action goes off, the
+				// callout never fires, and nothing anywhere says why.
+				//
+				// ⚠ Which direction GetAdjustedActionId actually resolves is NOT assumed. Both sides are
+				// adjusted and all four combinations compared, so it is correct whichever way the game
+				// happens to map it, and the diagnostic below prints every id so real use settles it.
+				uint watchedAdjusted = this.WatchedType == ActionType.Action && this.WatchedId != 0
+					? ActionManager.Instance()->GetAdjustedActionId(this.WatchedId)
+					: this.WatchedId;
+
 				bool match = actionType == this.WatchedType
-					&& (actionId == this.WatchedId || adjusted == this.WatchedId);
+					&& (actionId == this.WatchedId || adjusted == this.WatchedId
+						|| actionId == watchedAdjusted || adjusted == watchedAdjusted);
 
 				// ⚠ DIAGNOSTIC. Every UseAction seen while armed is reported, matched or not,
 				// together with the ORIGINAL's return value. Without this, "it passed anyway"
@@ -156,14 +174,27 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				// here is your enemy rather than you, a "not self" filter would be reading the
 				// wrong thing and the whole target-class idea needs a different signal.
 				ulong selfId = Plugin.Objects.LocalPlayer?.GameObjectId ?? 0;
+				// ⚠ watchedAdjusted is printed so the open question -- which way the game maps an upgrade --
+				// gets answered by ordinary use rather than by a separate experiment.
 				string who = targetId == selfId ? "SELF"
 					: targetId is 0 or 0xE0000000 ? "none"
 					: $"0x{targetId:X}";
 
 				Plugin.Diag($"UseAction type={actionType} id={actionId}"
 					+ (adjusted != actionId ? $" (adj {adjusted})" : "")
+					+ $" vs watch {this.WatchedId}"
+					+ (watchedAdjusted != this.WatchedId ? $" (adj {watchedAdjusted})" : "")
 					+ $" target={who} returned {result}"
 					+ (match ? $"  <== MATCHES {this.WatchedName}" : ""));
+
+				// ⚠ UNCONDITIONAL, not behind Diag, and only when the level-sync path is what saved it.
+				// This is the case that was silently broken, so the one line proving it now works should
+				// not require diagnostics to have been switched on first.
+				if (match && actionId != this.WatchedId && adjusted != this.WatchedId) {
+					Plugin.Log.Information(
+						$"CastWatch: matched {this.WatchedName} via the upgrade chain -- watched "
+						+ $"{this.WatchedId}, cast {actionId}. Trait upgrade or level sync.");
+				}
 
 				if (match) {
 					this.LastResult = result;
