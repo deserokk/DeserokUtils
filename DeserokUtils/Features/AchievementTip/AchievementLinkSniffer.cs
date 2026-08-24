@@ -1,7 +1,10 @@
 using System;
 using System.Text;
 
+using Dalamud.Game.Chat;
 using Dalamud.Game.Command;
+using Dalamud.Game.Text;
+using Dalamud.Game.Text.SeStringHandling.Payloads;
 using Dalamud.Hooking;
 
 using FFXIVClientStructs.FFXIV.Client.UI;
@@ -56,6 +59,15 @@ internal sealed unsafe class AchievementLinkSniffer: IDisposable {
 			HelpMessage = "/dsuachievesniff [links] -- reconnaissance: record chat link clicks, or dump the links currently on screen.",
 			ShowInHelp = false,
 		});
+
+		// ⭐⭐ ALWAYS ON, and it is the probe that should have been written first. Reading the message
+		// as it ARRIVES sidesteps every rendering question -- visible or hidden, scrolled or not,
+		// native chat or a replacement plugin. Three rounds were spent chasing which panel was showing
+		// what, when the payload was available before any of that mattered.
+		//
+		// ⚠ Costs a walk of one message's payloads per chat line, and logs nothing unless something
+		// unrecognised turns up. Chat volume is a few lines a second at worst.
+		Plugin.Chat.ChatMessage += this.OnChatMessage;
 
 		nint address = (nint)LogViewer.MemberFunctionPointers.HandleLinkClick;
 
@@ -227,7 +239,51 @@ internal sealed unsafe class AchievementLinkSniffer: IDisposable {
 		this.hook!.Original(self, link);
 	}
 
+	/// <summary>
+	/// ⚠ Logs only when a payload arrives that Dalamud could not type, or when the line mentions an
+	/// achievement. Everything Dalamud already understands -- items, players, statuses -- is silent,
+	/// because those are solved and would bury the one line worth reading.
+	///
+	/// ⚠ The word match is a DIAGNOSTIC CRUTCH, not a design. It is English-only and a patch could
+	/// reword it; it exists so the very first achievement is definitely caught even if its payload
+	/// turns out to be something Dalamud types cleanly. Delete it once the format is known.
+	/// </summary>
+	private void OnChatMessage(IHandleableChatMessage message) {
+		try {
+			bool interesting = message.Message.TextValue.Contains("achievement", StringComparison.OrdinalIgnoreCase);
+			int raws = 0;
+
+			foreach (var payload in message.Message.Payloads) {
+				if (payload is RawPayload)
+					raws++;
+			}
+
+			if (raws == 0 && !interesting)
+				return;
+
+			Plugin.Log.Information(
+				$"AchievementTip: CHAT kind={message.LogKind} ({(int)message.LogKind}) "
+				+ $"raw={raws} text=\"{message.Message.TextValue}\"");
+
+			foreach (var payload in message.Message.Payloads) {
+				if (payload is not RawPayload raw) {
+					Plugin.Log.Information($"AchievementTip:   payload {payload.Type}: {payload}");
+					continue;
+				}
+
+				var hex = new StringBuilder();
+				foreach (byte b in raw.Data)
+					hex.Append(b.ToString("X2")).Append(' ');
+				Plugin.Log.Information($"AchievementTip:   RAW {hex}");
+			}
+		}
+		catch (Exception ex) {
+			Plugin.Log.Error(ex, "AchievementTip: chat inspection failed.");
+		}
+	}
+
 	public void Dispose() {
+		Plugin.Chat.ChatMessage -= this.OnChatMessage;
 		Plugin.Commands.RemoveHandler("/dsuachievesniff");
 		this.hook?.Disable();
 		this.hook?.Dispose();
