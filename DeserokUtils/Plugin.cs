@@ -132,6 +132,10 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(ifMouseover);
 		var marks = new EphemeralMarksFeature();
 		this.features.Add(marks);
+
+		// ⚠ RECONNAISSANCE, not a feature. No tab, hidden command, hook disabled until armed. Delete
+		// this line and the folder once the achievement-link question is answered either way.
+		this.features.Add(new Features.AchievementTip.AchievementLinkSniffer());
 		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
