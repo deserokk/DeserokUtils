@@ -181,6 +181,30 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 		var found = name is null ? null : ActionLookup.Resolve(name, preferPvp);
 		uint? actionId = found?.Id;
 
+		// ⚠⚠ TRAIT UPGRADES AND LEVEL SYNC. Sheltron becomes Holy Sheltron at 82, and the game syncs you
+		// down constantly -- so the row a NAME resolves to is not necessarily the action that would
+		// actually go off. The game already knows the answer and exposes it; asking is free.
+		//
+		// ⭐ Execution was never the problem: deserok confirms a macro naming the higher ability just
+		// uses the lower one when synced. It is the PREDICTION that could be wrong -- CanUseActionOnTarget
+		// and GetActionInRangeOrLoS are static and take a literal id, so without this they would gate on
+		// the rules of an action you are not currently able to cast.
+		//
+		// ⚠ Logged when it changes anything, unconditionally. This is exactly the class of bug that
+		// produces "it works at cap and not in roulettes", and the log line is what makes that findable.
+		if (actionId is uint named) {
+			var manager = ActionManager.Instance();
+			if (manager is not null) {
+				uint adjusted = manager->GetAdjustedActionId(named);
+				if (adjusted != named && adjusted != 0) {
+					Plugin.Log.Information(
+						$"IfMouseover: \"{name}\" is action {named}, but the game would cast {adjusted} "
+						+ "right now (trait upgrade or level sync). Checking the one it would cast.");
+					actionId = adjusted;
+				}
+			}
+		}
+
 		// ⚠ Logged UNCONDITIONALLY when the name was contested, not behind Diag. A wrong pick here is
 		// invisible in game -- the macro just quietly validates against the other action's rules --
 		// and this project has now written empty diagnostic logs three times by gating the one line
