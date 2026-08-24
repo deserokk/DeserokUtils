@@ -447,7 +447,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.SameLine(130f);
 		var leaderShape = Plugin.Config.MarksLeaderShape;
 		int leaderGlyph = Plugin.Config.MarksLeaderGlyph;
-		if (this.GlyphPicker("leader", ref leaderShape, ref leaderGlyph)) {
+		if (MarkShapes.GlyphPicker("leader", ref leaderShape, ref leaderGlyph)) {
 			Plugin.Config.MarksLeaderShape = leaderShape;
 			Plugin.Config.MarksLeaderGlyph = leaderGlyph;
 			Plugin.Config.Save();
@@ -457,7 +457,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.SameLine(130f);
 		var memberShape = Plugin.Config.MarksMemberShape;
 		int memberGlyph = Plugin.Config.MarksMemberGlyph;
-		if (this.GlyphPicker("member", ref memberShape, ref memberGlyph)) {
+		if (MarkShapes.GlyphPicker("member", ref memberShape, ref memberGlyph)) {
 			Plugin.Config.MarksMemberShape = memberShape;
 			Plugin.Config.MarksMemberGlyph = memberGlyph;
 			Plugin.Config.Save();
@@ -492,7 +492,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			ImGui.SameLine();
 			var shape = entry.Shape;
 			int entryGlyph = entry.Glyph;
-			if (this.GlyphPicker($"over{i}", ref shape, ref entryGlyph, 110f)) {
+			if (MarkShapes.GlyphPicker($"over{i}", ref shape, ref entryGlyph, 110f)) {
 				entry.Shape = shape;
 				entry.Glyph = entryGlyph;
 				Plugin.Config.Save();
@@ -587,99 +587,6 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.TextWrapped(
 			"⚠ A party formed after you are already inside will not be marked. Matching is by name and "
 			+ "home world, nothing is stored, and the list is discarded when you leave.");
-	}
-
-	/// ⭐ A shortlist for the empty search, because opening a picker onto 1382 alphabetical entries
-	/// starting with "AddressBook" is worse than six good ones. Typing searches everything.
-	private static readonly FontAwesomeIcon[] Popular = {
-		FontAwesomeIcon.Heart, FontAwesomeIcon.Star, FontAwesomeIcon.Crown, FontAwesomeIcon.Skull,
-		FontAwesomeIcon.Paw, FontAwesomeIcon.Cat, FontAwesomeIcon.Ghost, FontAwesomeIcon.Snowflake,
-		FontAwesomeIcon.Gem, FontAwesomeIcon.Bolt, FontAwesomeIcon.Fire, FontAwesomeIcon.Moon,
-		FontAwesomeIcon.Sun, FontAwesomeIcon.Leaf, FontAwesomeIcon.Fish, FontAwesomeIcon.Dragon,
-		FontAwesomeIcon.Crosshairs, FontAwesomeIcon.LocationArrow, FontAwesomeIcon.Bullseye,
-		FontAwesomeIcon.Anchor, FontAwesomeIcon.Bell, FontAwesomeIcon.Cookie,
-	};
-
-	/// ⚠ Built once. Enum.GetValues over 1382 entries per frame would be the per-frame audit again,
-	/// in a tab nobody has open most of the time.
-	private static (string Name, int Char)[]? allIcons;
-
-	private static (string Name, int Char)[] AllIcons() =>
-		allIcons ??= Enum.GetValues<FontAwesomeIcon>()
-			.Select(i => (Name: i.ToString(), Char: (int)i))
-			.Where(i => i.Char > 0)
-			.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase)
-			.ToArray();
-
-	private string iconFilter = string.Empty;
-
-	/// <summary>
-	/// Shape, plus a glyph picker when the shape is Icon.
-	///
-	/// ⚠ The search is capped at 80 results and SAYS SO when it truncates. A silent cap reads as
-	/// "that icon does not exist", which would send somebody looking for a bug that is not there.
-	/// </summary>
-	private bool GlyphPicker(string id, ref MarkShape shape, ref int glyph, float width = 150f) {
-		bool changed = false;
-
-		ImGui.SetNextItemWidth(width);
-		if (ImGui.BeginCombo($"##shape{id}", MarkShapes.Label(shape))) {
-			foreach (MarkShape option in new[] { MarkShape.Reticle, MarkShape.Star, MarkShape.Icon }) {
-				if (ImGui.Selectable(MarkShapes.Label(option), option == shape)) {
-					shape = option;
-					changed = true;
-				}
-			}
-
-			ImGui.EndCombo();
-		}
-
-		if (shape != MarkShape.Icon)
-			return changed;
-
-		ImGui.SameLine();
-		// ⚠ Copied out of the ref parameter: a ref cannot be captured by the lambda.
-		int chosen = glyph;
-		string current = AllIcons().FirstOrDefault(i => i.Char == chosen).Name ?? "pick";
-		if (ImGui.Button($"{current}##pick{id}"))
-			ImGui.OpenPopup($"glyphs{id}");
-
-		if (ImGui.BeginPopup($"glyphs{id}")) {
-			ImGui.SetNextItemWidth(220f);
-			string filter = this.iconFilter;
-			if (ImGui.InputTextWithHint($"##filter{id}", "search 1382 icons", ref filter, 32))
-				this.iconFilter = filter;
-
-			var matches = this.iconFilter.Trim().Length == 0
-				? Popular.Select(i => (Name: i.ToString(), Char: (int)i))
-				: AllIcons().Where(i => i.Name.Contains(this.iconFilter.Trim(), StringComparison.OrdinalIgnoreCase));
-
-			var shown = matches.Take(80).ToList();
-
-			if (ImGui.BeginChild($"list{id}", new Vector2(240f, 260f))) {
-				foreach (var (name, code) in shown) {
-					// ⭐ The glyph itself beside the name -- Dalamud's prebuilt icon font is fine here,
-					// since a menu is drawn at one size and never scaled.
-					using (Plugin.PluginInterface.UiBuilder.IconFontHandle.Push())
-						ImGui.Text(char.ConvertFromUtf32(code));
-
-					ImGui.SameLine();
-					if (ImGui.Selectable($"{name}##{id}{code}", code == glyph)) {
-						glyph = code;
-						changed = true;
-						ImGui.CloseCurrentPopup();
-					}
-				}
-
-				if (shown.Count == 80)
-					ImGui.TextDisabled("...first 80. Narrow the search.");
-			}
-
-			ImGui.EndChild();
-			ImGui.EndPopup();
-		}
-
-		return changed;
 	}
 
 	private static void Toggle(string label, string hint, bool value, Action<bool> set) {

@@ -72,6 +72,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly FcBuffsFeature fcBuffs;
 	private readonly EphemeralMarksFeature marks;
 	private readonly Features.AchievementData.AchievementPreload achievements;
+	private readonly Features.DebuffMarks.DebuffMarksFeature debuffs;
 
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
@@ -138,6 +139,9 @@ public sealed class Plugin: IDalamudPlugin {
 		// tooltip feature that used to sit here is gone.
 		this.achievements = new Features.AchievementData.AchievementPreload();
 		this.features.Add(this.achievements);
+		var debuffs = new Features.DebuffMarks.DebuffMarksFeature();
+		this.features.Add(debuffs);
+		this.debuffs = debuffs;
 		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
@@ -155,6 +159,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, emoteQuiet.TabTitle, string.Empty, emoteQuiet.DrawTab),
 			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
 			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
+			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
@@ -178,6 +183,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.fcBuffs.Tick();
 		this.marks.Tick();
 		this.achievements.Tick();
+		this.debuffs.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;

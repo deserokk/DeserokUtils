@@ -9,6 +9,33 @@ using Newtonsoft.Json;
 namespace DeserokUtils;
 
 /// <summary>
+/// One status worth marking over somebody's head.
+/// </summary>
+public sealed class DebuffMark {
+	public bool Enabled { get; set; } = true;
+
+	/// <summary>The name as typed, kept so the box can show it back and the id can be re-resolved.</summary>
+	public string Status { get; set; } = string.Empty;
+
+	/// <summary>⚠ Resolved from the Status sheet. Zero means unresolved, and nothing is marked.</summary>
+	public uint StatusId { get; set; }
+
+	/// <summary>
+	/// ⚠⚠ ON by default, and the default matters. Kuzushi, the status this feature was built for, reads
+	/// *"damage taken from the samurai who applied this effect"* -- so somebody else's copy of the same
+	/// status is the WRONG answer. Defaulting this off would produce a marker that is confidently wrong
+	/// exactly when a limit break is spent on it.
+	/// </summary>
+	public bool MineOnly { get; set; } = true;
+
+	public Features.EphemeralMarks.MarkShape Shape { get; set; } = Features.EphemeralMarks.MarkShape.Icon;
+
+	public int Glyph { get; set; } = (int)Dalamud.Interface.FontAwesomeIcon.Skull;
+
+	public System.Numerics.Vector4 Colour { get; set; } = new(1f, 0.35f, 0.2f, 1f);
+}
+
+/// <summary>
 /// A glyph chosen for one specific character. See <see cref="Configuration.MarksOverrides"/> for the
 /// limits on what this is allowed to influence.
 /// </summary>
@@ -527,6 +554,18 @@ public sealed class Configuration: IPluginConfiguration {
 	/// need a migration.
 	/// </summary>
 	public bool MarksInDeepDungeon { get; set; } = true;
+
+	/// <summary>Mark anyone carrying a status you are watching. See DebuffMarksFeature.</summary>
+	public bool DebuffMarksEnabled { get; set; } = true;
+
+	/// <inheritdoc cref="MarksScale"/>
+	public float DebuffMarksScale { get; set; } = 2f;
+
+	/// <summary>
+	/// ⚠ Empty by default, so the feature costs one bool test until somebody actually wants it.
+	/// </summary>
+	[JsonProperty(ObjectCreationHandling = ReplaceList)]
+	public List<DebuffMark> DebuffMarks { get; set; } = new();
 
 
 	/// <summary>
