@@ -56,6 +56,16 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	private readonly Dictionary<ulong, Vector2> smoothed = new();
 	private readonly HashSet<ulong> seenThisFrame = new();
 
+	/// <summary>
+	/// Name -&gt; every status id that carries it, resolved once per name.
+	///
+	/// ⚠⚠ A SET, not one id. Three separate statuses are called "Reprisal" and two are called
+	/// "Kuzushi"-adjacent; picking one silently watches the wrong number and the feature looks broken
+	/// rather than misconfigured. ⭐ Watching all of them is correct anyway: they are the same effect
+	/// with different provenance, and the source filter is what narrows it to yours.
+	/// </summary>
+	private readonly Dictionary<string, uint[]> resolved = new(StringComparer.OrdinalIgnoreCase);
+
 	private DateTime lastScan = DateTime.MinValue;
 	private DateTime lastFrame = DateTime.UtcNow;
 
@@ -109,11 +119,15 @@ internal sealed class DebuffMarksFeature: IDisposable {
 
 			for (int i = 0; i < Plugin.Config.DebuffMarks.Count; i++) {
 				var watch = Plugin.Config.DebuffMarks[i];
-				if (!watch.Enabled || watch.StatusId == 0)
+				if (!watch.Enabled)
+					continue;
+
+				uint[] ids = this.IdsFor(watch.Status);
+				if (ids.Length == 0)
 					continue;
 
 				foreach (var status in chara.StatusList) {
-					if (status.StatusId != watch.StatusId)
+					if (Array.IndexOf(ids, status.StatusId) < 0)
 						continue;
 
 					// ⚠⚠ The source check. A status applied by somebody else can be the wrong answer
@@ -243,19 +257,19 @@ internal sealed class DebuffMarksFeature: IDisposable {
 			string name = entry.Status;
 			if (ImGui.InputText($"##debuffName{i}", ref name, 48)) {
 				entry.Status = name;
-				entry.StatusId = ResolveStatus(name);
 				Plugin.Config.Save();
 			}
 
 			// ⚠ Says out loud whether the name matched. A typo would otherwise be a feature that simply
 			// never fires, and "it does nothing" is the hardest failure to debug from the outside.
 			ImGui.SameLine();
+			uint[] ids = this.IdsFor(entry.Status);
 			if (entry.Status.Length == 0)
 				ImGui.TextDisabled("(empty)");
-			else if (entry.StatusId == 0)
+			else if (ids.Length == 0)
 				ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "no such status");
 			else
-				ImGui.TextDisabled($"#{entry.StatusId}");
+				ImGui.TextDisabled(ids.Length == 1 ? $"#{ids[0]}" : $"{ids.Length} ids");
 
 			ImGui.SameLine();
 			var shape = entry.Shape;
@@ -303,24 +317,35 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	}
 
 	/// <summary>
-	/// ⚠ Name to id, from the Status sheet, matched case-insensitively. Returns 0 when nothing matches,
-	/// and the tab shows that -- rather than silently watching a status that does not exist.
+	/// Every status id carrying this name, matched case-insensitively and memoised.
+	///
+	/// ⚠ Empty when nothing matches, and the tab SAYS so -- a typo would otherwise be a feature that
+	/// silently never fires, which is the hardest failure to debug from the other end of a Discord
+	/// message.
+	///
+	/// ⚠ The sheet walk happens once per distinct name, not per scan. It is a few thousand string
+	/// extractions and belongs nowhere near a 10 Hz loop.
 	/// </summary>
-	private static uint ResolveStatus(string name) {
+	private uint[] IdsFor(string name) {
 		string wanted = name.Trim();
 		if (wanted.Length == 0)
-			return 0;
+			return Array.Empty<uint>();
 
+		if (this.resolved.TryGetValue(wanted, out uint[]? cached))
+			return cached;
+
+		var found = new List<uint>();
 		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Status>();
-		if (sheet is null)
-			return 0;
-
-		foreach (var row in sheet) {
-			if (string.Equals(row.Name.ExtractText(), wanted, StringComparison.OrdinalIgnoreCase))
-				return row.RowId;
+		if (sheet is not null) {
+			foreach (var row in sheet) {
+				if (string.Equals(row.Name.ExtractText(), wanted, StringComparison.OrdinalIgnoreCase))
+					found.Add(row.RowId);
+			}
 		}
 
-		return 0;
+		Plugin.Log.Information($"DebuffMarks: \"{wanted}\" resolved to {found.Count} status id(s): "
+			+ (found.Count > 0 ? string.Join(", ", found) : "none"));
+		return this.resolved[wanted] = found.ToArray();
 	}
 
 	public void Dispose() {

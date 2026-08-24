@@ -17,8 +17,10 @@ public sealed class DebuffMark {
 	/// <summary>The name as typed, kept so the box can show it back and the id can be re-resolved.</summary>
 	public string Status { get; set; } = string.Empty;
 
-	/// <summary>⚠ Resolved from the Status sheet. Zero means unresolved, and nothing is marked.</summary>
-	public uint StatusId { get; set; }
+	// ⚠⚠ A SINGLE StatusId USED TO LIVE HERE AND IT WAS WRONG. Status names are not unique -- there
+	// are three separate statuses called "Reprisal" (753, 1193, 2101) -- so resolving a name to one id
+	// silently watches the wrong one and the feature just never fires. Nothing is persisted now except
+	// the name; ids are resolved at runtime, as a SET. Same lesson as ActionLookup's first-wins.
 
 	/// <summary>
 	/// ⚠⚠ ON by default, and the default matters. Kuzushi, the status this feature was built for, reads
