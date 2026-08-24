@@ -133,8 +133,11 @@ public sealed class Plugin: IDalamudPlugin {
 		var marks = new EphemeralMarksFeature();
 		this.features.Add(marks);
 
-		// ⚠ RECONNAISSANCE, not a feature. No tab, hidden command, hook disabled until armed. Delete
-		// this line and the folder once the achievement-link question is answered either way.
+		var achievementTip = new Features.AchievementTip.AchievementTipFeature();
+		this.features.Add(achievementTip);
+
+		// ⚠ The reconnaissance that found the link format, kept while the feature is unproven. Hidden
+		// command, hook disabled until armed. Delete once the click path has been used in anger.
 		this.features.Add(new Features.AchievementTip.AchievementLinkSniffer());
 		this.marks = marks;
 		var interact = new InteractFeature();

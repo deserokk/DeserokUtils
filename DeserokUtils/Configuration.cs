@@ -529,6 +529,15 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool MarksInDeepDungeon { get; set; } = true;
 
 	/// <summary>
+	/// Rewrite achievement chat links so clicking one explains it.
+	///
+	/// ⚠ ON by default, and it is the only feature here that MODIFIES a chat message. Acceptable
+	/// because of what it touches: a system line whose link currently does something useless. It adds
+	/// nothing to the text and removes no working behaviour.
+	/// </summary>
+	public bool AchievementTipEnabled { get; set; } = true;
+
+	/// <summary>
 	/// The glyph for the party leader, and for everyone else. Bunny, #dev-notes 2026-08-22:
 	/// *"Add different symbols for marks please :) Heart is needed^"*
 	/// </summary>
