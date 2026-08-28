@@ -73,6 +73,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly EphemeralMarksFeature marks;
 	private readonly Features.AchievementData.AchievementPreload achievements;
 	private readonly Features.DebuffMarks.DebuffMarksFeature debuffs;
+	private readonly InteractFeature interact;
 
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
@@ -146,6 +147,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
+		this.interact = interact;
 
 		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
 		// having relatives: the macro tools are two faces of one complaint, everything else stands
@@ -185,6 +187,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.marks.Tick();
 		this.achievements.Tick();
 		this.debuffs.Tick();
+		this.interact.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;

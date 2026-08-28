@@ -40,6 +40,13 @@ internal sealed class InteractFeature: IDisposable {
 
 	private readonly InteractSniffer sniffer = new();
 
+	/// <summary>
+	/// ⚠ Load-bearing, and only found because two machines disagreed. See <see cref="GimmickConfirm"/>:
+	/// without it this key stops at a confirmation box on any client not running YesAlready, which is
+	/// the trip to a menu the whole feature exists to avoid.
+	/// </summary>
+	private readonly GimmickConfirm gimmicks = new();
+
 	public InteractFeature() {
 		Plugin.Commands.AddHandler("/dsuinteract", new CommandInfo(this.OnCommand) {
 			HelpMessage = "/dsuinteract -- operate the thing in front of you, without touching any menu. Add sniff to record what Confirm does.",
@@ -114,13 +121,25 @@ internal sealed class InteractFeature: IDisposable {
 		// -- which would bring the original annoyance back silently.
 		string before = Plugin.Targets.Target?.Name.ToString() ?? "none";
 
+		// ⚠ Armed BEFORE the call, not after. The window is what tells GimmickConfirm a box belongs to
+		// us, and nothing here guarantees the box cannot appear during the call rather than after it.
+		// Arming early can only ever be harmless -- an unused window expires in three seconds.
+		this.gimmicks.Arm();
+
 		ulong result = TargetSystem.Instance()->InteractWithObject(
 			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, true);
 		this.lastInteract = DateTime.UtcNow;
 
 		string after = Plugin.Targets.Target?.Name.ToString() ?? "none";
 		this.lastResult = $"{chosen.Name} ({how})";
-		Trace($"interacted with \"{chosen.Name}\" kind={chosen.ObjectKind} via {how} -> {result} "
+
+		// ⚠ BaseId and distance are here for ONE open question: deserok reports a class of object that
+		// refuses with "you cannot see the object", which is the checkLineOfSight:true argument above
+		// failing. It has never happened somewhere testable. Without the base id the specimen cannot be
+		// looked up in the EObj sheet afterwards, and without the distance we cannot tell a real
+		// occlusion from an object whose origin sits inside the floor. Both are free on a keypress.
+		Trace($"interacted with \"{chosen.Name}\" kind={chosen.ObjectKind} data={chosen.BaseId} "
+			+ $"at {Vector3.Distance(chosen.Position, player.Position):0.#}y via {how} -> {result} "
 			+ $"| target {before} -> {after}");
 	}
 
@@ -179,6 +198,9 @@ internal sealed class InteractFeature: IDisposable {
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.GatheringPoint;
+
+	/// <summary>Driven from Plugin's framework update, and only to give GimmickConfirm its frame.</summary>
+	public void Tick() => this.gimmicks.Tick();
 
 	private static void Trace(string message) {
 		Plugin.Log.Information($"Interact: {message}");
@@ -270,6 +292,19 @@ internal sealed class InteractFeature: IDisposable {
 		ImGui.Spacing();
 		ImGui.TextWrapped(
 			"Aetherytes produce no cast bar, so a one-second floor between presses covers those.");
+
+		Section("Confirmation boxes");
+		bool answer = Plugin.Config.InteractAnswerGimmicks;
+		if (ImGui.Checkbox("Answer the box this key causes##interact_gimmick", ref answer)) {
+			Plugin.Config.InteractAnswerGimmicks = answer;
+			Plugin.Config.Save();
+		}
+		ImGui.TextWrapped(
+			$"Dungeon gimmicks ask before they act. Only boxes this key caused, and only the "
+			+ $"{this.gimmicks.KnownPrompts} the game itself lists as gimmicks -- discarding an item "
+			+ "still asks you.");
+		ImGui.Spacing();
+		ImGui.TextDisabled($"last: {this.gimmicks.LastAnswer}");
 	}
 
 	/// <summary>ImGui.SeparatorText does not exist in this binding version; this is the stand-in.</summary>
@@ -283,5 +318,6 @@ internal sealed class InteractFeature: IDisposable {
 	public void Dispose() {
 		Plugin.Commands.RemoveHandler("/dsuinteract");
 		this.sniffer.Dispose();
+		this.gimmicks.Dispose();
 	}
 }

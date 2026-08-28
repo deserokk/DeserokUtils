@@ -716,6 +716,23 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool AlertChat { get; set; } = true;
 	public bool AlertSound { get; set; } = true;
 
+	// ── Interact ─────────────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Answer the dungeon-gimmick yes/no box that the interact key just caused.
+	///
+	/// ⭐ ON by default, and the <see cref="FcBuffsEnabled"/> precedent deliberately does NOT apply.
+	/// That one defaults off because it acts without being asked -- it fires on a timer, and switching
+	/// that on for an existing install would be a surprise. This one only ever finishes an action you
+	/// started a second earlier by pressing the key, and without it the key is simply broken on any
+	/// client not running YesAlready. A default that makes a feature work is a different thing from a
+	/// default that starts new behaviour.
+	///
+	/// ⚠ What it will and will not answer is <see cref="Features.Interact.GimmickConfirm"/>, not a
+	/// list here. The gate is a game sheet.
+	/// </summary>
+	public bool InteractAnswerGimmicks { get; set; } = true;
+
 	/// <summary>
 	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
 	/// </summary>
