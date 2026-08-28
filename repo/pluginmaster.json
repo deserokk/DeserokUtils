@@ -3,7 +3,7 @@
     "Author": "deserokk",
     "Name": "DeserokUtils",
     "InternalName": "DeserokUtils",
-    "AssemblyVersion": "1.14.0.0",
+    "AssemblyVersion": "1.15.0.0",
     "Description": "A small personal set of utilities. /dsu opens the window.\n\nCastWatch: a consistent way to announce spells.\nMouseover: mouseover macros in one line, with a fallback.\nFateWatch: a timer for FATEs that run on a cycle.\nFcBuffs: keeps the Free Company buffs topped up.\nDrawSheathe: a draw/sheathe key that incorporates the Gold Saucer emotes.\nEmoteQuiet: stops emote spam in your log.\nInteract: an interact key that ignores open menus and advances dialogue.\nEphemeralMarks: private markers for the people you queued in with.\nDebuffMarks: a private icon over anyone with a debuff you name.\nAchievementData: makes achievement links in chat work.\nKeybinds: bind these to a key instead of a hotbar macro.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/deserokk/DeserokUtils",

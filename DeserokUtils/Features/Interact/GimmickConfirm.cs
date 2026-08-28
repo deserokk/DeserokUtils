@@ -22,7 +22,7 @@ namespace DeserokUtils.Features.Interact;
 /// hers, she gets a confirmation box to click through"*. So the box was load-bearing all along, and
 /// nobody noticed because one machine was hiding it.
 ///
-/// ## ⭐⭐ The gate is a game sheet, not a list somebody curated
+/// ## ⭐⭐ The gate is game sheets, not a list somebody curated
 ///
 /// Credit where it is due: YesAlready found this, and it is the whole trick. The game ships a sheet
 /// literally called <c>GimmickYesNo</c> -- 171 rows, 161 with text, three columns (Message, and the
@@ -33,6 +33,19 @@ namespace DeserokUtils.Features.Interact;
 /// That is why *"Discard [item]?"* still asks you. It is not held back by an exception we wrote and
 /// have to maintain -- it is simply **not in the sheet**. An allowlist we curated would rot; this
 /// one is patched by the people who add the gimmicks.
+///
+/// ## ⚠⚠ The second sheet can quote you a price, and that is a deliberate, narrow exception
+///
+/// <c>Warp.Question</c> covers area transitions, and 47 of its 544 rows are paid transport: *"Travel
+/// to Gridania for 120 gil?"*. There is no cost column to filter on -- the two ferry rows carry a
+/// price with the same flags as the free ones, so the only signal is the digits in the text. Two
+/// filters were considered and both rejected: matching the word "gil" breaks in any other client
+/// language, and dropping every prompt containing a digit would also drop *"Proceed to zone 1?"* and
+/// *"Proceed to A-4 Research?"*, which are exactly the field-op transitions this key is for.
+///
+/// So paid transport IS auto-confirmed, at 40 to 120 gil, and it is written down here rather than
+/// discovered later. It is the one place this feature spends money, it is bounded by the fact that
+/// you walked to a ferryman and pressed interact, and it is reversed by unticking the box.
 ///
 /// ⚠ Their implementation could not be copied even if we wanted to. The YesAlready repository has
 /// no LICENSE file, which makes it all-rights-reserved by default, and its
@@ -199,22 +212,39 @@ internal sealed class GimmickConfirm: IDisposable {
 				return this.prompts;
 
 			this.prompts = new HashSet<string>(StringComparer.Ordinal);
-			var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.GimmickYesNo>();
-			if (sheet is null) {
-				Plugin.Log.Warning("Interact: GimmickYesNo sheet did not load -- no box will ever be answered.");
-				return this.prompts;
-			}
 
-			foreach (var row in sheet) {
-				string text = row.Message.ExtractText();
-				if (text.Length > 0)
-					this.prompts.Add(Normalise(text));
-			}
+			var gimmicks = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.GimmickYesNo>();
+			if (gimmicks is null)
+				Plugin.Log.Warning("Interact: GimmickYesNo sheet did not load.");
+			else
+				foreach (var row in gimmicks) {
+					string text = row.Message.ExtractText();
+					if (text.Length > 0)
+						this.prompts.Add(Normalise(text));
+				}
+
+			// ⭐⭐ The SECOND sheet, added 2026-08-28 because Bunny found the hole: *"Enter Reisen Temple?"*
+			// went unanswered. It is not a gimmick, it is a WARP -- and the game keeps those prompts in
+			// their own sheet, one per door, ferry and area transition, in Warp.Question. 544 of them.
+			//
+			// ⭐ Including it is deserok's call, on domain knowledge no sheet contains: *"there is never a
+			// case where you move to an area transition area and interact with it, and not intend to use
+			// it. It's almost weird they confirm it. They're always out of the way, shoved into a corner,
+			// likely to make things easier for console players to not accidentally interact."*
+			var warps = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Warp>();
+			if (warps is null)
+				Plugin.Log.Warning("Interact: Warp sheet did not load.");
+			else
+				foreach (var row in warps) {
+					string text = row.Question.ExtractText();
+					if (text.Length > 0)
+						this.prompts.Add(Normalise(text));
+				}
 
 			// ⚠ Rows 6 "Leave ?" and 38 "Use ?" have an unfilled parameter slot and can never match a
 			// live prompt, and row 0 is the sheet's dummy text. All three are left in. Filtering them
 			// would be three magic row numbers guarding against nothing -- they simply never match.
-			Plugin.Log.Information($"Interact: {this.prompts.Count} gimmick prompts loaded from GimmickYesNo.");
+			Plugin.Log.Information($"Interact: {this.prompts.Count} prompts loaded from GimmickYesNo + Warp.");
 			return this.prompts;
 		}
 	}
