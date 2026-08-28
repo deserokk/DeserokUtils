@@ -49,7 +49,7 @@ internal sealed class InteractFeature: IDisposable {
 
 	public InteractFeature() {
 		Plugin.Commands.AddHandler("/dsuinteract", new CommandInfo(this.OnCommand) {
-			HelpMessage = "/dsuinteract -- operate the thing in front of you, without touching any menu. Add sniff to record what Confirm does.",
+			HelpMessage = "/dsuinteract -- operate the thing in front of you, without touching any menu. Add why to inspect a spot, or sniff to record what Confirm does.",
 		});
 	}
 
@@ -71,8 +71,13 @@ internal sealed class InteractFeature: IDisposable {
 			return;
 		}
 
+		if (arg is "why" or "probe") {
+			this.OnWhy();
+			return;
+		}
+
 		if (arg.Length > 0) {
-			Plugin.Chat.PrintError($"[Interact] unknown argument \"{arg}\". Use /dsuinteract, or /dsuinteract sniff.");
+			Plugin.Chat.PrintError($"[Interact] unknown argument \"{arg}\". Use /dsuinteract, /dsuinteract why, or /dsuinteract sniff.");
 			return;
 		}
 
@@ -225,6 +230,56 @@ internal sealed class InteractFeature: IDisposable {
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.GatheringPoint;
 
+
+	/// <summary>
+	/// Say what this spot looks like, and touch NOTHING.
+	///
+	/// ⭐⭐ Written for one specific unsolved thing: a Damaged Winch in Snowcloak that operates from
+	/// some standing positions and refuses with *"Cannot see target"* from others, while the vanilla
+	/// key works from all of them. deserok confirmed *"There is only one interactable: Damaged Winch"*,
+	/// which rules out this key picking the wrong object -- so the game is refusing the right one, and
+	/// the question is which of its own gates it is refusing on.
+	///
+	/// ⭐ <c>IsObjectInViewRange</c> and <c>IsObjectOnScreen</c> are the GAME's opinions, not ours, and
+	/// they are free to ask. If one of them flips between a working spot and a failing one, that is the
+	/// gate, and no more guessing is needed.
+	///
+	/// ⚠ Strictly read-only. It runs the same <see cref="Choose"/> the key runs and reports what it
+	/// WOULD use, without interacting -- so it is safe to spam in a dungeon, which is the whole point of
+	/// having it rather than pressing the key and reading the log afterwards.
+	/// </summary>
+	private unsafe void OnWhy() {
+		var player = Plugin.Objects.LocalPlayer;
+		if (player is null) {
+			Plugin.Chat.PrintError("[Interact] no local player.");
+			return;
+		}
+
+		var ts = TargetSystem.Instance();
+		Plugin.Chat.Print($"[Interact] soft={Plugin.Targets.SoftTarget?.Name.ToString() ?? "none"} "
+			+ $"hard={Plugin.Targets.Target?.Name.ToString() ?? "none"}");
+
+		int seen = 0;
+		foreach (var candidate in Plugin.Objects) {
+			float distance = Vector3.Distance(candidate.Position, player.Position);
+			if (distance > Reach)
+				continue;
+
+			seen++;
+			var go = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)candidate.Address;
+			Plugin.Chat.Print($"  \"{candidate.Name}\" {candidate.ObjectKind} {distance:0.#}y "
+				+ $"{(Interactable(candidate) ? "usable" : "IGNORED")} "
+				+ $"view={ts->IsObjectInViewRange(go)} screen={ts->IsObjectOnScreen(go)} "
+				+ $"targetable={candidate.IsTargetable}");
+		}
+
+		if (seen == 0)
+			Plugin.Chat.Print("  nothing within reach");
+
+		var (chosen, how) = Choose(player);
+		Plugin.Chat.Print($"[Interact] would use: {(chosen is null ? "nothing" : $"\"{chosen.Name}\" via {how}")}");
+	}
+
 	/// <summary>Driven from Plugin's framework update, and only to give GimmickConfirm its frame.</summary>
 	public void Tick() => this.gimmicks.Tick();
 
@@ -290,6 +345,11 @@ internal sealed class InteractFeature: IDisposable {
 			+ "plugin fails by doing nothing.");
 
 		Section("Record it");
+		if (ImGui.Button("What is here?##interact_why"))
+			this.OnWhy();
+		ImGui.SameLine();
+		ImGui.TextDisabled("or /dsuinteract why -- reads the spot, touches nothing");
+
 		if (!this.sniffer.Available) {
 			ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "neither TargetSystem function resolved. See /xllog.");
 		}
