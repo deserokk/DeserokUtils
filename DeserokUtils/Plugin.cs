@@ -46,6 +46,7 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IGameGui GameGui { get; private set; } = null!;
 	internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
 	internal static IKeyState Keys { get; private set; } = null!;
+	internal static ITextureProvider Textures { get; private set; } = null!;
 	internal static Configuration Config { get; private set; } = null!;
 
 	/// <summary>
@@ -98,7 +99,8 @@ public sealed class Plugin: IDalamudPlugin {
 		IAddonLifecycle addonLifecycle,
 		ICondition condition,
 		IGameGui gameGui,
-		IKeyState keys) {
+		IKeyState keys,
+		ITextureProvider textures) {
 
 		Commands = commands;
 		Chat = chat;
@@ -117,6 +119,7 @@ public sealed class Plugin: IDalamudPlugin {
 		Condition = condition;
 		GameGui = gameGui;
 		Keys = keys;
+		Textures = textures;
 		PluginInterface = pluginInterface;
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -148,6 +151,8 @@ public sealed class Plugin: IDalamudPlugin {
 		// tooltip feature that used to sit here is gone.
 		this.achievements = new Features.AchievementData.AchievementPreload();
 		this.features.Add(this.achievements);
+		var partyJobs = new Features.PartyJobs.PartyJobsFeature();
+		this.features.Add(partyJobs);
 		var debuffs = new Features.DebuffMarks.DebuffMarksFeature();
 		this.features.Add(debuffs);
 		this.debuffs = debuffs;
@@ -173,6 +178,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
 			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
 			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
+			new TabEntry(null, partyJobs.TabTitle, string.Empty, partyJobs.DrawTab),
 			new TabEntry(null, Input.KeybindsTab.TabTitle, string.Empty, () => Input.KeybindsTab.Draw(this.keybinds)),
 		]);
 		this.windows.AddWindow(this.mainWindow);
@@ -215,11 +221,6 @@ public sealed class Plugin: IDalamudPlugin {
 
 	private void OnPluginCommand(string command, string arguments) {
 		switch (arguments.Trim().ToLowerInvariant()) {
-			// ⚠ THROWAWAY, undocumented on purpose -- see Tools/PartyProbe. Delete with it.
-			case "party":
-				Tools.PartyProbe.Run();
-				break;
-
 			case "debug" or "diag" or "verbose":
 				Verbose = !Verbose;
 				Chat.Print($"[DeserokUtils] diagnostics {(Verbose ? "ON" : "off")} (Debug channel).");

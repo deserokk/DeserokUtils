@@ -26,6 +26,7 @@ One URL, several plugins. Then find DeserokUtils in the normal plugin installer.
 | **EphemeralMarks** | private markers for the people you queued in with | `/dsumarks` |
 | **DebuffMarks** | a private icon over anyone with a debuff you name | `/dsudebuffs` |
 | **AchievementData** | makes achievement links in chat work | none |
+| **PartyJobs** | shows the job of party members who are not in your zone | none |
 | **Keybinds** | bind these to a key instead of a hotbar macro | none |
 
 ## Building

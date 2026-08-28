@@ -769,6 +769,16 @@ public sealed class Configuration: IPluginConfiguration {
 	/// <summary>⚠ Unbound by default, like every keybind here.</summary>
 	public Input.Keybind OpenWindowKey { get; set; } = new();
 
+	// ── PartyJobs ───────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Draw the job icon the party list leaves blank for members outside your zone.
+	///
+	/// ⭐ ON. It only draws, and it asks the server nothing at all while the party is together -- see
+	/// <see cref="Features.PartyJobs.PartyJobsFeature"/> for why that gate exists.
+	/// </summary>
+	public bool PartyJobsEnabled { get; set; } = true;
+
 
 	/// <summary>
 	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
