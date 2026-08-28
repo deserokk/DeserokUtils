@@ -144,6 +144,18 @@ internal sealed class InteractFeature: IDisposable {
 
 		var (chosen, how) = Choose(player);
 		if (chosen is null) {
+			// ⭐⭐ PRECEDENCE, and it is a deliberate change from what the macro did. The macro fired
+			// /dsuinteract AND seven /ridepillion lines every press, with /merror off swallowing whatever
+			// missed. That was harmless only because the failures were invisible. Now that the pillion
+			// attempt actually checks and succeeds, doing both would mount you onto a friend the moment
+			// you pressed interact at a coffer they happened to be standing near.
+			//
+			// So: the thing in front of you wins, and a mount is what you get when there is nothing in
+			// front of you. A mounted player is not one of the kinds Choose() will ever return, so these
+			// two can never be competing for the same press.
+			if (Plugin.Config.InteractRidePillion && PillionRider.TryRide())
+				return;
+
 			Trace("nothing interactable nearby");
 			return;
 		}
@@ -450,6 +462,16 @@ internal sealed class InteractFeature: IDisposable {
 			+ "still asks you, and so does anything that charges a fare.");
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last: {this.gimmicks.LastAnswer}");
+
+		Section("Pillion");
+		bool ride = Plugin.Config.InteractRidePillion;
+		if (ImGui.Checkbox("Ride pillion when there is nothing to operate##interact_pillion", ref ride)) {
+			Plugin.Config.InteractRidePillion = ride;
+			Plugin.Config.Save();
+		}
+		ImGui.TextWrapped(
+			"Climbs onto the nearest mounted party member instead of right-clicking them and hunting "
+			+ "for Ride Pillion. Party only, and the thing in front of you always wins.");
 
 		Section("Dialogue");
 		bool talk = Plugin.Config.InteractAdvanceTalk;

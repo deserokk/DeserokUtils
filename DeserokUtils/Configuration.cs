@@ -746,6 +746,15 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool InteractAdvanceTalk { get; set; } = true;
 
 	/// <summary>
+	/// With nothing to interact with, climb onto a nearby party member's mount.
+	///
+	/// ⭐ ON, because it is RESTORING something rather than adding it. deserok had this in his macro
+	/// and a keybind silently dropped it -- see <see cref="Features.Interact.PillionRider"/>. Party
+	/// members only.
+	/// </summary>
+	public bool InteractRidePillion { get; set; } = true;
+
+	/// <summary>
 	/// The key that operates things, bound directly rather than through a macro.
 	///
 	/// ⚠⚠ UNBOUND by default, and it must stay that way. A plugin that claims a key on install is a

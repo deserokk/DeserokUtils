@@ -215,6 +215,11 @@ public sealed class Plugin: IDalamudPlugin {
 
 	private void OnPluginCommand(string command, string arguments) {
 		switch (arguments.Trim().ToLowerInvariant()) {
+			// ⚠ THROWAWAY, undocumented on purpose -- see Tools/PartyProbe. Delete with it.
+			case "party":
+				Tools.PartyProbe.Run();
+				break;
+
 			case "debug" or "diag" or "verbose":
 				Verbose = !Verbose;
 				Chat.Print($"[DeserokUtils] diagnostics {(Verbose ? "ON" : "off")} (Debug channel).");
