@@ -734,6 +734,18 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool InteractAnswerGimmicks { get; set; } = true;
 
 	/// <summary>
+	/// Advance the NPC dialogue box on a press, the way Confirm does.
+	///
+	/// ⭐ ON by default. Bunny asked for it because without it the key is a downgrade during every
+	/// quest -- she had spammed Confirm through dialogue for years. Restoring behaviour the real key
+	/// already has is not the same kind of default as starting behaviour nothing had.
+	///
+	/// ⚠ Choice lists are NOT included and are not going to be. See
+	/// <see cref="Features.Interact.TalkAdvance"/>.
+	/// </summary>
+	public bool InteractAdvanceTalk { get; set; } = true;
+
+	/// <summary>
 	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
 	/// </summary>
 	public void Migrate() {

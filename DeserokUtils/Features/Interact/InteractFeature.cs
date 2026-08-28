@@ -82,14 +82,40 @@ internal sealed class InteractFeature: IDisposable {
 	/// <summary>
 	/// Operate the thing in front of you, and touch nothing else.
 	///
-	/// ⭐ Calls <c>InteractWithObject(obj, checkLineOfSight: true)</c> -- the path the recording showed
-	/// Num0 taking. The mouse-click path pairs it with OpenObjectInteraction and passes
-	/// <c>false</c>; that one is the menu-opening route and is deliberately NOT what this uses.
+	/// ⭐ Calls <c>InteractWithObject(obj, checkLineOfSight: false)</c>.
+	///
+	/// ⚠⚠ It passed <c>true</c> from the first version until 2026-08-28, because that is what the
+	/// recording showed Num0 doing, and that was WRONG -- not about what the game calls, but about
+	/// what our call has to survive. deserok found a Damaged Winch he was standing on top of that
+	/// refused with *"Cannot see target"*, then explained why the real key does not: *"pressing the
+	/// normal interact key simply targets it normally, then allows interacting"*. Vanilla is two
+	/// presses, and the first one is the game deciding the thing is reachable. This key deliberately
+	/// never targets (see below), so it arrives at the same call without that step having run, and a
+	/// wall-mounted object whose origin sits inside the wall fails a raycast the real key never had
+	/// to pass. Dropping the check restores the vanilla OUTCOME rather than the vanilla call.
+	///
+	/// ⭐ Still untouched: <c>OpenObjectInteraction</c>, which the mouse path pairs with this. That
+	/// one is the menu-opening route and is what this feature exists to avoid. The line-of-sight
+	/// argument was never the thing keeping menus away.
 	/// </summary>
 	private unsafe void DoInteract() {
 		var player = Plugin.Objects.LocalPlayer;
 		if (player is null) {
 			Plugin.Chat.PrintError("[Interact] no local player.");
+			return;
+		}
+
+		// ⭐⭐ BEFORE both guards, and that ordering is the whole feature. Bunny MASHES this key
+		// through dialogue -- the one-second floor below would swallow four presses out of five and
+		// make advancing a conversation feel broken. A dialogue box is also not an interaction, so
+		// neither guard has anything to say about it.
+		if (Plugin.Config.InteractAdvanceTalk && TalkAdvance.TryAdvance()) {
+			// ⚠ The floor IS set, though, and for a different reason than it usually serves: the press
+			// that clears the last line closes the box, and the next one in a mash would otherwise fall
+			// through and re-interact with the NPC you just finished talking to, reopening it. One
+			// second of overspill is exactly what needs swallowing.
+			this.lastInteract = DateTime.UtcNow;
+			Plugin.Diag("Interact: advanced dialogue");
 			return;
 		}
 
@@ -127,7 +153,7 @@ internal sealed class InteractFeature: IDisposable {
 		this.gimmicks.Arm();
 
 		ulong result = TargetSystem.Instance()->InteractWithObject(
-			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, true);
+			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, false);
 		this.lastInteract = DateTime.UtcNow;
 
 		string after = Plugin.Targets.Target?.Name.ToString() ?? "none";
@@ -305,6 +331,16 @@ internal sealed class InteractFeature: IDisposable {
 			+ "still asks you.");
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last: {this.gimmicks.LastAnswer}");
+
+		Section("Dialogue");
+		bool talk = Plugin.Config.InteractAdvanceTalk;
+		if (ImGui.Checkbox("Advance NPC dialogue##interact_talk", ref talk)) {
+			Plugin.Config.InteractAdvanceTalk = talk;
+			Plugin.Config.Save();
+		}
+		ImGui.TextWrapped(
+			"One line per press, so mashing works. Choice lists are left alone -- those are menus, "
+			+ "and a conversation that stops to ask you something still stops.");
 	}
 
 	/// <summary>ImGui.SeparatorText does not exist in this binding version; this is the stand-in.</summary>
