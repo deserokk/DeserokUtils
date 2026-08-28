@@ -447,7 +447,7 @@ internal sealed class InteractFeature: IDisposable {
 		ImGui.TextWrapped(
 			$"Dungeon gimmicks and area transitions ask before they act. Only boxes this key caused, "
 			+ $"and only the {this.gimmicks.KnownPrompts} the game itself lists -- discarding an item "
-			+ "still asks you. Paid transport is included, so a ferry costs its fare without asking.");
+			+ "still asks you, and so does anything that charges a fare.");
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last: {this.gimmicks.LastAnswer}");
 

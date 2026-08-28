@@ -34,18 +34,15 @@ namespace DeserokUtils.Features.Interact;
 /// have to maintain -- it is simply **not in the sheet**. An allowlist we curated would rot; this
 /// one is patched by the people who add the gimmicks.
 ///
-/// ## ⚠⚠ The second sheet can quote you a price, and that is a deliberate, narrow exception
+/// ## ⭐ A transition that charges you is left alone
 ///
-/// <c>Warp.Question</c> covers area transitions, and 47 of its 544 rows are paid transport: *"Travel
-/// to Gridania for 120 gil?"*. There is no cost column to filter on -- the two ferry rows carry a
-/// price with the same flags as the free ones, so the only signal is the digits in the text. Two
-/// filters were considered and both rejected: matching the word "gil" breaks in any other client
-/// language, and dropping every prompt containing a digit would also drop *"Proceed to zone 1?"* and
-/// *"Proceed to A-4 Research?"*, which are exactly the field-op transitions this key is for.
+/// deserok's rule, and it is a better one than "is it in a sheet": *"the only things that should be
+/// a confirmation box is a permanent change or losing an item... Normally I do not care about tiny
+/// tolls, unless you're like level 1, those tolls are a line item, but we'll leave that to be
+/// intentionally clicked since it is technically losing an item."*
 ///
-/// So paid transport IS auto-confirmed, at 40 to 120 gil, and it is written down here rather than
-/// discovered later. It is the one place this feature spends money, it is bounded by the fact that
-/// you walked to a ferryman and pressed interact, and it is reversed by unticking the box.
+/// 47 of the 544 warps charge a fare, and they are excluded by <c>WarpCondition.Gil</c> -- the
+/// game's own number, agreeing with the prompt text on 544 rows out of 544. So a ferryman still asks.
 ///
 /// ⚠ Their implementation could not be copied even if we wanted to. The YesAlready repository has
 /// no LICENSE file, which makes it all-rights-reserved by default, and its
@@ -231,20 +228,38 @@ internal sealed class GimmickConfirm: IDisposable {
 			// case where you move to an area transition area and interact with it, and not intend to use
 			// it. It's almost weird they confirm it. They're always out of the way, shoved into a corner,
 			// likely to make things easier for console players to not accidentally interact."*
+			int skippedTolls = 0;
 			var warps = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Warp>();
 			if (warps is null)
 				Plugin.Log.Warning("Interact: Warp sheet did not load.");
 			else
 				foreach (var row in warps) {
 					string text = row.Question.ExtractText();
-					if (text.Length > 0)
-						this.prompts.Add(Normalise(text));
+					if (text.Length == 0)
+						continue;
+
+					// ⭐⭐ THE TOLL GATE, and it is the game's own number rather than a word in the prompt.
+					// 47 of the 544 warps charge for passage -- ferries and carriages, 30 to 300 gil -- and
+					// WarpCondition.Gil holds the fare. Checked against the prompt text across the whole
+					// sheet: 544 of 544 agree, no exceptions.
+					//
+					// ⚠ Two text-based filters were written first and both were worse. Matching the word
+					// "gil" breaks on any non-English client. Dropping every prompt containing a digit also
+					// drops "Proceed to zone 1?" and "Proceed to A-4 Research?" -- eleven real field-op
+					// transitions, which are exactly what this key is for.
+					if (row.WarpCondition.ValueNullable?.Gil > 0) {
+						skippedTolls++;
+						continue;
+					}
+
+					this.prompts.Add(Normalise(text));
 				}
 
 			// ⚠ Rows 6 "Leave ?" and 38 "Use ?" have an unfilled parameter slot and can never match a
 			// live prompt, and row 0 is the sheet's dummy text. All three are left in. Filtering them
 			// would be three magic row numbers guarding against nothing -- they simply never match.
-			Plugin.Log.Information($"Interact: {this.prompts.Count} prompts loaded from GimmickYesNo + Warp.");
+			Plugin.Log.Information($"Interact: {this.prompts.Count} prompts loaded from GimmickYesNo + Warp, "
+				+ $"{skippedTolls} paid transports left for you to confirm.");
 			return this.prompts;
 		}
 	}
