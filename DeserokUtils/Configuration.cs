@@ -746,6 +746,21 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool InteractAdvanceTalk { get; set; } = true;
 
 	/// <summary>
+	/// Target what you are about to operate, then hand the target straight back.
+	///
+	/// ⭐⭐ ON, and this is the setting that buys parity with the real key. Vanilla is two presses --
+	/// target, then use -- and a version that skipped the targeting step worked everywhere it was
+	/// measured and then failed on a Snowcloak winch from some standing positions but not others.
+	/// deserok: *"need interact key to work as often as vanilla otherwise it's useless because we have
+	/// to have both bound"*. A key that is right most of the time is not a key you can stop thinking
+	/// about, which was the entire point of building it.
+	///
+	/// ⚠ The cost is real and is not hidden: your target flickers. Turn this off to get the old
+	/// never-touches-your-target behaviour back, and the winch class of object back with it.
+	/// </summary>
+	public bool InteractTargetFirst { get; set; } = true;
+
+	/// <summary>
 	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
 	/// </summary>
 	public void Migrate() {

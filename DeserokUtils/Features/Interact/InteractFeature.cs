@@ -47,6 +47,20 @@ internal sealed class InteractFeature: IDisposable {
 	/// </summary>
 	private readonly GimmickConfirm gimmicks = new();
 
+	/// <summary>⚠ Investigation scaffolding for the Snowcloak winch. Delete with the answer.</summary>
+	private readonly InteractProbe probe = new();
+
+	/// <summary>Long enough for an interaction to have started before the target is handed back.</summary>
+	private static readonly TimeSpan RestoreFloor = TimeSpan.FromMilliseconds(300);
+
+	/// <summary>⚠ A cast that never ends must not strand your target on a lever forever.</summary>
+	private static readonly TimeSpan RestoreCap = TimeSpan.FromSeconds(5);
+
+	private Dalamud.Game.ClientState.Objects.Types.IGameObject? retargetedTo;
+	private Dalamud.Game.ClientState.Objects.Types.IGameObject? restoreTo;
+	private DateTime restoreAfter = DateTime.MinValue;
+	private DateTime restoreBy = DateTime.MinValue;
+
 	public InteractFeature() {
 		Plugin.Commands.AddHandler("/dsuinteract", new CommandInfo(this.OnCommand) {
 			HelpMessage = "/dsuinteract -- operate the thing in front of you, without touching any menu. Add why to inspect a spot, or sniff to record what Confirm does.",
@@ -68,6 +82,15 @@ internal sealed class InteractFeature: IDisposable {
 
 		if (arg.StartsWith("sniff", StringComparison.Ordinal)) {
 			this.OnSniff(arg["sniff".Length..].Trim());
+			return;
+		}
+
+		if (arg.StartsWith("record", StringComparison.Ordinal)) {
+			string rest = arg["record".Length..].Trim();
+			if (rest is "off" or "stop")
+				this.probe.Disarm();
+			else
+				this.probe.Arm();
 			return;
 		}
 
@@ -138,6 +161,7 @@ internal sealed class InteractFeature: IDisposable {
 		var (chosen, how) = Choose(player);
 		if (chosen is null) {
 			Trace("nothing interactable nearby");
+			this.probe.CaptureMiss("nothing interactable nearby");
 			return;
 		}
 
@@ -157,12 +181,34 @@ internal sealed class InteractFeature: IDisposable {
 		// Arming early can only ever be harmless -- an unused window expires in three seconds.
 		this.gimmicks.Arm();
 
+		// ⭐⭐ deserok's ORIGINAL SPEC, restored 2026-08-28 -- *"If we have to hard target it, simply
+		// target for interacting, then restore old target"*. It was dropped for a cleverer version that
+		// interacts without ever targeting, and that version measured beautifully and then failed in the
+		// field: a Damaged Winch that operates from some standing positions and refuses from others,
+		// while vanilla works from all of them. His verdict settles the trade: *"need interact key to
+		// work as often as vanilla otherwise it's useless because we have to have both bound"*.
+		//
+		// ⚠⚠ So "it never changes your target" is NO LONGER TRUE, and that was a real property this tab
+		// used to advertise. It is spent deliberately, for parity, and it is bought back immediately --
+		// the target is handed straight back below. What is left is a flicker, which is strictly better
+		// than a key you cannot trust and therefore have to keep the vanilla one bound beside.
+		var previous = Plugin.Targets.Target;
+		bool retargeted = Plugin.Config.InteractTargetFirst && previous?.Address != chosen.Address;
+		if (retargeted) {
+			Plugin.Targets.Target = chosen;
+			this.retargetedTo = chosen;
+			this.restoreTo = previous;
+			this.restoreAfter = DateTime.UtcNow + RestoreFloor;
+			this.restoreBy = DateTime.UtcNow + RestoreCap;
+		}
+
 		ulong result = TargetSystem.Instance()->InteractWithObject(
 			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, false);
 		this.lastInteract = DateTime.UtcNow;
 
 		string after = Plugin.Targets.Target?.Name.ToString() ?? "none";
 		this.lastResult = $"{chosen.Name} ({how})";
+		this.probe.Capture(player, chosen, how, result);
 
 		// ⚠ BaseId and distance are here for ONE open question: deserok reports a class of object that
 		// refuses with "you cannot see the object", which is the checkLineOfSight:true argument above
@@ -281,7 +327,39 @@ internal sealed class InteractFeature: IDisposable {
 	}
 
 	/// <summary>Driven from Plugin's framework update, and only to give GimmickConfirm its frame.</summary>
-	public void Tick() => this.gimmicks.Tick();
+	public void Tick() {
+		this.gimmicks.Tick();
+		this.probe.Tick();
+		this.RestoreTargetIfDue();
+	}
+
+	/// <summary>
+	/// Hand the target back after an interaction that had to take it.
+	///
+	/// ⭐ Waits for the cast to END rather than for a fixed delay, because the interactions that need
+	/// a target are exactly the ones with a cast bar, and yanking the target out from under one is the
+	/// obvious way to break the thing this was supposed to fix. <see cref="RestoreCap"/> is the backstop
+	/// for an interaction that produces no cast at all.
+	///
+	/// ⚠ Restores ONLY if you are still on what we targeted. If you have picked something else in the
+	/// meantime, that is your choice and it wins.
+	/// </summary>
+	private void RestoreTargetIfDue() {
+		if (this.restoreAfter == DateTime.MinValue)
+			return;
+
+		var now = DateTime.UtcNow;
+		if (now < this.restoreAfter)
+			return;
+		if (Plugin.Objects.LocalPlayer?.IsCasting == true && now < this.restoreBy)
+			return;
+
+		this.restoreAfter = DateTime.MinValue;
+		if (Plugin.Targets.Target?.Address == this.retargetedTo?.Address)
+			Plugin.Targets.Target = this.restoreTo;
+		this.retargetedTo = null;
+		this.restoreTo = null;
+	}
 
 	private static void Trace(string message) {
 		Plugin.Log.Information($"Interact: {message}");
@@ -370,6 +448,17 @@ internal sealed class InteractFeature: IDisposable {
 			"Then go operate things: a lever, a key on the floor, a wheel, an aetheryte, an NPC. Both "
 			+ "presses of Confirm are logged, so the target-then-use split shows up too.");
 
+		Section("Targeting");
+		bool first = Plugin.Config.InteractTargetFirst;
+		if (ImGui.Checkbox("Target it first, then give the target back##interact_target", ref first)) {
+			Plugin.Config.InteractTargetFirst = first;
+			Plugin.Config.Save();
+		}
+		ImGui.TextWrapped(
+			"What the real key does. Some objects refuse to be operated unless they are targeted, so "
+			+ "without this the key works nearly everywhere -- and nearly is not good enough to stop "
+			+ "binding the vanilla one beside it. Your target flickers.");
+
 		Section("Guards");
 		ImGui.TextWrapped(
 			"Refuses while you are casting: interacting produces a cast bar, so \"am I already "
@@ -415,5 +504,6 @@ internal sealed class InteractFeature: IDisposable {
 		Plugin.Commands.RemoveHandler("/dsuinteract");
 		this.sniffer.Dispose();
 		this.gimmicks.Dispose();
+		this.probe.Dispose();
 	}
 }
