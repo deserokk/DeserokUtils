@@ -158,6 +158,7 @@ internal sealed class PartyJobsFeature: IDisposable {
 		Dictionary<string, byte>? jobs = null;
 		var list = ImGui.GetBackgroundDrawList();
 
+
 		for (int i = 0; i < addon->MemberCount && i < rows.Length && i < iconIds.Length; i++) {
 			if (iconIds[i] != 0)
 				continue;
@@ -177,7 +178,10 @@ internal sealed class PartyJobsFeature: IDisposable {
 				continue;
 
 			var node = icon->AtkResNode;
-			var texture = Plugin.Textures.GetFromGameIcon(new GameIconLookup(JobIconBase + job));
+			// ⚠ Try, not Get. GetFromGameIcon THROWS on an unknown id, and this runs every frame -- a job
+			// byte we have not seen before would otherwise raise once per frame forever.
+			if (!Plugin.Textures.TryGetFromGameIcon(new GameIconLookup(JobIconBase + job), out var texture))
+				continue;
 			var wrap = texture.GetWrapOrEmpty();
 
 			// ⚠⚠ SCALE, and only the SIZE needs it. deserok flagged this before it shipped: *"we'll
@@ -192,6 +196,15 @@ internal sealed class PartyJobsFeature: IDisposable {
 			var min = new Vector2(node.ScreenX, node.ScreenY);
 			var max = min + new Vector2(node.Width * scale, node.Height * scaleY);
 			list.AddImage(wrap.Handle, min, max);
+
+			// ⚠⚠ NOTHING is drawn over the icon, and that is the settled answer rather than a gap.
+			// Redrawing the leader crown was built and reverted: the only overlapping node either node
+			// list exposes is part2@52,0, which is NOT the crown. Drawing it put an unrelated golden
+			// element beside a crown that was still clipped -- deserok, zooming in: *"we're not redrawing
+			// the correct image... we're putting an unrelated golden one on top of it, it's not
+			// compositing."* The real crown is nested deeper than the addon's node list or the row
+			// component's, so neither redrawing nor punching a hole can target it yet. Until it can be
+			// found, the clipped corner stays -- it is the smallest wrong thing on offer.
 			this.lastSize = max - min;
 			this.drawnLastFrame++;
 		}
