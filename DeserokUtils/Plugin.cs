@@ -45,6 +45,7 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static ICondition Condition { get; private set; } = null!;
 	internal static IGameGui GameGui { get; private set; } = null!;
 	internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
+	internal static IKeyState Keys { get; private set; } = null!;
 	internal static Configuration Config { get; private set; } = null!;
 
 	/// <summary>
@@ -75,6 +76,10 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly Features.DebuffMarks.DebuffMarksFeature debuffs;
 	private readonly InteractFeature interact;
 
+	/// <summary>⭐ Direct key binding, because the hotbar is locked during a conversation and a
+	/// macro therefore cannot run when you most want this. See <see cref="Input.Keybind"/>.</summary>
+	private readonly Input.KeybindWatcher keybinds = new();
+
 	public Plugin(
 		IDalamudPluginInterface pluginInterface,
 		ICommandManager commands,
@@ -92,7 +97,8 @@ public sealed class Plugin: IDalamudPlugin {
 		IClientState clientState,
 		IAddonLifecycle addonLifecycle,
 		ICondition condition,
-		IGameGui gameGui) {
+		IGameGui gameGui,
+		IKeyState keys) {
 
 		Commands = commands;
 		Chat = chat;
@@ -110,6 +116,7 @@ public sealed class Plugin: IDalamudPlugin {
 		AddonLifecycle = addonLifecycle;
 		Condition = condition;
 		GameGui = gameGui;
+		Keys = keys;
 		PluginInterface = pluginInterface;
 
 		Config = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -148,6 +155,9 @@ public sealed class Plugin: IDalamudPlugin {
 		var interact = new InteractFeature();
 		this.features.Add(interact);
 		this.interact = interact;
+		this.keybinds.Register("interact", "Interact", () => Config.InteractKey, interact.Press);
+		this.keybinds.Register("drawsheathe", "Draw / sheathe", () => Config.DrawSheatheKey, drawSheathe.Press);
+		this.keybinds.Register("openwindow", "Open this window", () => Config.OpenWindowKey, () => OpenWindow());
 
 		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
 		// having relatives: the macro tools are two faces of one complaint, everything else stands
@@ -163,10 +173,12 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
 			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
 			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
+			new TabEntry(null, Input.KeybindsTab.TabTitle, string.Empty, () => Input.KeybindsTab.Draw(this.keybinds)),
 		]);
 		this.windows.AddWindow(this.mainWindow);
 
 		PluginInterface.UiBuilder.Draw += this.windows.Draw;
+		PluginInterface.UiBuilder.Draw += SampleImGuiState;
 		PluginInterface.UiBuilder.OpenMainUi += this.OpenMain;
 		PluginInterface.UiBuilder.OpenConfigUi += this.OpenMain;
 
@@ -181,6 +193,11 @@ public sealed class Plugin: IDalamudPlugin {
 		});
 	}
 
+	/// <summary>⚠ The ONLY place ImGui state may be read for the keybind watcher. See
+	/// <see cref="Input.KeybindWatcher.TextInputActive"/>.</summary>
+	private static void SampleImGuiState() =>
+		Input.KeybindWatcher.TextInputActive = Dalamud.Bindings.ImGui.ImGui.GetIO().WantTextInput;
+
 	private void OnFrameworkUpdate(IFramework framework) {
 		this.fateWatch.Tick();
 		this.fcBuffs.Tick();
@@ -188,6 +205,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.achievements.Tick();
 		this.debuffs.Tick();
 		this.interact.Tick();
+		this.keybinds.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
@@ -251,6 +269,7 @@ public sealed class Plugin: IDalamudPlugin {
 		Commands.RemoveHandler("/dsu");
 
 		PluginInterface.UiBuilder.Draw -= this.windows.Draw;
+		PluginInterface.UiBuilder.Draw -= SampleImGuiState;
 		PluginInterface.UiBuilder.OpenMainUi -= this.OpenMain;
 		PluginInterface.UiBuilder.OpenConfigUi -= this.OpenMain;
 		this.windows.RemoveAllWindows();

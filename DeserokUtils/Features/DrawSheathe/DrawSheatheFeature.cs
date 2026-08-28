@@ -251,6 +251,9 @@ internal sealed class DrawSheatheFeature: IDisposable {
 
 	// ── /drawsheathe ─────────────────────────────────────────────────────────────────────────
 
+	/// <summary>What a bound key runs. Same path as the command, so they cannot drift.</summary>
+	public void Press() => this.OnDrawSheathe("/drawsheathe", string.Empty);
+
 	private void OnDrawSheathe(string command, string arguments) {
 		string arg = arguments.Trim().ToLowerInvariant();
 		bool? weaponOut = WeaponIsOut();

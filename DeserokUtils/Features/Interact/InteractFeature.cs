@@ -47,20 +47,6 @@ internal sealed class InteractFeature: IDisposable {
 	/// </summary>
 	private readonly GimmickConfirm gimmicks = new();
 
-	/// <summary>⚠ Investigation scaffolding for the Snowcloak winch. Delete with the answer.</summary>
-	private readonly InteractProbe probe = new();
-
-	/// <summary>Long enough for an interaction to have started before the target is handed back.</summary>
-	private static readonly TimeSpan RestoreFloor = TimeSpan.FromMilliseconds(300);
-
-	/// <summary>⚠ A cast that never ends must not strand your target on a lever forever.</summary>
-	private static readonly TimeSpan RestoreCap = TimeSpan.FromSeconds(5);
-
-	private Dalamud.Game.ClientState.Objects.Types.IGameObject? retargetedTo;
-	private Dalamud.Game.ClientState.Objects.Types.IGameObject? restoreTo;
-	private DateTime restoreAfter = DateTime.MinValue;
-	private DateTime restoreBy = DateTime.MinValue;
-
 	public InteractFeature() {
 		Plugin.Commands.AddHandler("/dsuinteract", new CommandInfo(this.OnCommand) {
 			HelpMessage = "/dsuinteract -- operate the thing in front of you, without touching any menu. Add why to inspect a spot, or sniff to record what Confirm does.",
@@ -71,8 +57,15 @@ internal sealed class InteractFeature: IDisposable {
 	/// ⚠ A floor for interactions with NO cast bar. deserok: *"maybe a 1 second lockout, some things
 	/// don't have a castbar (aetheryte does not)"* -- so IsCasting alone has a hole, and this covers
 	/// it. Two conditions, but they guard genuinely different things rather than duplicating.
+	///
+	/// ⚠⚠ 800ms, not the 1000ms he specified, and the missing 200ms is not a rounding opinion. The
+	/// keybind repeats a HELD key every second by default, and a floor of exactly one second sits
+	/// right on top of that -- the repeat lands at 1000ms plus a frame, the floor rejects anything
+	/// under 1000ms, and whether a press survives comes down to frame timing. Holding the key would
+	/// work intermittently for no visible reason. 800ms clears any repeat at or above a second while
+	/// still doing the only job it has: stopping the second of two rapid presses on an aetheryte.
 	/// </summary>
-	private static readonly TimeSpan Floor = TimeSpan.FromSeconds(1);
+	private static readonly TimeSpan Floor = TimeSpan.FromMilliseconds(800);
 
 	private DateTime lastInteract = DateTime.MinValue;
 	private string lastResult = "nothing yet";
@@ -82,15 +75,6 @@ internal sealed class InteractFeature: IDisposable {
 
 		if (arg.StartsWith("sniff", StringComparison.Ordinal)) {
 			this.OnSniff(arg["sniff".Length..].Trim());
-			return;
-		}
-
-		if (arg.StartsWith("record", StringComparison.Ordinal)) {
-			string rest = arg["record".Length..].Trim();
-			if (rest is "off" or "stop")
-				this.probe.Disarm();
-			else
-				this.probe.Arm();
 			return;
 		}
 
@@ -112,15 +96,15 @@ internal sealed class InteractFeature: IDisposable {
 	///
 	/// ⭐ Calls <c>InteractWithObject(obj, checkLineOfSight: false)</c>.
 	///
-	/// ⚠⚠ It passed <c>true</c> from the first version until 2026-08-28, because that is what the
-	/// recording showed Num0 doing, and that was WRONG -- not about what the game calls, but about
-	/// what our call has to survive. deserok found a Damaged Winch he was standing on top of that
-	/// refused with *"Cannot see target"*, then explained why the real key does not: *"pressing the
-	/// normal interact key simply targets it normally, then allows interacting"*. Vanilla is two
-	/// presses, and the first one is the game deciding the thing is reachable. This key deliberately
-	/// never targets (see below), so it arrives at the same call without that step having run, and a
-	/// wall-mounted object whose origin sits inside the wall fails a raycast the real key never had
-	/// to pass. Dropping the check restores the vanilla OUTCOME rather than the vanilla call.
+	/// ⚠⚠ It passed <c>true</c> until 2026-08-28 and was changed while chasing the Snowcloak winch,
+	/// on a theory that turned out to be WRONG. The winch was never a raycast problem: <see
+	/// cref="Choose"/> was picking a gate standing nearer than the winch. So this argument is now
+	/// an UNPROVEN deviation from what the recording showed Num0 doing, kept only because it is the
+	/// state everything since has been tested in.
+	///
+	/// ⭐ Putting it back to <c>true</c> is a one-press experiment at any wall-mounted object, and if it
+	/// holds, this line should go back to matching the real key exactly. Left alone for now rather than
+	/// changed blind, which is the habit that produced this comment in the first place.
 	///
 	/// ⭐ Still untouched: <c>OpenObjectInteraction</c>, which the mouse path pairs with this. That
 	/// one is the menu-opening route and is what this feature exists to avoid. The line-of-sight
@@ -161,7 +145,6 @@ internal sealed class InteractFeature: IDisposable {
 		var (chosen, how) = Choose(player);
 		if (chosen is null) {
 			Trace("nothing interactable nearby");
-			this.probe.CaptureMiss("nothing interactable nearby");
 			return;
 		}
 
@@ -181,40 +164,17 @@ internal sealed class InteractFeature: IDisposable {
 		// Arming early can only ever be harmless -- an unused window expires in three seconds.
 		this.gimmicks.Arm();
 
-		// ⭐⭐ deserok's ORIGINAL SPEC, restored 2026-08-28 -- *"If we have to hard target it, simply
-		// target for interacting, then restore old target"*. It was dropped for a cleverer version that
-		// interacts without ever targeting, and that version measured beautifully and then failed in the
-		// field: a Damaged Winch that operates from some standing positions and refuses from others,
-		// while vanilla works from all of them. His verdict settles the trade: *"need interact key to
-		// work as often as vanilla otherwise it's useless because we have to have both bound"*.
-		//
-		// ⚠⚠ So "it never changes your target" is NO LONGER TRUE, and that was a real property this tab
-		// used to advertise. It is spent deliberately, for parity, and it is bought back immediately --
-		// the target is handed straight back below. What is left is a flicker, which is strictly better
-		// than a key you cannot trust and therefore have to keep the vanilla one bound beside.
-		var previous = Plugin.Targets.Target;
-		bool retargeted = Plugin.Config.InteractTargetFirst && previous?.Address != chosen.Address;
-		if (retargeted) {
-			Plugin.Targets.Target = chosen;
-			this.retargetedTo = chosen;
-			this.restoreTo = previous;
-			this.restoreAfter = DateTime.UtcNow + RestoreFloor;
-			this.restoreBy = DateTime.UtcNow + RestoreCap;
-		}
-
 		ulong result = TargetSystem.Instance()->InteractWithObject(
 			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, false);
 		this.lastInteract = DateTime.UtcNow;
 
 		string after = Plugin.Targets.Target?.Name.ToString() ?? "none";
 		this.lastResult = $"{chosen.Name} ({how})";
-		this.probe.Capture(player, chosen, how, result);
 
-		// ⚠ BaseId and distance are here for ONE open question: deserok reports a class of object that
-		// refuses with "you cannot see the object", which is the checkLineOfSight:true argument above
-		// failing. It has never happened somewhere testable. Without the base id the specimen cannot be
-		// looked up in the EObj sheet afterwards, and without the distance we cannot tell a real
-		// occlusion from an object whose origin sits inside the floor. Both are free on a keypress.
+		// ⚠⚠ `result` IS NOT A STATUS CODE. Measured 2026-08-28 across sixteen presses: it climbed
+		// 102,827,260 -> 102,892,830 over sixty-six seconds, which is milliseconds, not success. It is
+		// logged because it is free, and it is written down here because every plan that ever wanted to
+		// "retry if the interact failed" was going to read it as one.
 		Trace($"interacted with \"{chosen.Name}\" kind={chosen.ObjectKind} data={chosen.BaseId} "
 			+ $"at {Vector3.Distance(chosen.Position, player.Position):0.#}y via {how} -> {result} "
 			+ $"| target {before} -> {after}");
@@ -251,9 +211,11 @@ internal sealed class InteractFeature: IDisposable {
 			float distance = System.Numerics.Vector3.Distance(candidate.Position, player.Position);
 			if (distance > Reach)
 				continue;
-			if (!Interactable(candidate)) {
-				// ⚠ Named, not skipped silently. This is how a missing ObjectKind surfaces.
-				Plugin.Diag($"Interact: ignoring \"{candidate.Name}\" kind={candidate.ObjectKind} at {distance:0.#}y");
+			if (!Interactable(candidate, out string why)) {
+				// ⚠ Named, not skipped silently, and now WITH THE REASON -- "ignoring X" was true for
+				// the gate all along and still did not say the useful part.
+				Plugin.Diag($"Interact: ignoring \"{candidate.Name}\" kind={candidate.ObjectKind} "
+					+ $"at {distance:0.#}y -- {why}");
 				continue;
 			}
 			if (distance < bestDistance) {
@@ -269,12 +231,70 @@ internal sealed class InteractFeature: IDisposable {
 	/// game refusing, not this number.</summary>
 	private const float Reach = 6f;
 
-	private static bool Interactable(Dalamud.Game.ClientState.Objects.Types.IGameObject obj) =>
-		obj.ObjectKind is Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj
+	private static bool Interactable(Dalamud.Game.ClientState.Objects.Types.IGameObject obj) => Interactable(obj, out _);
+
+	/// <summary>
+	/// Can this key operate that, and if not, in one phrase, why not.
+	///
+	/// ## ⭐⭐ THE KIND CHECK WAS NEVER ENOUGH, and a gate proved it
+	///
+	/// The Snowcloak winch hunt ended here rather than anywhere near line of sight or targeting.
+	/// deserok, watching the target arrow while testing: *"it's STILL targetting the gate, when the
+	/// gate isn't interactible, THAT'S what's wrong, it shows the arrow for a split second, it's not
+	/// targetting the closest... The gate isn't interactible by the player, but I bet it's coded as
+	/// one."* He was right. The gate is an EventObj sitting in the object table like any other, so the
+	/// kind check waved it through, and from some standing positions its origin is nearer than the
+	/// winch's -- so nearest-wins picked a door nobody can open and the game refused it. Move a few
+	/// feet and the winch wins again, which is exactly the maddening position-dependence that looked
+	/// like a raycast and was not.
+	///
+	/// ⭐ His discriminator was *"this has floating text"*, and that has an exact form which is the
+	/// GAME's answer rather than one of ours: <c>IsTargetable</c>. A nameplate renders for objects you
+	/// can target, so "has floating text" and "is targetable" are the same fact seen from two sides.
+	/// The name check backs it up for anything targetable but anonymous.
+	///
+	/// ## ⭐ Measured, not argued
+	///
+	/// Sixteen recorded presses around the winch, and the split is total:
+	/// <code>
+	/// "Damaged Winch"   targetable=True   view=True  screen=True   dy = +0.8 .. +1.4
+	/// (empty name)      targetable=False  view=True  screen=True   dy = -0.6 .. -1.2
+	/// </code>
+	/// The gate carries NO NAME at all, so both new gates catch it independently. Note what does not
+	/// discriminate: <c>IsObjectInViewRange</c> and <c>IsObjectOnScreen</c> are true for both, and they
+	/// were the two predicates this hunt reached for first. Distance does not either -- the two sat
+	/// 2.1y and 2.9y away, trading places as he moved. Only targetability separates them.
+	///
+	/// ⚠⚠ This is still the allowlist shape that has bitten this project twice, so it still reports
+	/// every refusal with a reason rather than failing silently. A thing that ought to work and does
+	/// not now says which of the three gates stopped it, by name, in one line.
+	/// </summary>
+	private static bool Interactable(Dalamud.Game.ClientState.Objects.Types.IGameObject obj, out string why) {
+		if (obj.ObjectKind is not (Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Treasure
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Aetheryte
 			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventNpc
-			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.GatheringPoint;
+			or Dalamud.Game.ClientState.Objects.Enums.ObjectKind.GatheringPoint)) {
+			why = $"kind {obj.ObjectKind}";
+			return false;
+		}
+
+		// ⭐ The game's own verdict, not ours. This is the line that excludes the gate.
+		if (!obj.IsTargetable) {
+			why = "not targetable";
+			return false;
+		}
+
+		// ⚠ Belt and braces for the same idea: scenery that is targetable but has nothing to show you
+		// is not what you meant to press.
+		if (obj.Name.TextValue.Length == 0) {
+			why = "no name";
+			return false;
+		}
+
+		why = string.Empty;
+		return true;
+	}
 
 
 	/// <summary>
@@ -314,7 +334,7 @@ internal sealed class InteractFeature: IDisposable {
 			seen++;
 			var go = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)candidate.Address;
 			Plugin.Chat.Print($"  \"{candidate.Name}\" {candidate.ObjectKind} {distance:0.#}y "
-				+ $"{(Interactable(candidate) ? "usable" : "IGNORED")} "
+				+ $"{(Interactable(candidate, out string why) ? "usable" : "IGNORED: " + why)} "
 				+ $"view={ts->IsObjectInViewRange(go)} screen={ts->IsObjectOnScreen(go)} "
 				+ $"targetable={candidate.IsTargetable}");
 		}
@@ -327,38 +347,19 @@ internal sealed class InteractFeature: IDisposable {
 	}
 
 	/// <summary>Driven from Plugin's framework update, and only to give GimmickConfirm its frame.</summary>
+	/// <summary>
+	/// What the keybind runs, and what the command runs. One entry point, so a key and a macro
+	/// cannot drift into meaning different things.
+	/// </summary>
+	public void Press() => this.DoInteract();
+
 	public void Tick() {
 		this.gimmicks.Tick();
-		this.probe.Tick();
-		this.RestoreTargetIfDue();
-	}
 
-	/// <summary>
-	/// Hand the target back after an interaction that had to take it.
-	///
-	/// ⭐ Waits for the cast to END rather than for a fixed delay, because the interactions that need
-	/// a target are exactly the ones with a cast bar, and yanking the target out from under one is the
-	/// obvious way to break the thing this was supposed to fix. <see cref="RestoreCap"/> is the backstop
-	/// for an interaction that produces no cast at all.
-	///
-	/// ⚠ Restores ONLY if you are still on what we targeted. If you have picked something else in the
-	/// meantime, that is your choice and it wins.
-	/// </summary>
-	private void RestoreTargetIfDue() {
-		if (this.restoreAfter == DateTime.MinValue)
-			return;
-
-		var now = DateTime.UtcNow;
-		if (now < this.restoreAfter)
-			return;
-		if (Plugin.Objects.LocalPlayer?.IsCasting == true && now < this.restoreBy)
-			return;
-
-		this.restoreAfter = DateTime.MinValue;
-		if (Plugin.Targets.Target?.Address == this.retargetedTo?.Address)
-			Plugin.Targets.Target = this.restoreTo;
-		this.retargetedTo = null;
-		this.restoreTo = null;
+		// ⚠ Moved here from DrawTab when the recorder's buttons came out of the tab. It used to
+		// expire only while you were looking at it, which was fine when a button was the only way to
+		// start it and wrong the moment the command became the only way.
+		this.sniffer.ExpireIfDue();
 	}
 
 	private static void Trace(string message) {
@@ -397,17 +398,22 @@ internal sealed class InteractFeature: IDisposable {
 	// ── the tab ──────────────────────────────────────────────────────────────────────────────
 
 	public void DrawTab() {
-		this.sniffer.ExpireIfDue();
-
 		ImGui.TextWrapped(
 			"A key that operates the thing in front of you and nothing else -- one press, no menus, "
 			+ "no cursor landing in your inventory, and it never changes your target.");
 		ImGui.Spacing();
-		ImGui.TextUnformatted("/dsuinteract");
+		if (Input.KeybindPicker.Draw("interact", Plugin.Config.InteractKey))
+			Plugin.Config.Save();
+		ImGui.TextWrapped(
+			"Bind a key. A macro on a hotbar will not work during a conversation -- the hotbar is "
+			+ "locked -- so a bound key is the only way to advance dialogue with this.");
+		ImGui.Spacing();
+		ImGui.TextDisabled("/dsuinteract");
+		ImGui.SameLine();
 		if (ImGui.Button("Copy##interact_cmd"))
 			ImGui.SetClipboardText("/dsuinteract");
 		ImGui.SameLine();
-		ImGui.TextDisabled("one line in a macro, dragged to a hotbar slot");
+		ImGui.TextDisabled("still works as a macro, outside conversations");
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last: {this.lastResult}");
 
@@ -423,42 +429,6 @@ internal sealed class InteractFeature: IDisposable {
 			+ "plugin fails by doing nothing.");
 
 		Section("Record it");
-		if (ImGui.Button("What is here?##interact_why"))
-			this.OnWhy();
-		ImGui.SameLine();
-		ImGui.TextDisabled("or /dsuinteract why -- reads the spot, touches nothing");
-
-		if (!this.sniffer.Available) {
-			ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "neither TargetSystem function resolved. See /xllog.");
-		}
-		else if (this.sniffer.Armed) {
-			ImGui.TextColored(new Vector4(0.4f, 1f, 0.4f, 1f), $"recording -- {this.sniffer.Remaining.TotalMinutes:0.#} min left");
-			ImGui.SameLine();
-			if (ImGui.Button("Stop##interact_sniff"))
-				this.sniffer.Disarm();
-		}
-		else {
-			if (ImGui.Button("Record for 10 min##interact_sniff"))
-				this.sniffer.Arm(InteractSniffer.DefaultDuration);
-			ImGui.SameLine();
-			ImGui.TextDisabled("or /dsuinteract sniff");
-		}
-		ImGui.Spacing();
-		ImGui.TextWrapped(
-			"Then go operate things: a lever, a key on the floor, a wheel, an aetheryte, an NPC. Both "
-			+ "presses of Confirm are logged, so the target-then-use split shows up too.");
-
-		Section("Targeting");
-		bool first = Plugin.Config.InteractTargetFirst;
-		if (ImGui.Checkbox("Target it first, then give the target back##interact_target", ref first)) {
-			Plugin.Config.InteractTargetFirst = first;
-			Plugin.Config.Save();
-		}
-		ImGui.TextWrapped(
-			"What the real key does. Some objects refuse to be operated unless they are targeted, so "
-			+ "without this the key works nearly everywhere -- and nearly is not good enough to stop "
-			+ "binding the vanilla one beside it. Your target flickers.");
-
 		Section("Guards");
 		ImGui.TextWrapped(
 			"Refuses while you are casting: interacting produces a cast bar, so \"am I already "
@@ -504,6 +474,5 @@ internal sealed class InteractFeature: IDisposable {
 		Plugin.Commands.RemoveHandler("/dsuinteract");
 		this.sniffer.Dispose();
 		this.gimmicks.Dispose();
-		this.probe.Dispose();
 	}
 }

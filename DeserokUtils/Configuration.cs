@@ -746,19 +746,20 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool InteractAdvanceTalk { get; set; } = true;
 
 	/// <summary>
-	/// Target what you are about to operate, then hand the target straight back.
+	/// The key that operates things, bound directly rather than through a macro.
 	///
-	/// ⭐⭐ ON, and this is the setting that buys parity with the real key. Vanilla is two presses --
-	/// target, then use -- and a version that skipped the targeting step worked everywhere it was
-	/// measured and then failed on a Snowcloak winch from some standing positions but not others.
-	/// deserok: *"need interact key to work as often as vanilla otherwise it's useless because we have
-	/// to have both bound"*. A key that is right most of the time is not a key you can stop thinking
-	/// about, which was the entire point of building it.
-	///
-	/// ⚠ The cost is real and is not hidden: your target flickers. Turn this off to get the old
-	/// never-touches-your-target behaviour back, and the winch class of object back with it.
+	/// ⚠⚠ UNBOUND by default, and it must stay that way. A plugin that claims a key on install is a
+	/// plugin that silently breaks somebody's existing bind, and this one loads on two other people's
+	/// machines every time the feed is pushed.
 	/// </summary>
-	public bool InteractTargetFirst { get; set; } = true;
+	public Input.Keybind InteractKey { get; set; } = new();
+
+	/// <summary>⚠ Unbound by default, like every keybind here.</summary>
+	public Input.Keybind DrawSheatheKey { get; set; } = new();
+
+	/// <summary>⚠ Unbound by default, like every keybind here.</summary>
+	public Input.Keybind OpenWindowKey { get; set; } = new();
+
 
 	/// <summary>
 	/// ⚠⚠ Reaches an EXISTING config, which a changed default cannot.
