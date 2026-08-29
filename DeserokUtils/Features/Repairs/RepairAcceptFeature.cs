@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 
 using Dalamud.Bindings.ImGui;
 using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Text;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Plugin.Services;
 
@@ -31,9 +33,11 @@ namespace DeserokUtils.Features.Repairs;
 ///
 /// ## Recorded, not guessed
 ///
-/// The prompt's values name the requester at [2] and their world at [3]. The Repair button sends a
-/// single meaningful int: 14, with close=true. That matches the parameter deserok's YesAlready rule
-/// was using, which is a pleasant confirmation rather than the source.
+/// The Repair button sends a single meaningful int: 14, with close=true. That matches the parameter
+/// deserok's YesAlready rule was using, which is a pleasant confirmation rather than the source.
+///
+/// ⚠ The requester's NAME is not at a fixed index, despite the first recording putting it at [2].
+/// See FindRequester : that assumption shipped and was wrong on its first real use.
 /// </summary>
 internal sealed unsafe class RepairAcceptFeature: IDisposable {
 	public string TabTitle => "Repairs";
@@ -56,18 +60,73 @@ internal sealed unsafe class RepairAcceptFeature: IDisposable {
 	}
 
 	private void OnPrompt(AddonEvent type, AddonArgs args) {
-		if (!Plugin.Config.RepairAutoAccept || args.Addon.IsNull)
+		if (args.Addon.IsNull)
 			return;
 
 		var addon = (AtkUnitBase*)args.Addon.Address;
 		if (addon == null || addon->AtkValues == null || addon->AtkValuesCount < 3)
 			return;
 
-		this.requester = addon->AtkValues[2].GetValueAsString();
+		if (!Plugin.Config.RepairAutoAccept)
+			return;
+
+		this.requester = FindRequester(addon);
 
 		// ⚠ Never answered inside PostSetup. The addon is still being built, and deserok runs other
 		// plugins that answer prompts; two replies in the same frame is how stacked dialogs happen.
 		this.acceptPending = true;
+	}
+
+	/// <summary>
+	/// Finds who sent the request by matching the prompt's strings against the party roster.
+	///
+	/// ⚠⚠ NOT a fixed index. The recording that this feature was built from had the requester at
+	/// AtkValues[2] and their world at [3], and shipping that read the wrong value on the very first
+	/// real use : it announced the item being repaired instead of the person. The prompt's layout
+	/// evidently shifts with the request, so an index recorded from one sample is a coincidence, not
+	/// a contract.
+	///
+	/// ⭐ Matching against the party is the sound version precisely because of the rule that made
+	/// the party gate unnecessary: only party members can send a repair request, so the requester's
+	/// name is guaranteed to be in the roster. Whichever string matches IS the requester, wherever
+	/// it happens to sit.
+	/// </summary>
+	private static string FindRequester(AtkUnitBase* addon) {
+		if (addon->AtkValues == null)
+			return string.Empty;
+
+		var count = Math.Min(addon->AtkValuesCount, (uint)24);
+		var seen = new List<string>();
+
+		for (var i = 0; i < count; i++) {
+			var text = addon->AtkValues[i].GetValueAsString();
+			if (string.IsNullOrEmpty(text))
+				continue;
+
+			seen.Add($"[{i}]{text}");
+
+			foreach (var member in Plugin.Party) {
+				var name = member.Name.TextValue;
+				if (name.Length == 0)
+					continue;
+
+				// ⚠ Contains, not equality. Strings in these prompts arrive SeString-encoded with
+				// link payloads wrapped around them : the meld recording showed item names as
+				// "H%I&Vana'dielian Vest of Aiming IH" : so an exact match against a
+				// clean roster name never fires even when the name is right there.
+				if (text.Contains(name, StringComparison.Ordinal))
+					return name;
+			}
+		}
+
+		// ⭐ Diagnoses itself rather than needing another sniffer. If the name genuinely is not in
+		// the values, this says so once, with what WAS there, and the next attempt can read the
+		// text nodes instead.
+		Plugin.Log.Information(
+			$"[Repairs] no party name among the prompt's strings. party={Plugin.Party.Length}, "
+			+ $"strings: {string.Join(" | ", seen)}");
+
+		return string.Empty;
 	}
 
 	private void OnUpdate(IFramework framework) {
@@ -90,9 +149,16 @@ internal sealed unsafe class RepairAcceptFeature: IDisposable {
 
 		addon->FireCallback(3, values, true);
 
-		Plugin.Chat.Print(this.requester.Length > 0
-			? $"[Repairs] accepted a repair request from {this.requester}."
-			: "[Repairs] accepted a repair request.");
+		// ⚠⚠ Echo, not Chat.Print(string). The plain overload lands in the DEBUG channel, which is
+		// hidden by default and is hidden for deserok : so the one notice that says his dark matter
+		// was just spent was being written somewhere he could not see it. A message about consuming
+		// someone's items has to appear in front of them.
+		Plugin.Chat.Print(new XivChatEntry {
+			Type = XivChatType.Echo,
+			Message = this.requester.Length > 0
+				? $"[Repairs] accepted a repair request from {this.requester}."
+				: "[Repairs] accepted a repair request.",
+		});
 	}
 
 	public void DrawTab() {
