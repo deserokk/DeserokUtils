@@ -157,6 +157,8 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(debuffs);
 		var meldWindow = new Features.MeldFlow.MeldWindowKeeper();
 		this.features.Add(meldWindow);
+		var repairs = new Features.Repairs.RepairAcceptFeature();
+		this.features.Add(repairs);
 		this.debuffs = debuffs;
 		this.marks = marks;
 		var interact = new InteractFeature();
@@ -183,6 +185,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
 			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
 			new TabEntry(null, meldWindow.TabTitle, string.Empty, meldWindow.DrawTab),
+			new TabEntry(null, repairs.TabTitle, string.Empty, repairs.DrawTab),
 			new TabEntry(null, partyJobs.TabTitle, string.Empty, partyJobs.DrawTab),
 			new TabEntry(null, Input.KeybindsTab.TabTitle, string.Empty, () => Input.KeybindsTab.Draw(this.keybinds)),
 		]);

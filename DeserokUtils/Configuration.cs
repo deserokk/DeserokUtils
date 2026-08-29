@@ -451,6 +451,12 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool MeldAutoAccept { get; set; } = false;
 
 	/// <summary>
+	/// Whether an incoming repair request is accepted automatically. Defaults OFF: it spends dark
+	/// matter, so it is not a thing to switch on for someone unasked.
+	/// </summary>
+	public bool RepairAutoAccept { get; set; } = false;
+
+	/// <summary>
 	/// Suppress the chat log message on a repeat of an emote you have already announced.
 	///
 	/// ⚠⚠ OFF by default even though it was asked for, because it changes what OTHER PEOPLE see.
