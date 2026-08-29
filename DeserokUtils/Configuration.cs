@@ -443,6 +443,14 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool MeldWindowKeepOpen { get; set; } = true;
 
 	/// <summary>
+	/// Whether an INCOMING materia meld request from another player is accepted automatically.
+	///
+	/// ⚠ Defaults OFF. Answering a prompt on someone's behalf is not a thing to switch on for them
+	/// without asking, and this plugin's releases land on other people's machines.
+	/// </summary>
+	public bool MeldAutoAccept { get; set; } = false;
+
+	/// <summary>
 	/// Suppress the chat log message on a repeat of an emote you have already announced.
 	///
 	/// ⚠⚠ OFF by default even though it was asked for, because it changes what OTHER PEOPLE see.

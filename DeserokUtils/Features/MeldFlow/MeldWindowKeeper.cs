@@ -110,9 +110,66 @@ internal sealed unsafe class MeldWindowKeeper: IDisposable {
 		Plugin.Framework.Update -= this.OnUpdate;
 	}
 
+	/// <summary>
+	/// MateriaAttachDialog's role, read from its first AtkValue.
+	///
+	/// ⭐⭐ Recorded across all four cases, because ONE addon serves them all and the title is not
+	/// enough to tell them apart : three of these say "Materia Meld Request".
+	///
+	///   0 = your own self-meld confirmation
+	///   2 = your outgoing request, the Submit Request panel
+	///   3 = your outgoing request, the Remove Request panel waiting for the crafter
+	///   4 = someone else's incoming request, asking you to accept
+	///
+	/// ⚠⚠ This distinction is the entire feature. deserok already had auto-accept via YesAlready and
+	/// it broke his own melding : *"It made my self melds break, so I had to toggle it on for other
+	/// people melds then off for self."* A generic yes-clicker sees one addon name and answers all
+	/// four. Gating on 4 means his self melds and his own outgoing requests are untouched by
+	/// construction, rather than by a toggle he has to remember to flip.
+	/// </summary>
+	private const int IncomingRequest = 4;
+
+	private bool acceptPending;
+
 	private void OnDialog(AddonEvent type, AddonArgs args) {
 		this.lastDialogAt = DateTime.UtcNow;
 		this.openDialogs++;
+
+		if (!Plugin.Config.MeldAutoAccept || args.Addon.IsNull)
+			return;
+
+		var addon = (AtkUnitBase*)args.Addon.Address;
+		if (addon == null || addon->AtkValues == null || addon->AtkValuesCount == 0)
+			return;
+
+		if (addon->AtkValues[0].Int != IncomingRequest)
+			return;
+
+		// ⚠ Never answered inside PostSetup. The addon is still being built, and deserok runs
+		// YesAlready alongside this : two things replying to the same prompt in the same frame is
+		// how you get the doubled and stacked dialogs already seen in his logs.
+		this.acceptPending = true;
+	}
+
+	/// <summary>
+	/// ⭐ The payload is recorded, not invented: pressing Meld on an incoming request sends three
+	/// zeroed ints with close=true. Same rule as the tab switch.
+	/// </summary>
+	private void AcceptIncoming() {
+		var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("MateriaAttachDialog").Address;
+		if (addon == null || !addon->IsVisible || addon->AtkValues == null || addon->AtkValuesCount == 0)
+			return;
+
+		// Re-checked on this frame. The prompt we saw a frame ago may have been answered already,
+		// by the player or by another plugin, and the addon reused for something else entirely.
+		if (addon->AtkValues[0].Int != IncomingRequest)
+			return;
+
+		var values = stackalloc AtkValue[3];
+		values[0].SetInt(0);
+		values[1].SetInt(0);
+		values[2].SetInt(0);
+		addon->FireCallback(3, values, true);
 	}
 
 	/// <summary>
@@ -242,6 +299,11 @@ internal sealed unsafe class MeldWindowKeeper: IDisposable {
 	}
 
 	private void OnUpdate(IFramework framework) {
+		if (this.acceptPending) {
+			this.acceptPending = false;
+			this.AcceptIncoming();
+		}
+
 		var agent = AgentMateriaAttach.Instance();
 		if (agent == null)
 			return;
@@ -283,5 +345,17 @@ internal sealed unsafe class MeldWindowKeeper: IDisposable {
 
 		ImGui.Spacing();
 		ImGui.TextDisabled("Closing it yourself still closes it. Only a completed meld reopens it.");
+
+		ImGui.Spacing();
+		ImGui.Separator();
+		ImGui.Spacing();
+
+		bool autoAccept = Plugin.Config.MeldAutoAccept;
+		if (ImGui.Checkbox("Accept incoming meld requests automatically", ref autoAccept)) {
+			Plugin.Config.MeldAutoAccept = autoAccept;
+			Plugin.Config.Save();
+		}
+
+		ImGui.TextDisabled("Only other people's requests. Your own melds are never answered for you.");
 	}
 }
