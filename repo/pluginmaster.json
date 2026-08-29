@@ -21,26 +21,5 @@
     "DownloadLinkUpdate": "https://raw.githubusercontent.com/deserokk/DeserokUtils/main/repo/DeserokUtils/latest.zip",
     "DownloadLinkTesting": "https://raw.githubusercontent.com/deserokk/DeserokUtils/main/repo/DeserokUtils/latest.zip",
     "DownloadCount": 0
-  },
-  {
-    "Author": "deserokk",
-    "Name": "Fanfare",
-    "InternalName": "Fanfare",
-    "AssemblyVersion": "0.1.0.0",
-    "Description": "Changes achievement notifications to a stylized, console-adjacent popup with definable sounds.\nSix chimes are included; point it at your own file in the settings.",
-    "ApplicableVersion": "any",
-    "RepoUrl": "https://github.com/deserokk/Fanfare",
-    "Tags": [
-      "achievements",
-      "notification",
-      "cosmetic",
-      "quality of life"
-    ],
-    "DalamudApiLevel": 15,
-    "Punchline": "Achievements deserve better than a line of chat text",
-    "DownloadLinkInstall": "https://raw.githubusercontent.com/deserokk/Fanfare/main/repo/Fanfare/latest.zip",
-    "DownloadLinkUpdate": "https://raw.githubusercontent.com/deserokk/Fanfare/main/repo/Fanfare/latest.zip",
-    "DownloadLinkTesting": "https://raw.githubusercontent.com/deserokk/Fanfare/main/repo/Fanfare/latest.zip",
-    "DownloadCount": 0
   }
 ]
