@@ -18,13 +18,13 @@ internal static class KeybindsTab {
 			+ "way to press something during a conversation, when the hotbar is locked.");
 		ImGui.Spacing();
 
-		foreach (var (name, label, bind) in watcher.Entries) {
+		foreach (var (name, label, bind, repeats) in watcher.Entries) {
 			if (bind is null)
 				continue;
 
 			ImGui.Separator();
 			ImGui.TextUnformatted(label);
-			if (KeybindPicker.Draw(name, bind))
+			if (KeybindPicker.Draw(name, bind, repeats))
 				Plugin.Config.Save();
 			ImGui.Spacing();
 		}
@@ -35,6 +35,7 @@ internal static class KeybindsTab {
 		// lives in Keybind.RepeatMs, where it is long and belongs.
 		ImGui.TextWrapped(
 			"Holding a key repeats it at its own rate rather than firing once per frame, so a key "
-			+ "repeater and a held finger behave the same.");
+			+ "repeater and a held finger behave the same. Actions that make no sense repeated, like "
+			+ "draw and sheathe, fire once however long you hold them.");
 	}
 }

@@ -370,10 +370,20 @@ public sealed class Configuration: IPluginConfiguration {
 	/// <summary>
 	/// Sent when the weapon is AWAY. See <see cref="DefaultDrawCommand"/>.
 	///
-	/// ⭐ Configurable for one reason only: it costs a string and it outlives this specific Gold
-	/// Saucer purchase. The Emote sheet currently holds exactly two draw/sheathe rows (237 and 238),
-	/// so there is nothing else to point it at today -- but "which emote" is not a thing the toggle
-	/// logic should have an opinion about.
+	/// ⚠⚠ THIS SETTING SHOULD NOT EXIST, and the sentence that used to sit here is why it does.
+	/// It read "the Emote sheet currently holds exactly two draw/sheathe rows (237 and 238)", which
+	/// is true and reads as "two to choose from". It is not. It is two rows TOTAL, one per action:
+	///
+	///     Emote[238] "Draw Weapon"     /draw
+	///     Emote[237] "Sheathe Weapon"  /sheathe
+	///
+	/// One option per action is no option at all. deserok, on finding the free-text boxes in the
+	/// tab: *"there needs to be no option at all for draw and sheathe, there is only /draw and
+	/// /sheathe. If they don't want to use those then they'd simply toggle off that util."*
+	///
+	/// ⭐ DELETE BOTH FIELDS IN THE DESIGN PASS. Not "turn them into a picker" -- a picker with one
+	/// entry is the same mistake with a nicer widget. A later "play an emote AFTER drawing" idea
+	/// would need its own field for a genuinely open choice; it is not a reason to keep these.
 	///
 	/// ⚠ A NEW key, so no migration: absent from an existing config, it keeps this initialiser.
 	/// Additions are free; only edits to an existing key need <see cref="Migrate"/>.
@@ -426,6 +436,11 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool UseDefaultToggleWhenEmoteWouldFail { get; set; } = true;
 
 	// ── EmoteQuiet ───────────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Whether a completed player-to-player meld reopens the meld window on the tab it was using.
+	/// </summary>
+	public bool MeldWindowKeepOpen { get; set; } = true;
 
 	/// <summary>
 	/// Suppress the chat log message on a repeat of an emote you have already announced.

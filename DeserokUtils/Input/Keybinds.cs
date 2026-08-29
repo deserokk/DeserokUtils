@@ -66,23 +66,35 @@ public sealed class Keybind {
 /// manufacturing them.
 /// </summary>
 internal sealed class KeybindWatcher {
-	private readonly List<(Func<Keybind?> Bind, Action Run, string Name, string Label)> bound = new();
+	private readonly List<(Func<Keybind?> Bind, Action Run, string Name, string Label, bool Repeats)> bound = new();
 	private readonly Dictionary<string, DateTime> lastFired = new();
 
 	/// <summary>
 	/// ⭐ The registry IS the tab. Anything registered here is bindable and shows up, so a new
 	/// keybind is one Register call rather than a call plus a row somebody has to remember to add.
 	/// </summary>
-	public IEnumerable<(string Name, string Label, Keybind? Bind)> Entries =>
-		this.bound.Select(b => (b.Name, b.Label, b.Bind()));
+	public IEnumerable<(string Name, string Label, Keybind? Bind, bool Repeats)> Entries =>
+		this.bound.Select(b => (b.Name, b.Label, b.Bind(), b.Repeats));
 
 	/// <summary>
 	/// ⚠ The binding is fetched through a delegate rather than stored, because it lives in the config
 	/// and the config object is replaced wholesale when it reloads. A captured reference would go on
 	/// watching a key nobody is bound to any more.
 	/// </summary>
-	public void Register(string name, string label, Func<Keybind?> bind, Action run) =>
-		this.bound.Add((bind, run, name, label));
+	/// <summary>
+	/// ⭐ <paramref name="repeats"/> only decides whether the TAB offers a rate slider. Holding
+	/// interact while riding past a coffer is the whole point of it -- deserok: *"one use of the old
+	/// interact key is 'run past chest and loot it quickly'... I use this heavily in occult crescent
+	/// so I can drive up to a chest and loot it quickly while some mob is wailing on me."* Holding
+	/// draw/sheathe has no such meaning, so offering a rate for it invites tuning a number that does
+	/// not want tuning.
+	///
+	/// ⚠ It does NOT change the firing rule, and deliberately not. DrawSheathe already carries its own
+	/// spam guard -- SheatheCooldown, which was measured rather than invented -- so a second lockout
+	/// here would be two mechanisms guarding one thing, which is how they drift apart.
+	/// </summary>
+	public void Register(string name, string label, Func<Keybind?> bind, Action run, bool repeats = true) =>
+		this.bound.Add((bind, run, name, label, repeats));
 
 	/// <summary>
 	/// ⚠⚠ SAMPLED ON THE RENDER THREAD, never read from one. ImGui state belongs to the draw
@@ -100,7 +112,7 @@ internal sealed class KeybindWatcher {
 
 		var now = DateTime.UtcNow;
 
-		foreach (var (getBind, run, name, _) in this.bound) {
+		foreach (var (getBind, run, name, _, _) in this.bound) {
 			var bind = getBind();
 			if (bind is null || !bind.IsBound)
 				continue;

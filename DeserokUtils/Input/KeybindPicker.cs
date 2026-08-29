@@ -28,7 +28,7 @@ internal static class KeybindPicker {
 	];
 
 	/// <summary>Draws the picker. Returns true if the binding changed and wants saving.</summary>
-	public static bool Draw(string id, Keybind bind) {
+	public static bool Draw(string id, Keybind bind, bool repeats = true) {
 		bool changed = false;
 		bool active = capturing == id;
 
@@ -68,6 +68,14 @@ internal static class KeybindPicker {
 
 		if (!bind.IsBound)
 			return changed;
+
+		// ⚠ No slider for an action that cannot repeat. A control for a setting that does nothing is
+		// worse than no control: it invites you to tune something and then blames you when it has no
+		// effect. Draw/sheathe fires once per press however long you hold it.
+		if (!repeats) {
+			ImGui.TextDisabled("fires once per press");
+			return changed;
+		}
 
 		// ⭐ Seconds, not milliseconds. The setting exists for a hand, not for a tuning pass.
 		float seconds = Math.Max(50, bind.RepeatMs) / 1000f;

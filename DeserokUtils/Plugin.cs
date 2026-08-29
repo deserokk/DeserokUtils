@@ -155,14 +155,18 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(partyJobs);
 		var debuffs = new Features.DebuffMarks.DebuffMarksFeature();
 		this.features.Add(debuffs);
+		var meldWindow = new Features.MeldFlow.MeldWindowKeeper();
+		this.features.Add(meldWindow);
 		this.debuffs = debuffs;
 		this.marks = marks;
 		var interact = new InteractFeature();
 		this.features.Add(interact);
 		this.interact = interact;
 		this.keybinds.Register("interact", "Interact", () => Config.InteractKey, interact.Press);
-		this.keybinds.Register("drawsheathe", "Draw / sheathe", () => Config.DrawSheatheKey, drawSheathe.Press);
-		this.keybinds.Register("openwindow", "Open this window", () => Config.OpenWindowKey, () => OpenWindow());
+		this.keybinds.Register("drawsheathe", "Draw / sheathe", () => Config.DrawSheatheKey, drawSheathe.Press,
+			repeats: false);
+		this.keybinds.Register("openwindow", "Open this window", () => Config.OpenWindowKey, () => OpenWindow(),
+			repeats: false);
 
 		// ⭐ A feature declares its own GROUP, or null for a tab of its own. Grouping is earned by
 		// having relatives: the macro tools are two faces of one complaint, everything else stands
@@ -178,6 +182,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, interact.TabTitle, string.Empty, interact.DrawTab),
 			new TabEntry(null, marks.TabTitle, string.Empty, marks.DrawTab),
 			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
+			new TabEntry(null, meldWindow.TabTitle, string.Empty, meldWindow.DrawTab),
 			new TabEntry(null, partyJobs.TabTitle, string.Empty, partyJobs.DrawTab),
 			new TabEntry(null, Input.KeybindsTab.TabTitle, string.Empty, () => Input.KeybindsTab.Draw(this.keybinds)),
 		]);
