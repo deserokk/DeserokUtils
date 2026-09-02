@@ -9,7 +9,7 @@ using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 namespace DeserokUtils.Features.ItemUse;
 
 /// <summary>
-/// Use an item on a target from a macro -- <c>/item "Phoenix Down" &lt;mo&gt;</c> -- which the game
+/// Use an item on a target from a macro -- <c>/dsuitem "Phoenix Down" &lt;mo&gt;</c> -- which the game
 /// itself cannot do at all.
 ///
 /// ## ⚠⚠ This is NOT parity. The game has no item command whatsoever.
@@ -35,14 +35,14 @@ namespace DeserokUtils.Features.ItemUse;
 ///
 /// <code>
 /// /watch Phoenix Down
-/// /ifmo /item "Phoenix Down" {mo|t}
+/// /ifmo /dsuitem "Phoenix Down" {mo|t}
 /// /wait 1
 /// /ifwatch /p Raising {who}
 /// </code>
 /// </summary>
 internal sealed unsafe class ItemUseFeature: IDisposable {
 	public string SectionTitle => "Items";
-	public string Summary => "/item -- use an item on a target from a macro. The game has no command for this at all; combine with /ifmo for mouseover.";
+	public string Summary => "/dsuitem -- use an item on a target from a macro. The game has no command for this at all; combine with /ifmo for mouseover.";
 
 	/// <summary>
 	/// What <c>UseAction</c> wants for "I did not name an inventory slot, treat it like a hotbar
@@ -57,24 +57,16 @@ internal sealed unsafe class ItemUseFeature: IDisposable {
 	/// <summary>Last decision, for the tab. Purely diagnostic.</summary>
 	private static string lastDecision = "nothing yet";
 
-	/// <summary>⚠ Whether the plugin managed to claim <c>/item</c>. It is free in the vanilla game,
-	/// but another plugin may already have taken it, and Dalamud reports that by returning false
-	/// rather than throwing -- so a silent failure here would look like "the command does nothing".</summary>
-	private readonly bool claimedItem;
-
 	public ItemUseFeature() {
-		this.claimedItem = Plugin.Commands.AddHandler("/item", new CommandInfo(this.OnItem) {
-			HelpMessage = "/item \"Phoenix Down\" <mo> -- use an item on a target. The game has no such command; this adds it.",
-		});
-		if (!this.claimedItem) {
-			Plugin.Log.Warning("ItemUse: /item was already registered by another plugin; /dsuitem still works.");
-			Plugin.Chat.PrintError("[DeserokUtils] /item is taken by another plugin -- use /dsuitem instead.");
-		}
-
-		// ⚠ Always registered, even when /item was claimed successfully. The prefixed name is the one
-		// that cannot be stolen by a plugin load order, so a macro written against it keeps working.
+		// ⚠⚠ /dsuitem, and NOT /item, which this shipped as for one build.
+		//
+		// The bare verb is free in the game but not in the plugin namespace -- it was already taken on
+		// deserok's client, which prints a conflict line every login and hands a macro to whichever
+		// plugin loaded first. ⭐ His call, and it is the right one: "/dsuitem, it's our schema
+		// anyways." Everything else here that is ours is /dsu-prefixed, and a name nobody can take is
+		// worth more than a name that reads well in a vacuum.
 		Plugin.Commands.AddHandler("/dsuitem", new CommandInfo(this.OnItem) {
-			HelpMessage = "/dsuitem \"Phoenix Down\" <mo> -- same as /item, under a name no other plugin can claim.",
+			HelpMessage = "/dsuitem \"Phoenix Down\" <mo> -- use an item on a target. The game has no such command; this adds it.",
 		});
 
 		// ⚠ Off the main thread, at load, because the macro icon hook may ask for a name before any
@@ -206,7 +198,7 @@ internal sealed unsafe class ItemUseFeature: IDisposable {
 	private void OnItem(string command, string arguments) {
 		string payload = arguments.Trim();
 		if (payload.Length == 0) {
-			Plugin.Chat.PrintError("[ItemUse] nothing to use. Usage: /item \"Phoenix Down\" <mo>");
+			Plugin.Chat.PrintError("[ItemUse] nothing to use. Usage: /dsuitem \"Phoenix Down\" <mo>");
 			return;
 		}
 
@@ -214,7 +206,9 @@ internal sealed unsafe class ItemUseFeature: IDisposable {
 
 		uint? itemId = ItemLookup.Resolve(name);
 		if (itemId is null) {
-			Plugin.Chat.PrintError($"[ItemUse] \"{name}\" is not an item you can use.");
+			// ⚠ The suggestion is the whole message here. "Pheonix Down" cost a test, because a name
+			// that matched nothing reads as a broken feature rather than as a misspelling.
+			Plugin.Chat.PrintError($"[ItemUse] \"{name}\" is not an item you can use.{ItemLookup.SuggestionFor(name)}");
 			return;
 		}
 
@@ -287,9 +281,9 @@ internal sealed unsafe class ItemUseFeature: IDisposable {
 		ImGui.Spacing();
 
 		foreach (string template in new[] {
-			"/item \"Phoenix Down\" <t>",
-			"/ifmo /item \"Phoenix Down\" {mo|t}",
-			"/item \"Hi-Potion\"",
+			"/dsuitem \"Phoenix Down\" <t>",
+			"/ifmo /dsuitem \"Phoenix Down\" {mo|t}",
+			"/dsuitem \"Hi-Potion\"",
 		}) {
 			ImGui.TextUnformatted(template);
 			ImGui.SameLine();
@@ -322,15 +316,11 @@ internal sealed unsafe class ItemUseFeature: IDisposable {
 		ImGui.Spacing();
 		ImGui.TextDisabled($"last press: {lastDecision}");
 
-		if (!this.claimedItem) {
-			ImGui.Spacing();
-			ImGui.TextWrapped("⚠ Another plugin claimed /item first, so use /dsuitem instead. It does the same thing.");
-		}
+		ImGui.Spacing();
+		ImGui.TextWrapped(
+			"Inside /ifmo, /item and /useitem are read as the same thing -- that line is never handed to "
+			+ "the game, so nothing can collide with it. On its own, the command is /dsuitem.");
 	}
 
-	public void Dispose() {
-		if (this.claimedItem)
-			Plugin.Commands.RemoveHandler("/item");
-		Plugin.Commands.RemoveHandler("/dsuitem");
-	}
+	public void Dispose() => Plugin.Commands.RemoveHandler("/dsuitem");
 }

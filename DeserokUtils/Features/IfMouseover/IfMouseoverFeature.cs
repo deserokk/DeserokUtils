@@ -177,7 +177,8 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	private void RunItemChain(string name, string[] chain) {
 		uint? itemId = Features.ItemUse.ItemLookup.Resolve(name);
 		if (itemId is null) {
-			Plugin.Chat.PrintError($"[IfMouseover] \"{name}\" is not an item you can use.");
+			Plugin.Chat.PrintError($"[IfMouseover] \"{name}\" is not an item you can use."
+				+ Features.ItemUse.ItemLookup.SuggestionFor(name));
 			return;
 		}
 

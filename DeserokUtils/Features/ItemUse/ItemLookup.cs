@@ -72,6 +72,19 @@ internal static class ItemLookup {
 		return usableByName!.TryGetValue(name.Trim(), out uint id) ? id : null;
 	}
 
+	/// <summary>The nearest real item name to one that matched nothing, for the error message.
+	/// See <see cref="NameSuggest"/> for why this suggests rather than silently substitutes.</summary>
+	public static string? Suggest(string name) {
+		Build();
+		return NameSuggest.Closest(name, usableByName!.Keys);
+	}
+
+	/// <summary>" + " a phrase to append to an error, or nothing when there is no near miss.</summary>
+	public static string SuggestionFor(string name) {
+		string? near = Suggest(name);
+		return near is null ? string.Empty : $" Did you mean \"{near}\"?";
+	}
+
 	/// <summary>
 	/// The verbs that take an item name plus an optional placeholder.
 	///
@@ -87,6 +100,12 @@ internal static class ItemLookup {
 	///
 	/// ⚠ The trailing space is load-bearing, exactly as it is in ActionLookup: without it
 	/// <c>/item </c> would match inside <c>/itemsort</c>, which IS a real game command.
+	///
+	/// ⭐ <c>/item</c> and <c>/useitem</c> are still READ here even though the plugin no longer
+	/// registers either -- the command is <c>/dsuitem</c>. That is not an inconsistency: a line inside
+	/// <c>/ifmo</c> is parsed by us and never dispatched, so nothing can collide with it, and being
+	/// forgiving about the verb somebody's fingers type costs nothing. What must not happen is
+	/// CLAIMING a name in the shared command namespace, which is a different thing entirely.
 	/// </summary>
 	private static readonly string[] Verbs = { "/dsuitem ", "/useitem ", "/item " };
 

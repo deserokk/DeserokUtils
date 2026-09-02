@@ -60,12 +60,27 @@ internal sealed unsafe class MacroIconFeature: IDisposable {
 	/// <summary>
 	/// Which slot type an item icon is announced as.
 	///
-	/// ⚠⚠ NAMED RATHER THAN INLINED because it is the one value here that is a reasonable guess rather
-	/// than a measurement. The enum offers both <c>Item</c> (2) and <c>InventoryItem</c> (3) and
-	/// nothing says which one the icon drawer wants. If item icons come out blank while the log says
-	/// an icon was supplied, this constant is the thing to change -- and it is the only thing.
+	/// ⭐ MEASURED 2026-09-02, and it was a guess for exactly one build: the enum offers both
+	/// <c>Item</c> (2) and <c>InventoryItem</c> (3), nothing documents which the icon drawer wants,
+	/// and <c>Item</c> is right. The proof was better than "a picture appeared" -- the slot came up
+	/// carrying the STACK COUNT (<c>x89</c>) next to the icon, which means the drawer read
+	/// <c>outItemId</c> and treated it as a real item rather than as a borrowed texture.
 	/// </summary>
 	private const RaptureHotbarModule.HotbarSlotType ItemSlot = RaptureHotbarModule.HotbarSlotType.Item;
+
+	/// <summary>
+	/// The blank "M" every macro starts life with.
+	///
+	/// ⚠⚠ MEASURED 2026-09-02, and it invalidated the guard it was written for. The name fallback was
+	/// gated on <c>IconId == 0</c> so a hand-picked icon could never be overridden -- and the probe
+	/// came back <c>IconId 66001</c> for a macro nobody had touched. deserok: *"that icon is not
+	/// chosen, it's simply what's there when you make a macro, there is no way to unselect it without
+	/// selecting another."*
+	///
+	/// ⭐ So there IS no "no icon" state, and a guard testing for one blocks every macro it was
+	/// written to protect. The real question is "is this still the default", and that is this id.
+	/// </summary>
+	private const uint DefaultMacroIcon = 66001;
 
 	/// <summary>What we last answered for each macro, keyed by set and slot.
 	///
@@ -204,9 +219,13 @@ internal sealed unsafe class MacroIconFeature: IDisposable {
 		if (!Plugin.Config.MacroNameIcons || name.Length == 0)
 			return null;
 
-		if (macro->IconId != 0) {
+		// ⚠ Zero OR the default M. Both mean "nobody chose this"; anything else somebody picked on
+		// purpose and it stays. ⚠ MacroIconRowId is printed rather than tested -- it is the second field
+		// on the struct and its behaviour for a CHOSEN icon is still unmeasured, so the log collects it
+		// instead of a guess consuming it.
+		if (macro->IconId != 0 && macro->IconId != DefaultMacroIcon) {
 			Plugin.Diag($"MacroIcons: macro {setId}/{macroId} \"{name}\" has a chosen icon "
-				+ $"(IconId {macro->IconId}); left alone.");
+				+ $"(IconId {macro->IconId}, MacroIconRowId {macro->MacroIconRowId}); left alone.");
 			return null;
 		}
 
@@ -218,6 +237,7 @@ internal sealed unsafe class MacroIconFeature: IDisposable {
 			return (ItemSlot, namedItem);
 		}
 
+
 		// ⭐ Reusing IfMouseover's action map rather than walking the Action sheet a third time. It is
 		// a pure name lookup with no feature state in it, and a third copy of that walk is a real cost
 		// here -- this runs from the UI, where CastWatch's per-/watch walk would be felt.
@@ -226,6 +246,19 @@ internal sealed unsafe class MacroIconFeature: IDisposable {
 			return (RaptureHotbarModule.HotbarSlotType.Action, action.Id);
 		}
 
+		// ⚠⚠ THE PROBE, and it exists because the silence here is ambiguous in the worst way. A macro
+		// with no icon can mean the resolver was never called for it, or that it was called and we
+		// found no name to match -- and those need opposite fixes. This line is the only thing that
+		// tells them apart, so it is written whenever the name path declines.
+		//
+		// ⭐ Once per macro, not once per refresh: the cache stores the miss, so a login with a
+		// hundred unmatched macros writes a hundred lines and then stops.
+		string near = ItemUse.ItemLookup.Suggest(name)
+			?? IfMouseover.ActionLookup.Suggest(name)
+			?? string.Empty;
+		Plugin.Diag($"MacroIcons: macro {setId}/{macroId} \"{name}\" -- no /micon, IconId {macro->IconId}, "
+			+ $"and the name matches no action or usable item."
+			+ (near.Length > 0 ? $" Closest is \"{near}\"." : string.Empty));
 		return null;
 	}
 

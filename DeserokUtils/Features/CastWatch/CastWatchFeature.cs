@@ -71,7 +71,14 @@ internal sealed class CastWatchFeature: IDisposable {
 		if (resolved is null) {
 			// A typo must not arm a watch that can never fire. Fail at the point of the mistake,
 			// not later at /ifwatch, where it is indistinguishable from "the spell fizzled".
-			Plugin.Chat.PrintError($"[CastWatch] no player action or usable item named \"{name}\". Nothing armed.");
+			// ⚠ /watch is line one of the macro, so a misspelling lands HERE first -- which makes this
+			// the most valuable of the three places to suggest from. Both spaces are searched because
+			// this command watches both.
+			string near = Features.ItemUse.ItemLookup.Suggest(name)
+				?? Features.IfMouseover.ActionLookup.Suggest(name)
+				?? string.Empty;
+			Plugin.Chat.PrintError($"[CastWatch] no player action or usable item named \"{name}\". Nothing armed."
+				+ (near.Length > 0 ? $" Did you mean \"{near}\"?" : string.Empty));
 			return;
 		}
 

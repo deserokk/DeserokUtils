@@ -114,6 +114,19 @@ internal static class ActionLookup {
 	}
 
 	/// <summary>
+	/// The nearest real action name to one that matched nothing, searched across both maps.
+	///
+	/// ⚠ Both, because a typo does not know which list the word was going to come from, and the
+	/// message that carries this does not either.
+	/// </summary>
+	public static string? Suggest(string name) {
+		Build();
+		var names = new List<string>(pveByName!.Keys);
+		names.AddRange(pvpByName!.Keys);
+		return NameSuggest.Closest(name, names);
+	}
+
+	/// <summary>
 	/// ⭐ Whether the client says you are in PvP, which is the default half of the preference above.
 	///
 	/// ⚠ Uses <c>IsPvP</c> and NOT <c>IsPvPExcludingDen</c>, deliberately. The Wolves' Den Pier is
