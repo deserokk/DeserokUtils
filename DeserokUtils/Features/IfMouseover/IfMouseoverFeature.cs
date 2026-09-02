@@ -91,6 +91,20 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 		}
 
 		string[] chain = match.Groups[1].Value.Split('|', StringSplitOptions.TrimEntries);
+
+		// ⚠⚠ ITEMS TAKE A DIFFERENT ROUTE OUT, and they have to. Everything below decides a
+		// placeholder and hands the rewritten line back to the game -- which cannot work for an item,
+		// because the game HAS no item command to hand it to (541 text commands, none of them use an
+		// item; measured 2026-09-02). So the item path validates the same way and then calls the
+		// engine itself. See ItemUseFeature.
+		//
+		// ⭐ Split here rather than inside Decide so the action path is untouched: it is shipped,
+		// working, and the two only agree on the shape of the chain, not on what "send" means.
+		if (Features.ItemUse.ItemLookup.ItemNameIn(payload) is { } item) {
+			this.RunItemChain(item.Name, chain);
+			return;
+		}
+
 		(string? placeholder, bool send, string why) = this.Decide(payload, chain);
 
 		if (!send) {
@@ -145,6 +159,74 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 		Trace($"/ifmo: added the quotes \"{span.Value.Name}\" needs -- the action commands reject "
 			+ "unquoted multi-word names.");
 		return quoted;
+	}
+
+	/// <summary>
+	/// The item half of the chain: same rule, different question and different way of sending.
+	///
+	/// ⭐ The question is one call rather than two. <c>CanUseActionOnTarget</c> and
+	/// <c>GetActionInRangeOrLoS</c> are both action-only -- neither takes an <c>ActionType</c> --
+	/// while <c>GetActionStatus(ActionType.Item, ...)</c> answers legality and reach together, in the
+	/// same LogMessage vocabulary. So a corpse reads as usable for a Phoenix Down and as unusable for
+	/// Clemency, which is the whole point, and out of range still reads as 566.
+	///
+	/// ⚠ The tail means what it means everywhere else: <c>noop</c> sends nothing, and falling off the
+	/// end uses your current target -- the item equivalent of "ordinary targeting", since that is what
+	/// a hotbar press with no placeholder does.
+	/// </summary>
+	private void RunItemChain(string name, string[] chain) {
+		uint? itemId = Features.ItemUse.ItemLookup.Resolve(name);
+		if (itemId is null) {
+			Plugin.Chat.PrintError($"[IfMouseover] \"{name}\" is not an item you can use.");
+			return;
+		}
+
+		var stack = Features.ItemUse.ItemUseFeature.PickStack(itemId.Value);
+		if (stack is null) {
+			// ⚠ Said out loud rather than silently falling through the chain. An empty stack and a
+			// bad target are the same silence otherwise, and only one of them is fixed by moving.
+			Plugin.Chat.PrintError($"[IfMouseover] you are not carrying any {name}.");
+			this.lastDecision = $"sent nothing -- no {name} in the bags";
+			Trace($"/ifmo: no {name} in the bags -> nothing sent");
+			return;
+		}
+
+		foreach (string seg in chain) {
+			if (seg.Equals("noop", StringComparison.OrdinalIgnoreCase)) {
+				this.lastDecision = $"sent nothing -- no candidate before noop could take {name}";
+				Trace($"/ifmo: no candidate before noop could take {name} -> nothing sent (noop)");
+				return;
+			}
+
+			ulong who = Features.ItemUse.ItemUseFeature.ResolvePlaceholder(seg);
+			if (who == 0) {
+				Trace($"/ifmo: <{seg}> resolves to nobody");
+				continue;
+			}
+
+			uint status = Features.ItemUse.ItemUseFeature.Status(stack.Value.UseId, who);
+			string whoName = Features.ItemUse.ItemUseFeature.NameOf(who);
+			Trace($"/ifmo: {name} (item {stack.Value.UseId}{(stack.Value.Hq ? ", HQ" : "")}) on <{seg}> "
+				+ $"= {whoName}: status={status}{Explain(status)}");
+
+			if (status != 0)
+				continue;
+
+			bool sent = Features.ItemUse.ItemUseFeature.Send(stack.Value.UseId, who);
+			this.lastDecision = $"used <{seg}> -- {name} on {whoName}";
+			Trace($"/ifmo: {name} lands on {whoName} via <{seg}> -> sent (UseAction returned {sent})");
+			return;
+		}
+
+		// ⚠ Falling off the end uses your CURRENT TARGET, unvalidated -- deliberately the same shape
+		// as the action path's "ordinary targeting", where the line goes out without a placeholder and
+		// the game decides. Validating here instead would make the tail stricter than the thing it is
+		// imitating, and the failure would be a rez that silently never happened.
+		ulong target = Plugin.Targets.Target?.GameObjectId ?? Features.ItemUse.ItemUseFeature.NoTarget;
+		bool fallback = Features.ItemUse.ItemUseFeature.Send(stack.Value.UseId, target);
+		this.lastDecision = $"targeted normally -- nothing in the chain could take {name}";
+		Trace($"/ifmo: nothing in the chain could take {name} -> current target "
+			+ $"({Features.ItemUse.ItemUseFeature.NameOf(target)}), UseAction returned {fallback}");
 	}
 
 	/// <summary>
@@ -366,13 +448,10 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 	/// mapping came from the game and stays coming from the game, so a patch that renumbers these
 	/// makes the log read oddly instead of making it read confidently wrong.
 	/// </summary>
-	private static string Reason(uint status) {
-		if (status == 0)
-			return "fine";
-		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.LogMessage>();
-		string text = sheet?.GetRowOrDefault(status)?.Text.ExtractText().Trim() ?? string.Empty;
-		return text.Length > 0 ? text : $"status {status}";
-	}
+	/// ⚠ The body moved to ItemUseFeature when the item path needed the identical lookup. One copy,
+	/// because a second one is how "566 means out of range" ends up hardcoded in the copy nobody
+	/// remembers to update.
+	private static string Reason(uint status) => Features.ItemUse.ItemUseFeature.Reason(status);
 
 	private static string Explain(uint status) => status == 0 ? "" : $" \"{Reason(status)}\"";
 

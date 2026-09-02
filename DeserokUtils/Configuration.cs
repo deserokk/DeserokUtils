@@ -456,6 +456,25 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public bool RepairAutoAccept { get; set; } = false;
 
+	// ── Macro icons ───────────────────────────────────────────────────────────────────────
+
+	/// <summary>
+	/// Whether <c>/micon</c> may name an item. ⚠ ON by default: the game's own /micon has no item
+	/// category at all, so this can only ever fill in a macro that currently shows the blank M. It
+	/// cannot change one that already has an icon.
+	/// </summary>
+	public bool MacroItemIcons { get; set; } = true;
+
+	/// <summary>
+	/// Whether a macro with no <c>/micon</c> and no hand-picked icon takes the icon of the action or
+	/// item its NAME matches. deserok's idea, and it costs a macro line.
+	///
+	/// ⚠ ON by default, but it is the more opinionated of the two -- it applies to macros nobody
+	/// wrote a /micon into, which is most of them. The guard is <c>IconId == 0</c>, so a picked icon
+	/// wins; if that guard is ever wrong, this is the switch that turns the symptom off.
+	/// </summary>
+	public bool MacroNameIcons { get; set; } = true;
+
 	/// <summary>
 	/// Suppress the chat log message on a repeat of an emote you have already announced.
 	///

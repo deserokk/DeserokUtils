@@ -146,6 +146,13 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(ifMouseover);
 		var marks = new EphemeralMarksFeature();
 		this.features.Add(marks);
+		// ⭐ Two more, still two lines each and a folder. ItemUse is the first feature here that adds a
+		// capability the GAME does not have rather than fixing how one behaves -- there is no item text
+		// command at all -- and MacroIcons is the other half of the same gap.
+		var itemUse = new Features.ItemUse.ItemUseFeature();
+		this.features.Add(itemUse);
+		var macroIcons = new Features.MacroIcons.MacroIconFeature();
+		this.features.Add(macroIcons);
 
 		// ⚠ No tab and no command: one request per login and nothing else. See the class for why the
 		// tooltip feature that used to sit here is gone.
@@ -177,6 +184,8 @@ public sealed class Plugin: IDalamudPlugin {
 		this.mainWindow = new MainWindow([
 			new TabEntry(macros, castWatch.TabTitle, castWatch.Summary, castWatch.DrawTab),
 			new TabEntry(macros, ifMouseover.SectionTitle, ifMouseover.Summary, ifMouseover.DrawSection),
+			new TabEntry(macros, itemUse.SectionTitle, itemUse.Summary, itemUse.DrawSection),
+			new TabEntry(macros, macroIcons.TabTitle, string.Empty, macroIcons.DrawTab),
 			new TabEntry(null, this.fateWatch.TabTitle, string.Empty, this.fateWatch.DrawTab),
 			new TabEntry(null, this.fcBuffs.TabTitle, string.Empty, this.fcBuffs.DrawTab),
 			new TabEntry(null, drawSheathe.TabTitle, string.Empty, drawSheathe.DrawTab),
