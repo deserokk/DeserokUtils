@@ -45,6 +45,16 @@ internal static unsafe class DresserLog {
 		}
 
 		sb.AppendLine($"used {r.Used}/{r.Capacity}");
+
+		// ⚠ First, and named. These are outfits this tool emptied; they need to be visible in
+		// the log without scrolling past everything that went right.
+		if (r.EmptyOutfits.Count > 0)
+			sb.AppendLine($"EMPTY OUTFITS ({r.EmptyOutfits.Count}): {string.Join(", ", r.EmptyOutfits)}");
+
+		if (r.RedundantWithOutfit.Count > 0)
+			sb.AppendLine($"spare pieces their outfit already holds ({r.RedundantWithOutfit.Count}): "
+			              + string.Join(", ", r.RedundantWithOutfit));
+
 		sb.AppendLine();
 
 		// Sanity on the sheet read itself. If this is zero the rest is meaningless, and it would

@@ -44,8 +44,21 @@ internal sealed unsafe class DresserPacker {
 
 	internal enum State { Idle, Waiting, Restoring, Storing, Confirming, Duplicates, Done, Failed }
 
-	/// <summary>One outfit to build: the set, and the item ids that should go into it.</summary>
-	private sealed record Job(uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex);
+	/// <summary>
+	/// One outfit to build: the set, the item ids that should go into it, and how many of those
+	/// were sitting in the DRESSER rather than in the bags.
+	///
+	/// ⭐⭐ That last number is not bookkeeping, it is the safety check. It says exactly how the
+	/// dresser's entry count should move when this job finishes: minus one per piece taken out of it,
+	/// plus one if a new outfit entry appears. Anything else means the packer pressed a button that
+	/// did something nobody asked for — which is precisely the failure that made three empty
+	/// "ghost" outfits and a run of duplicates on 2026-09-03, and which nothing was watching for.
+	/// </summary>
+	private sealed record Job(
+		uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex, int FromDresser) {
+		/// <summary>How the dresser's entry count should move when this job succeeds.</summary>
+		public int ExpectedDelta => (this.ExistingIndex is null ? 1 : 0) - this.FromDresser;
+	}
 
 	private readonly List<Job> queue = new();
 	private int jobIndex;
@@ -99,6 +112,43 @@ internal sealed unsafe class DresserPacker {
 
 	/// <summary>How many of the outfit dialog's slots have been ticked for this job.</summary>
 	private int tickSlot;
+
+	/// <summary>
+	/// Whether "Store as Glamour" has already been pressed for this job.
+	///
+	/// ⚠⚠⚠ THE GHOST-OUTFIT BUG, AND IT WAS THIS LINE MISSING. The commit had no guard at all,
+	/// so once the dialog stayed open — which is what happens when the cogwheel opened the wrong set
+	/// and none of its slots could be filled — the loop simply pressed Store, confirmed, pressed
+	/// Store, confirmed, six times in nine seconds. Every one of those committed an EMPTY outfit:
+	/// an entry holding nothing, which cannot be removed because removing one requires restoring an
+	/// item out of it and there is no item in it. Measured from the 19:19 run, 2026-09-03.
+	///
+	/// ⭐ Pressing a button twice is never the answer to it not having worked. If the pieces have
+	/// not left the bags after one press, the step timeout says so and the job is skipped.
+	/// </summary>
+	private bool storePressed;
+
+	/// <summary>Whether the confirmation has already been answered for this job. Same reason.</summary>
+	private bool confirmPressed;
+
+	/// <summary>
+	/// How many yes/no prompts this job has answered.
+	///
+	/// ⚠ Capped rather than unlimited. SelectYesno is a GENERIC dialog: if one ever appears that we
+	/// are not expecting, answering it forever is worse than stalling.
+	/// </summary>
+	private int yesnoAnswered;
+
+	private const int MaxYesno = 3;
+
+	/// <summary>Slot pickers actually answered for this job, for the log.</summary>
+	private int menusAnswered;
+
+	/// <summary>The dresser's entry count when the current job began.</summary>
+	private int usedAtJobStart;
+
+	/// <summary>The inventory list is dumped once a run, not once a job.</summary>
+	private bool probedList;
 
 	/// <summary>Eleven, matching MirageStoreSetItem. Out-of-range indices are harmless.</summary>
 	private const int SetSlots = 11;
@@ -160,13 +210,17 @@ internal sealed unsafe class DresserPacker {
 		// A check that is always wrong by a known amount is a check nobody reads.
 		this.predicted = r.SlotsFromAdditions + r.SlotsFromNewOutfits + r.SlotsFromDuplicates;
 
+		// ⚠ FromBags is uint.MaxValue — see DresserScan. A piece that was already in the bags costs
+		// the dresser nothing to take, so it must not be counted as a slot the job will free.
 		foreach (var a in r.Additions)
 			this.queue.Add(new Job(a.OutfitItemId, a.OutfitName,
-				a.Pieces.Select(p => p.ItemId).ToList(), a.OutfitIndex));
+				a.Pieces.Select(p => p.ItemId).ToList(), a.OutfitIndex,
+				a.Pieces.Count(p => p.Index != uint.MaxValue)));
 
 		foreach (var o in r.NewOutfits)
 			this.queue.Add(new Job(o.SetItemId, o.SetName,
-				o.Pieces.Select(p => p.ItemId).ToList(), null));
+				o.Pieces.Select(p => p.ItemId).ToList(), null,
+				o.Pieces.Count(p => p.Index != uint.MaxValue)));
 
 		// ⚠⚠ Refuse before starting rather than stalling halfway. A run that stops mid-way leaves the
 		// bags full of loose gear the player now has to sort out by hand; refusing leaves everything
@@ -200,6 +254,8 @@ internal sealed unsafe class DresserPacker {
 		this.storing.Clear();
 		this.restoreIssued = false;
 		this.loggedAddons = false;
+		this.probedList = false;
+		this.usedAtJobStart = UsedEntries();
 		this.Status = $"Packing {this.queue.Count} outfit(s)...";
 
 		DresserLog.Step($"=== PACK START: {this.queue.Count} job(s), dresser at {r.Used}, predicted {this.predicted} ===");
@@ -460,6 +516,10 @@ internal sealed unsafe class DresserPacker {
 		this.cogRow = 0;
 		this.cogDone = false;
 		this.tickSlot = 0;
+		this.storePressed = false;
+		this.confirmPressed = false;
+		this.yesnoAnswered = 0;
+		this.menusAnswered = 0;
 		this.settle = SettleTicks;
 		this.waited = 0;
 	}
@@ -642,21 +702,35 @@ internal sealed unsafe class DresserPacker {
 	private void TickConfirming() {
 		if (this.PiecesGone()) {
 			DresserLog.Trace($"  confirmed: {this.queue[this.jobIndex].Name} left the bags");
-			this.NextJob();
+			this.NextJob(this.queue[this.jobIndex].ExpectedDelta);
 			return;
+		}
+
+		// ⭐⭐ FIRST, before any branch can return. The old code set this AFTER the "Store as Glamour"
+		// press — which fires on every tick the dialog is open — so the line was never once reached and
+		// the row walk it was meant to stop kept walking. Dead code that reads like a fix is worse than
+		// no fix: it makes the bug look already handled.
+		var dialogUp = AddonVisible("MiragePrismPrismSetConvert");
+		if (dialogUp && !this.cogDone) {
+			this.cogDone = true;
+			DresserProbe.Values("MiragePrismPrismSetConvert");
+			DresserProbe.Text("MiragePrismPrismSetConvert");
 		}
 
 		// ⚠⚠ INNERMOST FIRST. The equipment list stays open for the whole flow, so checking it
 		// before the dialogs matched on every single tick and re-opened the very prompt it was
 		// supposed to be answering: 109 cogwheel presses and nothing else, with the yes/no visibly
 		// flickering. Answer what is in front before touching what is behind it.
-		if (TryFire("SelectYesno", 0)) {
-			DresserLog.Trace("  fired: SelectYesno [0] (yes, add to the existing outfit)");
+		if (this.yesnoAnswered < MaxYesno && TryFire("SelectYesno", 0)) {
+			this.yesnoAnswered++;
+			DresserLog.Trace("  fired: SelectYesno [0] (yes)");
 			this.settle = SettleTicks;
 			return;
 		}
 
-		if (TryFire("MiragePrismPrismSetConvertC", 0)) {
+		// ⚠ Once. See storePressed — the confirmation is the other half of the pair that made ghosts.
+		if (!this.confirmPressed && TryFire("MiragePrismPrismSetConvertC", 0)) {
+			this.confirmPressed = true;
 			DresserLog.Trace("  fired: MiragePrismPrismSetConvertC [0] (confirm)");
 			this.settle = SettleTicks;
 			return;
@@ -667,21 +741,20 @@ internal sealed unsafe class DresserPacker {
 		// *"left clicking then left clicking again to select the item fills it."* Firing [13, n]
 		// eleven times and then pressing Store selected nothing at all, which presented as a hang.
 		//
-		// ⭐ Index 0 is right by construction rather than by luck: we restored ONLY the pieces this
-		// outfit wants, so each slot's menu should hold exactly one candidate — ours.
-		//
-		// ⚠ The trailing value the recording carries (55316, 54909, 55714) is not an item id and I do
-		// not know what it is. Following the in-house ContextMenu precedent in FcActionActivator,
-		// which passes zeros there. If this turns out to matter it will show up as a wrong piece,
-		// which is undoable, rather than as silence.
+		// ⚠ WHAT IS NOT KNOWN: whether entry 0 is always our piece. It is assumed to be, because we
+		// restore only the pieces this outfit wants — but nothing has ever READ the menu to check, and
+		// a menu whose first entry is "remove this piece" would empty a slot instead of filling one.
+		// DresserProbe writes the menu out under Verbose so this stops being an assumption.
 		if (AddonVisible("ContextIconMenu")) {
+			DresserProbe.Text("ContextIconMenu");
 			TryFireMenu("ContextIconMenu");
+			this.menusAnswered++;
 			DresserLog.Trace("  fired: ContextIconMenu [0,0,0,0] (take the first candidate)");
 			this.settle = TickSettle;
 			return;
 		}
 
-		if (AddonVisible("MiragePrismPrismSetConvert") && this.tickSlot < SetSlots) {
+		if (!this.storePressed && dialogUp && this.tickSlot < SetSlots) {
 			TryFire2("MiragePrismPrismSetConvert", 13, this.tickSlot);
 			DresserLog.Trace($"  fired: MiragePrismPrismSetConvert [13,{this.tickSlot}] (open slot picker)");
 			this.tickSlot++;
@@ -689,8 +762,15 @@ internal sealed unsafe class DresserPacker {
 			return;
 		}
 
-		if (TryFire("MiragePrismPrismSetConvert", 14)) {
-			DresserLog.Trace("  fired: MiragePrismPrismSetConvert [14] (Store as Glamour)");
+		// ⚠⚠⚠ ONCE PER JOB, and this guard is the whole ghost-outfit fix. Without it the loop
+		// pressed Store and confirmed it six times over for a single job, committing an EMPTY outfit
+		// each time — an entry holding nothing, which cannot then be removed, because removing an
+		// outfit means restoring an item out of it and there is no item in it. If one press did not
+		// finish the job, the timeout reports it; pressing again only ever made more wreckage.
+		if (!this.storePressed && dialogUp && TryFire("MiragePrismPrismSetConvert", 14)) {
+			this.storePressed = true;
+			DresserLog.Step($"  commit {this.queue[this.jobIndex].Name}: "
+				+ $"{this.menusAnswered} slot(s) picked from cog row {this.cogRow - 1}");
 			this.settle = SettleTicks;
 			return;
 		}
@@ -700,23 +780,22 @@ internal sealed unsafe class DresserPacker {
 		// ⚠⚠ THE ROW IS NOT ALWAYS ZERO. That list interleaves slot headers with items — "Main
 		// Hand", the weapon, "Head", the hat — so which row carries our piece depends on whatever
 		// else is in the bags. Row 0 worked for fifty-five outfits by luck of what happened to be
-		// there, then missed every single-piece job: deserok's recording of one by hand shows
+		// there — the bags were empty except for what we had just restored — and then missed every
+		// single-piece job once there was real loot in them: deserok's recording of one by hand shows
 		// [14, 4, 1].
 		//
-		// ⭐ Rather than model that layout, walk the rows until the outfit dialog opens. A cog on a
-		// header does nothing, so a wrong row costs one tick. Same shape as answering whichever
-		// dialog is in front of us: cheaper to try than to predict, and it cannot rot when the
-		// list changes.
-		// ⚠⚠ STOP WALKING once the dialog has been seen. Without this the walk resumes after the
-		// store completes and SetConvert closes — cogging whatever item happens to sit on the next
-		// row and committing an outfit for it. It made outfits nobody asked for and the dresser count
-		// went UP. Found by deserok, 2026-09-03.
-		//
-		// ⭐ The row search is a search: it must end when it has found something, not when it runs
-		// out of rows.
-		if (AddonVisible("MiragePrismPrismSetConvert")) this.cogDone = true;
-
+		// ⚠⚠ A WALK IS STILL A GUESS. Cogging an arbitrary row opens the outfit dialog for whatever
+		// item sits on it, which is how outfits appeared for sets nobody asked about. It is left in
+		// place only because storePressed now caps the damage at one entry and MadeCollateral stops the
+		// run — the real answer is to READ the list and cog the row holding our piece, which is what
+		// DresserProbe is dumping the data for.
 		if (!this.cogDone && this.cogRow < MaxCogRows) {
+			if (!this.probedList) {
+				this.probedList = true;
+				DresserProbe.Values("MiragePrismPrismBoxCrystallize");
+				DresserProbe.Text("MiragePrismPrismBoxCrystallize");
+			}
+
 			TryFireCogRow("MiragePrismPrismBoxCrystallize", this.cogRow);
 			DresserLog.Trace($"  fired: MiragePrismPrismBoxCrystallize [14,{this.cogRow},1] (cogwheel)");
 			this.cogRow++;
@@ -731,6 +810,52 @@ internal sealed unsafe class DresserPacker {
 			DresserLog.Trace("  stuck; no known dialog is open. Currently visible:");
 			foreach (var name in VisibleAddonNames()) DresserLog.Trace($"        {name}");
 		}
+	}
+
+	/// <summary>How many entries the dresser holds right now. ⚠ -1 when it cannot be read.</summary>
+	private static int UsedEntries() {
+		var mirage = MirageManager.Instance();
+		if (mirage is null || !mirage->PrismBoxLoaded) return -1;
+
+		var ids = mirage->PrismBoxItemIds;
+		var used = 0;
+		for (var i = 0; i < ids.Length; i++) {
+			if (ids[i] != 0) used++;
+		}
+
+		return used;
+	}
+
+	/// <summary>
+	/// Did that job change the dresser by more than it was supposed to?
+	///
+	/// ⭐⭐⭐ THE BACKSTOP THAT WAS MISSING. Every other fix here stops one particular way of
+	/// pressing the wrong button; this one does not care which button was wrong. A job knows exactly
+	/// how the dresser's entry count should move — minus the pieces it takes out of it, plus one if
+	/// it makes a new outfit — so anything above that is an entry nobody asked for. It ends the run
+	/// on the first one instead of carrying on to make fourteen more, which is what happened on
+	/// 2026-09-03.
+	///
+	/// ⚠ ABOVE, not merely different. Fewer entries than expected is somebody tidying up in another
+	/// window, or a piece that had already gone; neither is this tool doing damage.
+	/// </summary>
+	private bool MadeCollateral(int expectedDelta) {
+		var now = UsedEntries();
+		if (this.usedAtJobStart < 0 || now < 0) return false;
+
+		var delta = now - this.usedAtJobStart;
+		if (delta <= expectedDelta) return false;
+
+		var name = this.jobIndex < this.queue.Count ? this.queue[this.jobIndex].Name : "?";
+		this.state = State.Failed;
+		this.Status = $"Stopped after {this.OutfitsPacked} outfit(s): the dresser gained "
+		            + $"{Plural(delta - expectedDelta, "entry")} nobody asked for while packing {name}. "
+		            + "Nothing else was touched.";
+
+		DresserLog.Step($"ABORTED: {name} moved the dresser by {delta}, expected {expectedDelta} "
+		              + $"({this.usedAtJobStart} -> {now})");
+		Plugin.Chat.Print($"Dresser: {this.Status}");
+		return true;
 	}
 
 	/// <summary>
@@ -755,13 +880,25 @@ internal sealed unsafe class DresserPacker {
 		this.NextJob();
 	}
 
-	private void NextJob() {
+	/// <param name="expectedDelta">
+	/// How the dresser's entry count should have moved. ⚠ Zero for an abandoned job: one that did
+	/// nothing should have changed nothing, and a job that changed something anyway is exactly the
+	/// case worth stopping on.
+	/// </param>
+	private void NextJob(int expectedDelta = 0) {
+		if (this.MadeCollateral(expectedDelta)) return;
+
 		this.jobIndex++;
 		this.cogRow = 0;
 		this.cogDone = false;
 		this.tickSlot = 0;
+		this.storePressed = false;
+		this.confirmPressed = false;
+		this.yesnoAnswered = 0;
+		this.menusAnswered = 0;
 		this.waited = 0;
 		this.loggedAddons = false;
+		this.usedAtJobStart = UsedEntries();
 
 		if (this.jobIndex >= this.queue.Count) {
 			this.state = State.Duplicates;

@@ -123,6 +123,25 @@ internal sealed unsafe class DresserOverlay {
 
 		ImGui.Text($"{result.Used} of {result.Capacity} slots used");
 
+		// ⚠⚠ ABOVE EVERYTHING, including the "nothing to pack" early return further down. This
+		// is damage this tool did, and the one thing that must never happen to it is being hidden
+		// behind a check for whether there is other work — which is exactly what happened to the
+		// armoire line, twice.
+		if (result.EmptyOutfits.Count > 0) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
+			ImGui.TextUnformatted($"{result.EmptyOutfits.Count} outfit(s) in your dresser are empty");
+			ImGui.PopStyleColor();
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"An outfit holding no pieces. Earlier versions of this tool could create\n"
+					+ "these, and the game gives no way to delete one, because deleting an outfit\n"
+					+ "means restoring an item out of it.\n\n"
+					+ "They are not lost slots forever: put any piece of that set in and the entry\n"
+					+ "becomes a real outfit again. Packing does it for you the next time you loot\n"
+					+ "one.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.EmptyOutfits, 12)));
+		}
+
 		// ⭐ Free storage beats packing, so it is said before the packing numbers rather than after.
 		if (result.ArmoireEligible.Count > 0) {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
@@ -133,6 +152,15 @@ internal sealed unsafe class DresserOverlay {
 					"The Armoire stores these at no cost at all, so they are left out of\n"
 					+ "the packing. Store them there and the slots go entirely.\n\n  "
 					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.ArmoireEligible, 12)));
+		}
+
+		if (result.RedundantWithOutfit.Count > 0) {
+			ImGui.TextDisabled($"{result.RedundantWithOutfit.Count} spare piece(s) their outfit already holds");
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"The outfit for these already has that slot filled, so there is nowhere\n"
+					+ "to pack them. Sell or desynth.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.RedundantWithOutfit, 12)));
 		}
 
 		if (result.ArmoireDuplicate.Count > 0) {

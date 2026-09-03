@@ -103,6 +103,28 @@ internal sealed unsafe class DresserScan {
 		public int LooseInBags;
 
 		/// <summary>
+		/// Outfits in the dresser holding nothing at all.
+		///
+		/// ⚠⚠ THESE ARE DAMAGE, and this tool made them. A run on 2026-09-03 pressed "Store as
+		/// Glamour" repeatedly on a dialog that had nothing selected, committing empty outfits — and
+		/// an empty one is a trap: removing an outfit means restoring an item out of it, and there is
+		/// no item in it. See DresserPacker.storePressed for the fix.
+		///
+		/// ⭐ Reported rather than hidden, because there is something to do about them: put a piece
+		/// of that set in, and the entry becomes a real outfit that every later piece can join. The
+		/// packing does exactly that on its own once you loot one.
+		/// </summary>
+		public List<string> EmptyOutfits = new();
+
+		/// <summary>
+		/// Loose pieces whose set is already packed AND whose slot in it is already filled.
+		///
+		/// ⭐ A second copy of something the outfit already holds. Not packable — there is nowhere
+		/// for it to go — so it is a sell-or-desynth candidate rather than a job.
+		/// </summary>
+		public List<string> RedundantWithOutfit = new();
+
+		/// <summary>
 		/// Bag slots the packing would free.
 		///
 		/// ⚠⚠ A SEPARATE figure from dresser slots, and they must not be added together. Packing a
@@ -504,29 +526,54 @@ internal sealed unsafe class DresserScan {
 
 				result.Packed.Add(new PackedOutfit(
 					outfitIndex, outfitItemId, ItemName(outfitItemId), slots));
+
+				// ⚠ An outfit with no filled slot at all. See Result.EmptyOutfits — this tool made
+				// these, and they cannot be removed by hand.
+				if (slots.Count > 0 && slots.TrueForAll(x => !x.Item3))
+					result.EmptyOutfits.Add(ItemName(outfitItemId));
 			}
 		}
 
-		// Pass four: sets with two or more loose pieces and no packed outfit yet.
+		// Pass four: sets with loose pieces and no packed outfit yet.
 		//
-		// ⚠⚠ TWO, not a complete set. Partial outfits are legal : one was observed holding four of
-		// nine. A single piece is excluded because packing it saves nothing : one slot in, one slot
-		// out.
+		// ⚠ A COMPLETE set is never required. Partial outfits are legal — one was observed holding
+		// four of nine — and one piece is enough to start one; see the note below the loop for why.
+		// ⚠⚠⚠ A SET THAT ALREADY HAS AN OUTFIT MUST NEVER BE STARTED AGAIN. Pass three only
+		// claims a loose piece when the existing outfit's slot for it is EMPTY — which is right — but
+		// anything it declined then fell through to here and was queued as a brand new outfit for the
+		// very same set. That is where the duplicate Rebel Sets came from: you loot a second Rebel
+		// Coat, the outfit already has one, and the tool cheerfully builds a second Rebel Set beside
+		// it. deserok, 2026-09-03: *"we need to add a check 'does this outfit exist already?' before
+		// creating outfit."* He is right, and it belongs here rather than in the packer, because by
+		// the time the packer sees a job the question is already settled.
+		var alreadyPacked = new HashSet<uint>(outfits.Select(o => o.ItemId));
+
 		var grouped = new Dictionary<uint, List<(uint, uint, string, int)>>();
 
 		foreach (var (index, itemId) in unique) {
 			if (claimed.Contains(index)) continue;
 			if (!membership.TryGetValue(itemId, out var belongsTo)) continue;
 
-			// ⚠ An item can belong to several sets. Taking the first is a simplification, not a
-			// solution : a better assignment would maximise total slots saved across all of them.
-			// Worth revisiting only if a real dresser shows it mattering.
-			var (setItemId, slot) = belongsTo[0];
+			// ⚠ An item can belong to several sets, so "already packed" is a reason to look at the
+			// NEXT one rather than to give up: a Vanguard glove may belong to a set you have built and
+			// to one you have not.
+			//
+			// ⭐ Beyond that, taking the first remains a simplification rather than a solution — a
+			// better assignment would maximise total slots saved across all of them. Worth revisiting
+			// only if a real dresser shows it mattering.
+			var choice = belongsTo.Find(b => !alreadyPacked.Contains(b.SetItemId));
 
-			if (!grouped.TryGetValue(setItemId, out var list))
-				grouped[setItemId] = list = new List<(uint, uint, string, int)>();
+			if (choice.SetItemId == 0) {
+				// Every set it could join is already built, and pass three did not want it — so that
+				// slot is filled. The piece is simply a spare.
+				result.RedundantWithOutfit.Add(ItemName(itemId));
+				continue;
+			}
 
-			list.Add((index, itemId, ItemName(itemId), slot));
+			if (!grouped.TryGetValue(choice.SetItemId, out var list))
+				grouped[choice.SetItemId] = list = new List<(uint, uint, string, int)>();
+
+			list.Add((index, itemId, ItemName(itemId), choice.Slot));
 		}
 
 		// ⭐⭐⭐ ONE piece is enough to start an outfit, and the threshold used to be two because a
