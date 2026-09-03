@@ -32,6 +32,28 @@ namespace DeserokUtils.Features.Dresser;
 ///    run rather than skipping ahead.
 /// </summary>
 internal sealed unsafe class DresserPacker {
+	/// <summary>
+	/// WITHDRAWN. The packing does not run, and the Dresser tab is a scan again.
+	///
+	/// ⚠⚠⚠ deserok, 2026-09-03, after a run built a second Vanguard Attire of Scouting:
+	/// *"before we added packing we had a stable version that simply checked your dresser, we might
+	/// want to revert to that because this is a regression."* He is right. The scan has been correct
+	/// and read-only since the day it was written; the packing has now damaged his dresser three
+	/// times, and shipping a tool that sometimes wrecks the thing it is tidying is not a trade
+	/// anybody made knowingly.
+	///
+	/// ⭐⭐ The code stays, because the run that prompted this is also the run that finally
+	/// answered the question. See DresserProbe, and the note on TickConfirming: the cogwheel row is
+	/// derivable and the dialog announces which set it is for. Neither was knowable before, both are
+	/// now, and rebuilding the state machine from memory to use them would be worse than turning one
+	/// flag back on.
+	///
+	/// ⚠ Turning it on again means the verification in TickConfirming first, not just this flag.
+	/// </summary>
+	/// ⚠ static readonly rather than const, so the parked code does not compile away into a
+	/// wall of unreachable-code warnings that would train everyone to ignore warnings.
+	internal static readonly bool Enabled = false;
+
 	/// <summary>Ticks to wait for the server before giving up on a step.</summary>
 	private const int StepTimeoutTicks = 600;
 
@@ -190,6 +212,14 @@ internal sealed unsafe class DresserPacker {
 	/// exists frees its whole slot, where a new outfit keeps one for itself.
 	/// </summary>
 	public void Start(DresserScan.Result r) {
+		// ⚠ The last line of defence, not the first. Both buttons are gone, but a packer that can
+		// still be started by anything at all is a packer that will be.
+		if (!Enabled) {
+			this.state = State.Failed;
+			this.Status = "Packing is turned off in this build.";
+			return;
+		}
+
 		this.queue.Clear();
 		this.jobIndex = 0;
 		this.OutfitsPacked = 0;

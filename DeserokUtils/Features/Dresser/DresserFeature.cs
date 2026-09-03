@@ -137,7 +137,18 @@ internal sealed class DresserFeature {
 
 		// ── Packing ───────────────────────────────────────────────────────
 
-		if (this.packer.Running) {
+		if (!DresserPacker.Enabled) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
+			ImGui.TextWrapped("Packing is turned off.");
+			ImGui.PopStyleColor();
+			ImGui.TextWrapped(
+				"It could build an outfit for the wrong set, which left duplicates and a few "
+				+ "empty outfits behind. The scan above is read-only and unaffected — it will "
+				+ "still tell you what is worth packing by hand.");
+			ImGui.TextDisabled("Empty outfits are not lost slots: put any piece of that set in "
+			                   + "and the entry works again.");
+		}
+		else if (this.packer.Running) {
 			ImGui.TextColored(new System.Numerics.Vector4(0.62f, 0.86f, 0.68f, 1f), this.packer.Status);
 			if (ImGui.Button("Stop")) this.packer.Stop("you stopped it");
 		}

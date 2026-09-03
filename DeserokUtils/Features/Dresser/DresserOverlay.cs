@@ -271,13 +271,20 @@ internal sealed unsafe class DresserOverlay {
 
 		ImGui.Spacing();
 
-		if (!room) ImGui.BeginDisabled();
-		if (Accent.Button("Pack them", Accent.Amber)) this.feature.Packer.Start(result);
-		if (!room) ImGui.EndDisabled();
-		if (ImGui.IsItemHovered())
-			ImGui.SetTooltip(
-				"Takes a few minutes. Keep this window open — it stops if you close it.\n\n"
-				+ "Undo any of it by right-clicking an outfit and choosing Restore Item.");
+		if (DresserPacker.Enabled) {
+			if (!room) ImGui.BeginDisabled();
+			if (Accent.Button("Pack them", Accent.Amber)) this.feature.Packer.Start(result);
+			if (!room) ImGui.EndDisabled();
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"Takes a few minutes. Keep this window open — it stops if you close it.\n\n"
+					+ "Undo any of it by right-clicking an outfit and choosing Restore Item.");
+		}
+		else {
+			// ⭐ Say it plainly and in the place the button was. A feature that quietly vanishes
+			// reads as a broken build; one that says it was withdrawn reads as a decision.
+			ImGui.TextDisabled("Packing is off in this build — see the tab for why.");
+		}
 
 		if (packer.Verified is { } done) {
 			ImGui.Spacing();
