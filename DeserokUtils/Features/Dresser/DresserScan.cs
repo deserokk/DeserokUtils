@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 
 using Lumina.Excel.Sheets;
 
@@ -29,6 +30,22 @@ namespace DeserokUtils.Features.Dresser;
 internal sealed unsafe class DresserScan {
 	/// <summary>The dresser is 800 entries; see MirageManager._prismBoxItemIds.</summary>
 	private const int PrismBoxSize = 800;
+
+	/// <summary>
+	/// ⚠ The four ordinary bags only. Never the armoury, never equipped gear — offering to pack
+	/// away something somebody is wearing is not a thing to do, and gear filed in the armoury is
+	/// filed deliberately.
+	/// </summary>
+	private static readonly FFXIVClientStructs.FFXIV.Client.Game.InventoryType[] Bags = {
+		FFXIVClientStructs.FFXIV.Client.Game.InventoryType.Inventory1,
+		FFXIVClientStructs.FFXIV.Client.Game.InventoryType.Inventory2,
+		FFXIVClientStructs.FFXIV.Client.Game.InventoryType.Inventory3,
+		FFXIVClientStructs.FFXIV.Client.Game.InventoryType.Inventory4,
+	};
+
+	/// <summary>Where a loose piece currently lives. ⭐ The packer needs no distinction — it looks
+	/// in the bags first anyway, so a piece already there simply skips the restore.</summary>
+	private const uint FromBags = uint.MaxValue;
 
 	/// <summary>MirageStoreSetItem has eleven slot columns, in this order.</summary>
 	internal static readonly string[] SlotNames = {
@@ -82,6 +99,47 @@ internal sealed unsafe class DresserScan {
 		/// <summary>Dyed pieces left alone because the user asked for that.</summary>
 		public int SkippedDyed;
 
+		/// <summary>Loose pieces found in the bags rather than the dresser.</summary>
+		public int LooseInBags;
+
+		/// <summary>
+		/// Bag slots the packing would free.
+		///
+		/// ⚠⚠ A SEPARATE figure from dresser slots, and they must not be added together. Packing a
+		/// piece that was in the dresser recovers a dresser slot; packing one from the bags frees a
+		/// bag slot and may even COST a dresser slot, when every piece of a new outfit came from the
+		/// bags — nothing was in the dresser and now one entry is. That is still worth doing (it is
+		/// filing loot away rather than reclaiming space) but calling it "recovered" would be a lie.
+		/// </summary>
+		public int BagSlotsFreed;
+
+		/// <summary>
+		/// Outfits that would be created from a single piece.
+		///
+		/// ⚠ These recover nothing now — one slot in, one slot out. Their value is entirely future:
+		/// they turn the next piece of that set into a free slot rather than a fragment.
+		/// </summary>
+		public int OutfitsStarted;
+
+		/// <summary>
+		/// Dresser pieces the Armoire would take instead, for nothing.
+		///
+		/// ⭐⭐ Strictly better than packing them, and the arithmetic is not close: the Armoire takes
+		/// a piece for **zero** dresser slots, where an outfit only ever amortises one slot across
+		/// its whole set. It also costs no prism and is reversible. So these are deliberately kept
+		/// OUT of the packing queue — packing them would be spending a prism to get a worse result.
+		/// </summary>
+		public List<string> ArmoireEligible = new();
+
+		/// <summary>
+		/// Pieces already sitting in the Armoire, of which the dresser holds another copy.
+		///
+		/// ⚠ Different advice: there is nothing to store, the copy is simply surplus. Worth naming
+		/// separately because "put this away" and "you already have this, for free" are not the same
+		/// sentence.
+		/// </summary>
+		public List<string> ArmoireDuplicate = new();
+
 		/// <summary>Items carrying a dye we think is worth stopping for.</summary>
 		public List<(string Item, string Dye)> ExpensiveDyes = new();
 
@@ -90,9 +148,16 @@ internal sealed unsafe class DresserScan {
 		/// forming a new outfit from n pieces only frees n-1 : the outfit itself keeps one. So
 		/// additions are the better return per piece, and are worth doing first.
 		/// </summary>
-		public int SlotsFromAdditions => this.Additions.Sum(a => a.Pieces.Count);
+		public int SlotsFromAdditions
+			=> this.Additions.Sum(a => a.Pieces.Count(p => p.Index != uint.MaxValue));
 
-		public int SlotsFromNewOutfits => this.NewOutfits.Sum(o => o.Pieces.Count - 1);
+		/// <summary>
+		/// ⚠ Only the pieces that were in the dresser count toward recovering dresser slots, minus
+		/// the one the outfit itself occupies. An outfit built entirely from the bags nets -1 here,
+		/// and clamping at zero would hide that honestly-small cost.
+		/// </summary>
+		public int SlotsFromNewOutfits
+			=> this.NewOutfits.Sum(o => o.Pieces.Count(p => p.Index != uint.MaxValue) - 1);
 
 		public int SlotsFromDuplicates => this.Duplicates.Sum(d => d.Indices.Count - 1);
 
@@ -196,6 +261,26 @@ internal sealed unsafe class DresserScan {
 		return used;
 	}
 
+	/// <summary>item id → its row in the Cabinet sheet, for items the Armoire accepts.</summary>
+	private Dictionary<uint, uint>? cabinet;
+
+	private Dictionary<uint, uint> Cabinet() {
+		if (this.cabinet is not null) return this.cabinet;
+
+		var map = new Dictionary<uint, uint>();
+		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Cabinet>();
+
+		if (sheet is not null) {
+			foreach (var row in sheet) {
+				var itemId = row.Item.RowId;
+				if (itemId != 0) map[itemId] = row.RowId;
+			}
+		}
+
+		this.cabinet = map;
+		return map;
+	}
+
 	/// <summary>item id → the sets it can belong to, and in which slot.</summary>
 	private Dictionary<uint, List<(uint SetItemId, int Slot)>>? membership;
 
@@ -273,6 +358,7 @@ internal sealed unsafe class DresserScan {
 		var sets = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
 		var membership = this.Membership();
 		var plateItems = PlateItems();
+		var cabinet = this.Cabinet();
 
 		// Pass one: split the dresser into packed outfits and loose pieces.
 		var outfits = new List<(uint Index, uint ItemId)>();
@@ -289,6 +375,15 @@ internal sealed unsafe class DresserScan {
 			// IS an item id, and the two questions are the same question.
 			if (sets?.GetRowOrDefault(itemId) is not null) {
 				outfits.Add((i, itemId));
+			}
+			else if (cabinet.TryGetValue(itemId, out var cabinetRow)) {
+				// ⭐⭐ The Armoire takes this for free. Never queue it for packing: an outfit would
+				// spend a prism to amortise one slot across a set, where the Armoire takes the whole
+				// slot to zero and gives it back on demand.
+				if (UIState.Instance()->Cabinet.IsItemInCabinet(cabinetRow))
+					result.ArmoireDuplicate.Add(ItemName(itemId));
+				else
+					result.ArmoireEligible.Add(ItemName(itemId));
 			}
 			else {
 				// ⚠ A piece a glamour plate is using is still packable — the game only asks first.
@@ -314,6 +409,32 @@ internal sealed unsafe class DresserScan {
 			}
 		}
 
+		// ⭐⭐ Bag contents join the SAME pool as the dresser's loose pieces, rather than being a
+		// separate feature. After a dungeon the realistic case is two pieces already loose in the
+		// dresser and the drop completing the set — two lists could never see that, and it is the
+		// whole reason to look in the bags at all.
+		var manager = InventoryManager.Instance();
+		if (manager is not null) {
+			foreach (var bag in Bags) {
+				var page = manager->GetInventoryContainer(bag);
+				if (page is null || !page->IsLoaded) continue;
+
+				for (var slot = 0; slot < page->Size; slot++) {
+					var item = page->GetInventorySlot(slot);
+					if (item is null || item->ItemId == 0) continue;
+
+					// Only things that could ever join an outfit.
+					if (!membership.ContainsKey(item->ItemId)) continue;
+
+					// ⚠ An outfit itself, sitting in the bags, is not a piece.
+					if (sets?.GetRowOrDefault(item->ItemId) is not null) continue;
+
+					loose.Add((FromBags, item->ItemId));
+					result.LooseInBags++;
+				}
+			}
+		}
+
 		// Pass two: duplicates, before anything else looks at the loose pile.
 		//
 		// ⚠ Order matters and it is not arbitrary. A helm you own three times might also belong to
@@ -322,9 +443,12 @@ internal sealed unsafe class DresserScan {
 		// same slot twice.
 		var byItem = loose.GroupBy(x => x.ItemId).ToList();
 
-		foreach (var group in byItem.Where(g => g.Count() > 1)) {
+		// ⚠ Duplicates remain a DRESSER idea. Owning one copy in the dresser and one in your bags is
+		// not waste — the bag copy is the one you just looted and are about to use or sell.
+		foreach (var group in byItem.Where(g => g.Count(x => x.Index != FromBags) > 1)) {
 			result.Duplicates.Add(new Duplicate(
-				group.Key, ItemName(group.Key), group.Select(x => x.Index).ToList()));
+				group.Key, ItemName(group.Key),
+				group.Where(x => x.Index != FromBags).Select(x => x.Index).ToList()));
 		}
 
 		// One representative of each distinct loose item survives into the packing analysis.
@@ -405,9 +529,43 @@ internal sealed unsafe class DresserScan {
 			list.Add((index, itemId, ItemName(itemId), slot));
 		}
 
+		// ⭐⭐⭐ ONE piece is enough to start an outfit, and the threshold used to be two because a
+		// single piece saves no slots: one in, one out.
+		//
+		// deserok, 2026-09-03: *"that mistwake hood should be packed regardless... it should simply
+		// start the new outfit with a single item."* He is right, and the slot was never the point.
+		// **An existing outfit is a magnet.** Once Mistwake Striking exists, every future Mistwake
+		// piece looted joins it for a whole free slot instead of becoming another fragment — which
+		// is precisely the accumulation this tool was built to undo. Starting one costs a prism.
+		//
+		// ⚠ They are counted separately because they genuinely recover nothing today, and folding
+		// them into the headline would inflate it.
 		foreach (var (setItemId, pieces) in grouped) {
-			if (pieces.Count < 2) continue;
+			// ⭐⭐ One piece is enough. An existing outfit is a magnet: once it exists, every later
+			// piece of that set joins it for a whole free slot instead of becoming another fragment,
+			// which is exactly the accumulation this tool exists to undo.
+			//
+			// ⚠ It cost nothing but a prism, and the single-piece failure that briefly made this
+			// look impossible was the cogwheel row, not the dialog — see DresserPacker.
+			//
+			// ⭐ RESOLVED, and the dialog was never different: the recording showed the same
+			// SetConvert/SetConvertC pair, reached by cogging row FOUR rather than row zero. Single
+			// pieces are back in.
 			result.NewOutfits.Add(new NewOutfit(setItemId, ItemName(setItemId), pieces));
+			if (pieces.Count == 1) result.OutfitsStarted++;
+		}
+
+		// Split the saving by where each piece came from, since the two are not interchangeable.
+		foreach (var a in result.Additions) {
+			foreach (var p in a.Pieces) {
+				if (p.Index == FromBags) result.BagSlotsFreed++;
+			}
+		}
+
+		foreach (var o in result.NewOutfits) {
+			foreach (var p in o.Pieces) {
+				if (p.Index == FromBags) result.BagSlotsFreed++;
+			}
 		}
 
 		result.Additions = result.Additions.OrderByDescending(a => a.Pieces.Count).ToList();

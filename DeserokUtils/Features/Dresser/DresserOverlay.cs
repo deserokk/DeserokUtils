@@ -123,16 +123,77 @@ internal sealed unsafe class DresserOverlay {
 
 		ImGui.Text($"{result.Used} of {result.Capacity} slots used");
 
-		if (result.SlotsRecoverable == 0) {
-			ImGui.TextDisabled("Nothing left to pack.");
+		// ⭐ Free storage beats packing, so it is said before the packing numbers rather than after.
+		if (result.ArmoireEligible.Count > 0) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
+			ImGui.TextUnformatted($"{result.ArmoireEligible.Count} piece(s) your Armoire takes for free");
+			ImGui.PopStyleColor();
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"The Armoire stores these at no cost at all, so they are left out of\n"
+					+ "the packing. Store them there and the slots go entirely.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.ArmoireEligible, 12)));
+		}
+
+		if (result.ArmoireDuplicate.Count > 0) {
+			ImGui.TextDisabled($"{result.ArmoireDuplicate.Count} piece(s) you already have in the Armoire");
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"Already stored for free elsewhere, so the dresser copy is surplus.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.ArmoireDuplicate, 12)));
+		}
+
+
+		// ⚠⚠ The armoire lines go ABOVE this, and that placement is the whole point. They used to
+		// sit below, so "nothing left to pack" returned early and hid forty-two free slots — the most
+		// valuable finding suppressed at exactly the moment it was the ONLY finding. Reported by
+		// deserok, 2026-09-03.
+		// ⚠⚠ Ask whether there is WORK, not whether the saving is positive. This gated on
+		// SlotsRecoverable, which is a quantity rather than a test — and a single piece looted into
+		// your bags scores MINUS one dresser slot (the dresser goes from holding none to holding an
+		// outfit), so the job was real, worth doing, and silently hidden. Reported by deserok with a
+		// Mistwake hood sitting in his bags, 2026-09-03.
+		var work = result.Additions.Count + result.NewOutfits.Count + result.Duplicates.Count;
+
+		if (work == 0) {
+			ImGui.TextDisabled(result.ArmoireEligible.Count > 0
+				? "No outfits to pack — but see the armoire pieces above."
+				: "Nothing left to pack.");
 			return;
 		}
 
 		// ⭐ The headline first. Somebody stood at the dresser wants the number that decides whether
 		// to bother, not a breakdown.
-		ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
-		ImGui.Text($"{result.SlotsRecoverable} slot(s) recoverable");
-		ImGui.PopStyleColor();
+		if (result.SlotsRecoverable > 0) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
+			ImGui.Text($"{result.SlotsRecoverable} dresser slot(s) recoverable");
+			ImGui.PopStyleColor();
+		}
+		else if (result.SlotsRecoverable < 0) {
+			// ⚠ Honest rather than hidden: filing loot from your bags into a brand-new outfit does
+			// use a dresser slot. Worth doing, and worth saying.
+			ImGui.TextDisabled($"costs {-result.SlotsRecoverable} dresser slot(s) to file this away");
+		}
+
+		// ⚠ Deliberately a second line, never added to the first. Filing loot away from your bags
+		// is a different good thing from reclaiming dresser space, and an outfit built entirely from
+		// the bags actually costs a dresser slot while freeing several bag ones.
+		// ⭐ Said plainly rather than hidden in the headline: these buy nothing today and everything
+		// later, and somebody deciding whether to spend the prisms deserves to know which.
+		if (result.OutfitsStarted > 0) {
+			ImGui.TextDisabled($"{result.OutfitsStarted} outfit(s) would be started from one piece");
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"No slots recovered now — one in, one out.\n\n"
+					+ "But once an outfit exists, every future piece of that set joins it\n"
+					+ "for a whole free slot instead of sitting loose. Costs a prism each.");
+		}
+
+		if (result.BagSlotsFreed > 0) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.78f, 0.92f, 1f));
+			ImGui.Text($"{result.BagSlotsFreed} bag slot(s) filed away");
+			ImGui.PopStyleColor();
+		}
 
 		ImGui.TextDisabled(
 			$"{result.Additions.Count} addition(s), {result.NewOutfits.Count} new outfit(s), "

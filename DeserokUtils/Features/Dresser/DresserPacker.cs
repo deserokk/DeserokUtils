@@ -88,7 +88,14 @@ internal sealed unsafe class DresserPacker {
 	private const int MaxRestoreAttempts = 3;
 
 	/// <summary>Whether the cogwheel has been pressed for the current job.</summary>
-	private bool cogFired;
+	/// <summary>Which row of the equipment list to try the cogwheel on next.</summary>
+	private int cogRow;
+
+	/// <summary>Whether the cogwheel has already opened the outfit dialog for this job.</summary>
+	private bool cogDone;
+
+	/// <summary>⚠ A ceiling: headers plus items, so comfortably more rows than any real list.</summary>
+	private const int MaxCogRows = 40;
 
 	/// <summary>How many of the outfit dialog's slots have been ticked for this job.</summary>
 	private int tickSlot;
@@ -103,6 +110,18 @@ internal sealed unsafe class DresserPacker {
 	public State Current => this.state;
 	public string Status { get; private set; } = string.Empty;
 	public int OutfitsPacked { get; private set; }
+
+	/// <summary>Outfits that did not exist before this run.</summary>
+	public int OutfitsCreated { get; private set; }
+
+	/// <summary>
+	/// Outfits that already existed and gained pieces.
+	///
+	/// ⚠ "Extended", never "completed". Completed would mean every slot of the set is filled, and
+	/// usually it will not be — you do not own the earrings. Claiming otherwise is the kind of small
+	/// untruth that makes somebody stop believing the rest of the figures.
+	/// </summary>
+	public int OutfitsExtended { get; private set; }
 	public int SlotsFreed { get; private set; }
 
 	/// <summary>Dresser occupancy when the run began, for the measured result at the end.</summary>
@@ -124,6 +143,8 @@ internal sealed unsafe class DresserPacker {
 		this.queue.Clear();
 		this.jobIndex = 0;
 		this.OutfitsPacked = 0;
+		this.OutfitsCreated = 0;
+		this.OutfitsExtended = 0;
 		this.SlotsFreed = 0;
 		this.skipped.Clear();
 		this.duplicates.Clear();
@@ -337,6 +358,8 @@ internal sealed unsafe class DresserPacker {
 		}
 
 		if (index < 0) {
+			// ⚠ Not in the dresser and not in the bags. A piece that started in the bags would have
+			// been picked up by the check at the top of this method, so this is genuinely gone.
 			this.SkipJob($"could not find {ItemName(want)} in the dresser or your bags");
 			return;
 		}
@@ -420,6 +443,9 @@ internal sealed unsafe class DresserPacker {
 		}
 
 		this.OutfitsPacked++;
+		if (job.ExistingIndex is null) this.OutfitsCreated++;
+		else this.OutfitsExtended++;
+
 		this.SlotsFreed += job.ExistingIndex is null ? placed - 1 : placed;
 
 		// ⚠⚠ A true return means "sent to the server", NOT "done". The pieces are still in the bags
@@ -431,7 +457,8 @@ internal sealed unsafe class DresserPacker {
 
 		this.state = State.Confirming;
 		this.loggedAddons = false;
-		this.cogFired = false;
+		this.cogRow = 0;
+		this.cogDone = false;
 		this.tickSlot = 0;
 		this.settle = SettleTicks;
 		this.waited = 0;
@@ -532,11 +559,20 @@ internal sealed unsafe class DresserPacker {
 
 		var actual = this.usedAtStart - after.Used;
 
-		this.Status = $"All done — {actual} slot(s) freed "
-		            + $"({this.usedAtStart} → {after.Used}), {this.OutfitsPacked} outfit(s) packed.";
-
+		// ⭐ Say what was ACHIEVED, not what the machine did. "55 outfits packed" is a statement
+		// about the tool; "179 slots recovered, 55 new outfits" is a statement about the dresser,
+		// and the second is the one somebody wanted.
+		var parts = new List<string>();
+		if (this.OutfitsCreated > 0) parts.Add(Plural(this.OutfitsCreated, "new outfit"));
+		if (this.OutfitsExtended > 0) parts.Add($"{Plural(this.OutfitsExtended, "outfit")} extended");
 		if (this.duplicatesPulled > 0)
-			this.Status += $" {this.duplicatesPulled} duplicate(s) are in your bags to sell or desynth.";
+			parts.Add($"{Plural(this.duplicatesPulled, "duplicate")} back in your bags");
+
+		this.Status = $"All done — {Plural(actual, "dresser slot")} recovered "
+		            + $"({this.usedAtStart} → {after.Used})";
+
+		if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts) + ".";
+		else this.Status += ".";
 
 		Plugin.Chat.Print($"Dresser: {this.Status}");
 
@@ -661,10 +697,30 @@ internal sealed unsafe class DresserPacker {
 
 		// ⚠ Once per job. The window it lives on never closes, so without this it is not a step but
 		// a loop.
-		if (!this.cogFired && TryFireCog("MiragePrismPrismBoxCrystallize")) {
-			DresserLog.Trace("  fired: MiragePrismPrismBoxCrystallize [14,0,1] (cogwheel)");
-			this.cogFired = true;
-			this.settle = SettleTicks;
+		// ⚠⚠ THE ROW IS NOT ALWAYS ZERO. That list interleaves slot headers with items — "Main
+		// Hand", the weapon, "Head", the hat — so which row carries our piece depends on whatever
+		// else is in the bags. Row 0 worked for fifty-five outfits by luck of what happened to be
+		// there, then missed every single-piece job: deserok's recording of one by hand shows
+		// [14, 4, 1].
+		//
+		// ⭐ Rather than model that layout, walk the rows until the outfit dialog opens. A cog on a
+		// header does nothing, so a wrong row costs one tick. Same shape as answering whichever
+		// dialog is in front of us: cheaper to try than to predict, and it cannot rot when the
+		// list changes.
+		// ⚠⚠ STOP WALKING once the dialog has been seen. Without this the walk resumes after the
+		// store completes and SetConvert closes — cogging whatever item happens to sit on the next
+		// row and committing an outfit for it. It made outfits nobody asked for and the dresser count
+		// went UP. Found by deserok, 2026-09-03.
+		//
+		// ⭐ The row search is a search: it must end when it has found something, not when it runs
+		// out of rows.
+		if (AddonVisible("MiragePrismPrismSetConvert")) this.cogDone = true;
+
+		if (!this.cogDone && this.cogRow < MaxCogRows) {
+			TryFireCogRow("MiragePrismPrismBoxCrystallize", this.cogRow);
+			DresserLog.Trace($"  fired: MiragePrismPrismBoxCrystallize [14,{this.cogRow},1] (cogwheel)");
+			this.cogRow++;
+			this.settle = TickSettle;
 			return;
 		}
 
@@ -701,7 +757,8 @@ internal sealed unsafe class DresserPacker {
 
 	private void NextJob() {
 		this.jobIndex++;
-		this.cogFired = false;
+		this.cogRow = 0;
+		this.cogDone = false;
 		this.tickSlot = 0;
 		this.waited = 0;
 		this.loggedAddons = false;
@@ -845,7 +902,7 @@ internal sealed unsafe class DresserPacker {
 	/// than reasoned about. Row 0 is right for us because every piece we restore for a job belongs to
 	/// the same set, so whichever one is cogged leads to the same outfit.
 	/// </summary>
-	private static bool TryFireCog(string addonName) {
+	private static bool TryFireCogRow(string addonName, int row) {
 		var addon = Plugin.GameGui.GetAddonByName(addonName, 1);
 		if (addon.Address == nint.Zero || !addon.IsVisible) return false;
 
@@ -854,7 +911,7 @@ internal sealed unsafe class DresserPacker {
 		var values = stackalloc AtkValue[3];
 		for (var i = 0; i < 3; i++) values[i].Type = AtkValueType.UInt;
 		values[0].UInt = 14;
-		values[1].UInt = 0;
+		values[1].UInt = (uint)row;
 		values[2].UInt = 1;
 
 		unit->FireCallback(3, values, true);
@@ -990,6 +1047,9 @@ internal sealed unsafe class DresserPacker {
 		var addon = Plugin.GameGui.GetAddonByName("MiragePrismPrismBox", 1);
 		return addon.Address != nint.Zero && addon.IsVisible;
 	}
+
+	/// <summary>"1 outfit", "3 outfits". ⚠ Never "outfit(s)" — that reads as unfinished software.</summary>
+	private static string Plural(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 
 	private static string ItemName(uint itemId)
 		=> Plugin.Data.GetExcelSheet<Item>()?.GetRowOrDefault(itemId)?.Name.ExtractText() ?? $"#{itemId}";
