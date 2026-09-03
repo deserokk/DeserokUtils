@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
 
 	<!-- No package references on purpose. XivCommon 9.0.0 (what TinyCommands pulls) predates this
@@ -9,7 +9,7 @@
 	<PropertyGroup>
 		<Product>DeserokUtils</Product>
 		<AssemblyName>DeserokUtils</AssemblyName>
-		<Version>1.20.1</Version>
+		<Version>1.21.0</Version>
 		<Authors>deserokk</Authors>
 		<Description>A bucket of small FFXIV utilities.</Description>
 		<PackageProjectUrl>https://github.com/deserokk/DeserokUtils</PackageProjectUrl>

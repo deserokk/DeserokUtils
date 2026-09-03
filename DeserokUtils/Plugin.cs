@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 using Dalamud.Game.Command;
@@ -70,6 +70,10 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly WindowSystem windows = new("DeserokUtils");
 	private readonly MainWindow mainWindow;
 	private readonly List<IDisposable> features = new();
+
+	private Features.Dresser.DresserFeature? dresser;
+	private Features.Dresser.DresserOverlay? dresserOverlay;
+
 	private readonly FateWatchFeature fateWatch;
 	private readonly FcBuffsFeature fcBuffs;
 	private readonly EphemeralMarksFeature marks;
@@ -166,6 +170,9 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(meldWindow);
 		var repairs = new Features.Repairs.RepairAcceptFeature();
 		this.features.Add(repairs);
+		var dresser = new Features.Dresser.DresserFeature();
+		this.dresser = dresser;
+		this.dresserOverlay = new Features.Dresser.DresserOverlay(dresser);
 		this.debuffs = debuffs;
 		this.marks = marks;
 		var interact = new InteractFeature();
@@ -195,6 +202,7 @@ public sealed class Plugin: IDalamudPlugin {
 			new TabEntry(null, debuffs.TabTitle, string.Empty, debuffs.DrawTab),
 			new TabEntry(null, meldWindow.TabTitle, string.Empty, meldWindow.DrawTab),
 			new TabEntry(null, repairs.TabTitle, string.Empty, repairs.DrawTab),
+			new TabEntry(null, dresser.TabTitle, dresser.Summary, dresser.DrawTab),
 			new TabEntry(null, partyJobs.TabTitle, string.Empty, partyJobs.DrawTab),
 			new TabEntry(null, Input.KeybindsTab.TabTitle, string.Empty, () => Input.KeybindsTab.Draw(this.keybinds)),
 		]);
@@ -202,6 +210,7 @@ public sealed class Plugin: IDalamudPlugin {
 
 		PluginInterface.UiBuilder.Draw += this.windows.Draw;
 		PluginInterface.UiBuilder.Draw += SampleImGuiState;
+		PluginInterface.UiBuilder.Draw += () => this.dresserOverlay?.Draw();
 		PluginInterface.UiBuilder.OpenMainUi += this.OpenMain;
 		PluginInterface.UiBuilder.OpenConfigUi += this.OpenMain;
 
@@ -211,6 +220,14 @@ public sealed class Plugin: IDalamudPlugin {
 		Commands.AddHandler("/deserokutils", new CommandInfo(this.OnPluginCommand) {
 			HelpMessage = "/deserokutils -- open the utilities window. Add 'debug' to toggle diagnostics.",
 		});
+		// ⭐ Branded, per the /dsu- convention: a generic name loses the race on a client
+		// carrying a hundred plugins.
+		Commands.AddHandler("/dsu-dresser", new CommandInfo((_, _) => dresser.Run()) {
+			HelpMessage = "Report what your glamour dresser could pack away.",
+		});
+
+
+
 		Commands.AddHandler("/dsu", new CommandInfo(this.OnPluginCommand) {
 			HelpMessage = "/dsu -- short form of /deserokutils.",
 		});
@@ -229,6 +246,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.debuffs.Tick();
 		this.interact.Tick();
 		this.keybinds.Tick();
+		this.dresser?.Tick();
 	}
 
 	private void OpenMain() => this.mainWindow.IsOpen = true;
@@ -290,6 +308,7 @@ public sealed class Plugin: IDalamudPlugin {
 		Framework.Update -= this.OnFrameworkUpdate;
 		Commands.RemoveHandler("/deserokutils");
 		Commands.RemoveHandler("/dsu");
+		Commands.RemoveHandler("/dsu-dresser");
 
 		PluginInterface.UiBuilder.Draw -= this.windows.Draw;
 		PluginInterface.UiBuilder.Draw -= SampleImGuiState;

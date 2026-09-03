@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -943,6 +943,18 @@ public sealed class Configuration: IPluginConfiguration {
 		this.Save();
 		Plugin.Log.Information($"config migrated to v{CurrentVersion}: FATE rotations are now per-territory");
 	}
+
+	/// <summary>
+	/// Leave dyed pieces out of the dresser packing.
+	///
+	/// ⚠ Off by default. Packing destroys the dye either way, and the person running this is at
+	/// 400-plus items and has long since made peace — see the Dresser notes. The switch exists for
+	/// the minority who have not, and because a tool that runs habitually should not quietly eat
+	/// something somebody did care about.
+	/// </summary>
+	public bool DresserSkipDyed { get; set; } = false;
+
+
 
 	public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
 }
