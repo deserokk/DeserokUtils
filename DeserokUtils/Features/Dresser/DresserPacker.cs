@@ -155,6 +155,9 @@ internal sealed unsafe class DresserPacker {
 	/// <summary>Ticks spent waiting for the dialog to say which set it is about.</summary>
 	private int verifyWaits;
 
+	/// <summary>Pieces handed to the current store, counted once it is confirmed.</summary>
+	private int placed;
+
 	/// <summary>⚠ About half a second. Long enough for a slow frame, short enough to notice.</summary>
 	private const int VerifyWaitTicks = 60;
 
@@ -581,11 +584,11 @@ internal sealed unsafe class DresserPacker {
 			return;
 		}
 
-		this.OutfitsPacked++;
-		if (job.ExistingIndex is null) this.OutfitsCreated++;
-		else this.OutfitsExtended++;
-
-		this.SlotsFreed += job.ExistingIndex is null ? placed - 1 : placed;
+		// ⚠⚠ NOT COUNTED HERE. A true return means "sent to the server", and the tally used to go
+		// up on it — so a job that was sent and then skipped still showed in the summary. Measured
+		// 2026-09-03: seven outfits packed, one skipped, "8 new outfits" reported. The count moves to
+		// the confirmation, where the pieces have demonstrably left the bags.
+		this.placed = placed;
 
 		// ⚠⚠ A true return means "sent to the server", NOT "done". The pieces are still in the bags
 		// for a moment longer, and the first version of this moved straight on to the next outfit and
@@ -788,8 +791,18 @@ internal sealed unsafe class DresserPacker {
 	/// </summary>
 	private void TickConfirming() {
 		if (this.PiecesGone()) {
-			DresserLog.Trace($"  confirmed: {this.queue[this.jobIndex].Name} left the bags");
-			this.NextJob(this.queue[this.jobIndex].ExpectedDelta);
+			var done = this.queue[this.jobIndex];
+			DresserLog.Trace($"  confirmed: {done.Name} left the bags");
+
+			// ⭐ Here, and only here. The pieces are gone from the bags, which is the first moment
+			// anything is known rather than assumed.
+			this.OutfitsPacked++;
+			if (done.ExistingIndex is null) this.OutfitsCreated++;
+			else this.OutfitsExtended++;
+
+			this.SlotsFreed += done.ExistingIndex is null ? this.placed - 1 : this.placed;
+
+			this.NextJob(done.ExpectedDelta);
 			return;
 		}
 
@@ -927,11 +940,7 @@ internal sealed unsafe class DresserPacker {
 				this.cogTarget = this.ResolveCogRow();
 
 				if (this.cogTarget < 0) {
-					// ⚠ The piece is in the bags — we watched it land — but the game is not offering
-					// it as glamour-ready. Registered to a gear set with that filter ticked is the
-					// likeliest reason, and that is the player's setting to change, not ours.
-					this.SkipJob($"the game is not offering {this.queue[this.jobIndex].Name}'s "
-						+ "pieces as glamour-ready");
+					this.SkipJob(this.WhyNotOffered());
 					return;
 				}
 			}
@@ -981,6 +990,31 @@ internal sealed unsafe class DresserPacker {
 		DresserLog.Step($"  none of {job.Name}'s pieces are in the glamour-ready list "
 			+ $"({DresserList.Rows().Count} row(s) showing)");
 		return -1;
+	}
+
+	/// <summary>
+	/// Why none of this job's pieces are in the glamour-ready list.
+	///
+	/// ⭐⭐ A restore does not always land in your bags. The game files equipment into the matching
+	/// ARMOURY category when there is room there — and the glamour-ready list is built from your
+	/// bags, so a piece that went to the armoury is present, findable, and not on offer. Measured on
+	/// Boulevardier's Ruffled Shirt, 2026-09-03, which failed the same way three runs running.
+	///
+	/// ⚠ Worth naming rather than reporting as a generic refusal, because it is fixable in about
+	/// two seconds by whoever is standing there and by nobody else.
+	/// </summary>
+	private string WhyNotOffered() {
+		var job = this.queue[this.jobIndex];
+
+		foreach (var itemId in job.ItemIds) {
+			if (!Search(Armoury, itemId, out var where, out _)) continue;
+
+			return $"{ItemName(itemId)} went to your {where} rather than your bags -- "
+			     + "move it into your bags and run this again";
+		}
+
+		return $"the game is not offering {job.Name}'s pieces as glamour-ready "
+		     + "(gear set registration hides them)";
 	}
 
 	/// <summary>
