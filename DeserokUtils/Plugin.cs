@@ -228,8 +228,29 @@ public sealed class Plugin: IDalamudPlugin {
 		// ⭐ Branded, per the /dsu- convention: a generic name loses the race on a client
 		// carrying a hundred plugins.
 		Commands.AddHandler("/dsu-dresser", new CommandInfo((_, arg) => {
-			if (arg.Trim().Equals("probe", StringComparison.OrdinalIgnoreCase)) {
+			var a = arg.Trim();
+
+			if (a.Equals("probe", StringComparison.OrdinalIgnoreCase)) {
 				Features.Dresser.DresserProbe.ArmTooltipDump();
+				return;
+			}
+
+			if (a.StartsWith("colours", StringComparison.OrdinalIgnoreCase)
+			    || a.StartsWith("colors", StringComparison.OrdinalIgnoreCase)) {
+				var rest = a[(a.IndexOf(' ') + 1)..].Trim();
+				if (!int.TryParse(rest, out var start) || a.IndexOf(' ') < 0) start = 1;
+				Features.Dresser.DresserProbe.Colours(start, 30);
+				return;
+			}
+
+			if (a.StartsWith("glyphs", StringComparison.OrdinalIgnoreCase)) {
+				// ⚠ A hex start, so "glyphs E030" picks up where the last block left off.
+				var rest = a["glyphs".Length..].Trim();
+				var from = 0xE000;
+				if (rest.Length > 0)
+					int.TryParse(rest, System.Globalization.NumberStyles.HexNumber, null, out from);
+
+				Features.Dresser.DresserProbe.Glyphs(from, 64);
 				return;
 			}
 

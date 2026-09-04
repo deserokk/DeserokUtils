@@ -35,6 +35,60 @@ internal static unsafe class DresserProbe {
 	/// </summary>
 	private static bool armedForTooltip;
 
+	/// <summary>
+	/// Print a block of the game's private-use glyph range to chat, so we can SEE them.
+	///
+	/// ⭐⭐ deserok found the wiki's Special Chat Characters table, 2026-09-04, and the useful part
+	/// is what it implies: the glyphs live at U+E000–U+F8FF and can be written as ordinary characters.
+	/// Dalamud's SeIconChar only NAMES a few dozen of them, so the named list is a convenience, not
+	/// the limit — anything in the range is available whether or not it has a name.
+	///
+	/// ⚠ Which is exactly why this exists rather than a guess: an unnamed codepoint might be the
+	/// checkmark we want, or might render as an empty box, and there is no way to tell but to look.
+	/// Sixteen per line with its hex code beside it.
+	/// </summary>
+	public static void Glyphs(int from, int count) {
+		var line = new System.Text.StringBuilder();
+
+		for (var i = 0; i < count; i++) {
+			var code = from + i;
+			if (code is < 0xE000 or > 0xF8FF) continue;
+
+			line.Append($"{code:X4}:{(char)code}  ");
+
+			if ((i + 1) % 16 != 0) continue;
+
+			Plugin.Chat.Print(line.ToString());
+			line.Clear();
+		}
+
+		if (line.Length > 0) Plugin.Chat.Print(line.ToString());
+	}
+
+	/// <summary>
+	/// Print the game's colour table to chat, numbered, so a colour can be CHOSEN rather than guessed.
+	///
+	/// ⚠ UIForegroundPayload takes a row of a table nothing documents. Both colours in the tooltip
+	/// were picked blind, which is the same habit that has been wrong repeatedly — and unlike a wrong
+	/// pointer this one fails quietly, as a line nobody notices is the wrong shade.
+	/// </summary>
+	public static void Colours(int from, int count) {
+		for (var row = from; row < from + count; row++) {
+			var sample = new Dalamud.Game.Text.SeStringHandling.SeString();
+			sample.Payloads.Add(
+				new Dalamud.Game.Text.SeStringHandling.Payloads.TextPayload($"{row,4}: "));
+			sample.Payloads.Add(
+				new Dalamud.Game.Text.SeStringHandling.Payloads.UIForegroundPayload((ushort)row));
+			sample.Payloads.Add(
+				new Dalamud.Game.Text.SeStringHandling.Payloads.TextPayload(
+					"✓ You have this — loose in your glamour dresser"));
+			sample.Payloads.Add(
+				new Dalamud.Game.Text.SeStringHandling.Payloads.UIForegroundPayload(0));
+
+			Plugin.Chat.Print(sample);
+		}
+	}
+
 	public static void ArmTooltipDump() {
 		if (armedForTooltip) return;
 

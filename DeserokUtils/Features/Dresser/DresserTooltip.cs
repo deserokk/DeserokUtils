@@ -106,6 +106,15 @@ internal sealed unsafe class DresserTooltip {
 	/// are one word to change. Near neighbours if either reads wrong in place: GoldStar, BlueStar,
 	/// OrangeDiamond, ExclamationRectangle.
 	/// </summary>
+	/// <summary>
+	/// ⚠⚠ UNVERIFIED. UIForegroundPayload takes a row of the game's own colour table, and these two
+	/// numbers were picked without ever seeing them rendered — which is the same class of guess that
+	/// has been wrong three times today. /dsu-dresser colours prints the table so they can be chosen
+	/// by looking rather than by hoping.
+	///
+	/// ⭐ The intent: green for owned, amber for a piece that would join a set. Matching the plugin's
+	/// own accent pair, where blue reads and amber acts.
+	/// </summary>
 	private const ushort OwnedColour = 43;
 
 	private const ushort WantedColour = 31;
@@ -310,12 +319,23 @@ internal sealed unsafe class DresserTooltip {
 		var cache = DresserCache.Current;
 		if (cache is null) return lines;
 
+		// ⭐⭐⭐ THE VERDICT COMES FIRST, THEN THE DETAIL. This used to open with the location —
+		// "In your Thavnairian Attire (Bustier) outfit" — and deserok caught that it reads two
+		// opposite ways: the piece is already IN that outfit, or it BELONGS to that outfit and you
+		// still need it. Both are sentences somebody could act on wrongly.
+		//
+		// ⭐ "You have this" / "Not in your dresser" cannot be misread, and everything after the dash
+		// is elaboration nobody has to parse to get the answer. His framing, 2026-09-04: *"we design
+		// around the idiot... I look for how something can be misunderstood."*
 		var where = Owned(cache, itemId);
 		if (where is not null) {
-			// ⭐ A real sprite, not a text glyph. See the note on Icons below.
-			lines.Payloads.Add(new IconPayload(BitmapFontIcon.GreenDot));
+			// ⭐⭐ A PLAIN UNICODE CHECKMARK, U+2713. Neither SeIconChar nor BitmapFontIcon has one,
+			// and the conclusion drawn from that — "a checkmark is not available" — was wrong.
+			// deserok's own adventurer plate reads "WU/T ✓": the game's font renders ordinary Unicode
+			// perfectly well, so the private-use glyph tables were never the limit. The named enums
+			// are a convenience for the SPRITES; text is just text.
 			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
-			lines.Payloads.Add(new TextPayload($" {where}"));
+			lines.Payloads.Add(new TextPayload($"✓ You have this — {where}"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
@@ -323,7 +343,12 @@ internal sealed unsafe class DresserTooltip {
 			if (lines.Payloads.Count > 0) lines.Payloads.Add(new NewLinePayload());
 			lines.Payloads.Add(new IconPayload(BitmapFontIcon.Warning));
 			lines.Payloads.Add(new UIForegroundPayload(WantedColour));
-			lines.Payloads.Add(new TextPayload($" {wanted}"));
+
+			// ⚠ "Not in your dresser", never "you do not own this". The cache knows the dresser and
+			// the armoire and nothing else — the piece may well be sitting in the bags of the person
+			// reading it, which is exactly the looting case this feature is for. Claiming otherwise
+			// would be the one kind of wrong that makes somebody stop trusting the rest.
+			lines.Payloads.Add(new TextPayload($" Not in your dresser — {wanted}"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
@@ -341,15 +366,15 @@ internal sealed unsafe class DresserTooltip {
 
 	/// <summary>Where the item already is, in the words somebody at a vendor needs.</summary>
 	private static string? Owned(DresserCache cache, uint itemId) {
-		if (cache.LoosePieces.Contains(itemId)) return "In your glamour dresser";
+		if (cache.LoosePieces.Contains(itemId)) return "loose in your glamour dresser";
 
 		foreach (var (setItemId, slot) in Sets(itemId)) {
 			if (cache.OutfitSlots.TryGetValue(setItemId, out var filled) && filled.Contains(slot))
-				return $"In your {ItemName(setItemId)} outfit";
+				return $"packed in your {ItemName(setItemId)}";
 		}
 
 		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
-			return "In your Armoire";
+			return "in your Armoire";
 
 		return null;
 	}
@@ -372,8 +397,8 @@ internal sealed unsafe class DresserTooltip {
 			// are — the same care as OutfitsExtended in the packer, and for the same reason: one
 			// small untruth and nobody believes the rest of the numbers.
 			return filled.Count + 1 == total
-				? $"Completes your {ItemName(setItemId)}"
-				: $"Fits your {ItemName(setItemId)} — {filled.Count} of {total}";
+				? $"it would COMPLETE your {ItemName(setItemId)}"
+				: $"it joins your {ItemName(setItemId)}, which has {filled.Count} of {total}";
 		}
 
 		return null;
