@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
@@ -19,12 +19,56 @@ namespace DeserokUtils.Features.Dresser;
 /// inventory list is several hundred lines.
 /// </summary>
 internal static unsafe class DresserProbe {
+	/// <summary>
+	/// Arm a one-shot dump of the item tooltip the next time one is drawn.
+	///
+	/// ⭐⭐ A COMMAND CANNOT DO THIS. The tooltip only exists while the pointer is over an item, and
+	/// typing anything dismisses it — which is why this arms first and fires on the addon's own event
+	/// rather than reading whatever happens to be open when a command runs.
+	///
+	/// ⚠⚠ STRICTLY READ-ONLY, and that is the entire point of it existing. Writing into this addon
+	/// on a guess about how Dalamud hands over its data crashed the client outright on 2026-09-04 —
+	/// an access violation inside StringArrayData.SetValue, not a managed exception anything could
+	/// catch. The question it is here to settle is whether ItemDetail carries its description as an
+	/// AtkValue, the way MiragePrismPrismItemDetail does, because that route needs no string arrays,
+	/// no node surgery and no signature scans.
+	/// </summary>
+	private static bool armedForTooltip;
+
+	public static void ArmTooltipDump() {
+		if (armedForTooltip) return;
+
+		armedForTooltip = true;
+		Plugin.AddonLifecycle.RegisterListener(
+			Dalamud.Game.Addon.Lifecycle.AddonEvent.PostRefresh, "ItemDetail", OnTooltip);
+
+		Plugin.Chat.Print("Dresser: hover any item once. The tooltip will be written to the log.");
+	}
+
+	private static void OnTooltip(
+		Dalamud.Game.Addon.Lifecycle.AddonEvent type,
+		Dalamud.Game.Addon.Lifecycle.AddonArgTypes.AddonArgs args) {
+		Plugin.AddonLifecycle.UnregisterListener(
+			Dalamud.Game.Addon.Lifecycle.AddonEvent.PostRefresh, "ItemDetail", OnTooltip);
+		armedForTooltip = false;
+
+		var item = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentItemDetail.Instance();
+		DresserLog.Step($"  probe ItemDetail: agent item {(item is null ? 0 : item->ItemId)}");
+
+		// ⚠ Values first: if the description is in here as a ManagedString, the whole feature is
+		// fifteen lines and needs nothing else.
+		Values("ItemDetail");
+		Text("ItemDetail");
+
+		Plugin.Chat.Print("Dresser: tooltip written to the log.");
+	}
+
 	/// <summary>⚠ Deep lists get long. Enough to cover a full bag, not enough to fill the disk.</summary>
 	private const int MaxValues = 400;
 
 	/// <summary>Every AtkValue the named window is carrying, typed, with strings extracted.</summary>
 	public static void Values(string addonName) {
-		if (!Plugin.Verbose) return;
+		if (!Plugin.Verbose && !armedForTooltip) return;
 
 		var addon = Plugin.GameGui.GetAddonByName(addonName, 1);
 		if (addon.Address == nint.Zero || !addon.IsVisible) {
@@ -65,7 +109,7 @@ internal static unsafe class DresserProbe {
 	/// tell "this dialog is for the Rebel Set" from "this dialog is for something else entirely".
 	/// </summary>
 	public static void Text(string addonName) {
-		if (!Plugin.Verbose) return;
+		if (!Plugin.Verbose && !armedForTooltip) return;
 
 		var addon = Plugin.GameGui.GetAddonByName(addonName, 1);
 		if (addon.Address == nint.Zero || !addon.IsVisible) return;

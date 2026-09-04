@@ -111,6 +111,12 @@ internal sealed unsafe class DresserTooltip {
 		var note = Note(itemId);
 		if (note.Count == 0) return;
 
+		// ⚠⚠⚠ DO NOT WRITE UNTIL THE INDIRECTION IS PROVEN. See Configuration.DresserTooltip:
+		// OnRequestedUpdate receives StringArrayData**, not StringArrayData*, and casting it as the
+		// latter crashed the client outright rather than failing quietly.
+		return;
+
+#pragma warning disable CS0162
 		var strings = (StringArrayData*)update.StringArrayData;
 		if (strings is null || strings->AtkArrayData.Size <= ItemDescriptionField) return;
 
@@ -129,6 +135,7 @@ internal sealed unsafe class DresserTooltip {
 		foreach (var payload in note) description.Payloads.Add(payload);
 
 		strings->SetValue(ItemDescriptionField, description.EncodeWithNullTerminator(), false);
+#pragma warning restore CS0162
 	}
 
 	/// <summary>

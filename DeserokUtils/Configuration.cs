@@ -156,10 +156,17 @@ public sealed class Configuration: IPluginConfiguration {
 	/// <summary>
 	/// Note glamour-dresser ownership on the game's item tooltips.
 	///
-	/// ⭐ On by default. The participant case is install it and it works — a note that only appears
-	/// on gear you own or nearly own is not something anybody needs to opt into.
+	/// ⚠⚠⚠ OFF, AND IT STAYS OFF UNTIL THE WRITE IS PROVEN. The first version of this hard-crashed
+	/// the game — not a managed exception Dalamud could catch, an access violation inside
+	/// StringArrayData.SetValue — on hovering a market board search result, 2026-09-04. Cause: the
+	/// addon's OnRequestedUpdate is handed StringArrayData**, the whole table of string arrays, and
+	/// it was cast as a single StringArrayData*. One level of indirection, and every field offset
+	/// after it was measured from nonsense.
+	///
+	/// ⚠ A crash is the one failure this project must not ship. Everything else here fails by doing
+	/// nothing; this took the client with it.
 	/// </summary>
-	public bool DresserTooltip { get; set; } = true;
+	public bool DresserTooltip { get; set; } = false;
 
 	// ── FateWatch ────────────────────────────────────────────────────────────────────────────
 

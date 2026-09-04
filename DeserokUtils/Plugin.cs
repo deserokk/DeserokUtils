@@ -227,7 +227,14 @@ public sealed class Plugin: IDalamudPlugin {
 		});
 		// ⭐ Branded, per the /dsu- convention: a generic name loses the race on a client
 		// carrying a hundred plugins.
-		Commands.AddHandler("/dsu-dresser", new CommandInfo((_, _) => dresser.Run()) {
+		Commands.AddHandler("/dsu-dresser", new CommandInfo((_, arg) => {
+			if (arg.Trim().Equals("probe", StringComparison.OrdinalIgnoreCase)) {
+				Features.Dresser.DresserProbe.ArmTooltipDump();
+				return;
+			}
+
+			dresser.Run();
+		}) {
 			HelpMessage = "Report what your glamour dresser could pack away.",
 		});
 
