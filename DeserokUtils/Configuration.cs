@@ -165,8 +165,11 @@ public sealed class Configuration: IPluginConfiguration {
 	///
 	/// ⚠ A crash is the one failure this project must not ship. Everything else here fails by doing
 	/// nothing; this took the client with it.
+	///
+	/// ⭐ Back on for the dev build, on the rebuilt route: a text node of our own, which is what the
+	/// two other plugins already injecting into this tooltip do. Nothing published carries it yet.
 	/// </summary>
-	public bool DresserTooltip { get; set; } = false;
+	public bool DresserTooltip { get; set; } = true;
 
 	// ── FateWatch ────────────────────────────────────────────────────────────────────────────
 

@@ -4,8 +4,7 @@ using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
-using Dalamud.Memory;
-
+using FFXIVClientStructs.FFXIV.Client.System.Memory;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
@@ -48,7 +47,20 @@ internal sealed unsafe class DresserTooltip {
 	/// neighbours are the item name (0), the glamour name (1) and the category (2) — so an
 	/// off-by-one here would overwrite the item's NAME with our note.
 	/// </summary>
-	private const int ItemDescriptionField = 13;
+	/// <summary>
+	/// Our text node's id.
+	///
+	/// ⚠ Distinctive on purpose. The probe found node 32612 (Price Insight) and node 1398013963
+	/// already living in this addon, so the id space is genuinely shared with other people's plugins
+	/// and a low number would eventually collide with one.
+	/// </summary>
+	private const uint OurNodeId = 0x44535501;
+
+	/// <summary>The node our line sits beside, and whose position moves to make room.</summary>
+	private const uint InsertBesideNode = 2;
+
+	/// <summary>⚠ The "Shop Selling Price" line — ordinary body text, borrowed for its styling.</summary>
+	private const uint StyleFromNode = 44;
 
 	/// <summary>
 	/// ⚠⚠ FONTAWESOME CANNOT GO HERE, and it is worth knowing why rather than trying. FontAwesome
@@ -86,17 +98,69 @@ internal sealed unsafe class DresserTooltip {
 
 	public void Listen() {
 		Plugin.AddonLifecycle.RegisterListener(
-			AddonEvent.PreRequestedUpdate, "ItemDetail", this.OnItemTooltip);
+			AddonEvent.PreRequestedUpdate, "ItemDetail", this.BeforeUpdate);
+		Plugin.AddonLifecycle.RegisterListener(
+			AddonEvent.PostRequestedUpdate, "ItemDetail", this.AfterUpdate);
 	}
 
 	public void Dispose() {
 		Plugin.AddonLifecycle.UnregisterListener(
-			AddonEvent.PreRequestedUpdate, "ItemDetail", this.OnItemTooltip);
+			AddonEvent.PreRequestedUpdate, "ItemDetail", this.BeforeUpdate);
+		Plugin.AddonLifecycle.UnregisterListener(
+			AddonEvent.PostRequestedUpdate, "ItemDetail", this.AfterUpdate);
+
+		RemoveNode();
 	}
 
-	private void OnItemTooltip(AddonEvent type, AddonArgs args) {
+	/// <summary>
+	/// Undo our own height change before the game recalculates the tooltip.
+	///
+	/// ⚠⚠ WITHOUT THIS THE WINDOW GROWS EVERY FRAME. The post handler adds our node's height to
+	/// the window; if that is never taken back off, the next update adds it again on top. Copied in
+	/// shape from SimpleTweaks' AdditionalItemInfo, which needs the same pairing for the same reason.
+	/// </summary>
+	private void BeforeUpdate(AddonEvent type, AddonArgs args) {
+		var addon = (AtkUnitBase*)args.Addon.Address;
+		if (addon is null || addon->WindowNode is null) return;
+
+		var node = FindNode(addon);
+		if (node is null || !node->AtkResNode.IsVisible()) return;
+
+		var insert = addon->GetNodeById(InsertBesideNode);
+		if (insert is null) return;
+
+		addon->WindowNode->AtkResNode.SetHeight(
+			(ushort)(addon->WindowNode->AtkResNode.Height - node->AtkResNode.Height));
+
+		var inner = addon->WindowNode->Component->UldManager.SearchNodeById(InsertBesideNode);
+		if (inner is not null) inner->SetHeight(addon->WindowNode->AtkResNode.Height);
+
+		insert->SetPositionFloat(insert->X, insert->Y - node->AtkResNode.Height);
+	}
+
+	/// <summary>
+	/// Put our line on the tooltip, once the game has finished building it.
+	///
+	/// ⚠⚠⚠ A NODE, NOT A STRING ARRAY, and the difference cost a client crash. The first attempt
+	/// wrote into the string array Dalamud hands to OnRequestedUpdate — except that parameter is
+	/// StringArrayData**, the whole table, and casting it as one array put an access violation inside
+	/// StringArrayData.SetValue. Writing string fields is only safe inside the game's own
+	/// GenerateItemTooltip, which needs a signature scan to reach.
+	///
+	/// ⭐⭐ Measured before rebuilding rather than guessed at again: a probe of a real tooltip showed
+	/// ItemDetail carrying ZERO AtkValues — so the trick that works on the dresser's own tooltip is
+	/// unavailable here — and, in the same dump, two custom text nodes belonging to OTHER plugins
+	/// already sitting in the addon. Node 32612 is Price Insight's market board block. That is the
+	/// route, confirmed live in deserok's client rather than inferred from source.
+	/// </summary>
+	private void AfterUpdate(AddonEvent type, AddonArgs args) {
 		if (!Plugin.Config.DresserTooltip) return;
-		if (args is not AddonRequestedUpdateArgs update) return;
+
+		var addon = (AtkUnitBase*)args.Addon.Address;
+		if (addon is null || addon->WindowNode is null) return;
+
+		var existing = FindNode(addon);
+		if (existing is not null) existing->AtkResNode.ToggleVisibility(false);
 
 		var agent = AgentItemDetail.Instance();
 		if (agent is null) return;
@@ -109,33 +173,101 @@ internal sealed unsafe class DresserTooltip {
 		if (itemId == 0) return;
 
 		var note = Note(itemId);
-		if (note.Count == 0) return;
+		if (note.Payloads.Count == 0) return;
 
-		// ⚠⚠⚠ DO NOT WRITE UNTIL THE INDIRECTION IS PROVEN. See Configuration.DresserTooltip:
-		// OnRequestedUpdate receives StringArrayData**, not StringArrayData*, and casting it as the
-		// latter crashed the client outright rather than failing quietly.
-		return;
+		var insert = addon->GetNodeById(InsertBesideNode);
+		if (insert is null) return;
 
-#pragma warning disable CS0162
-		var strings = (StringArrayData*)update.StringArrayData;
-		if (strings is null || strings->AtkArrayData.Size <= ItemDescriptionField) return;
+		// ⚠ Its style is borrowed rather than chosen: whatever the game does to tooltips, our line
+		// does too. Node 44 is the "Shop Selling Price" line — ordinary body text.
+		var template = addon->GetTextNodeById(StyleFromNode);
+		if (template is null) return;
 
-		var text = strings->StringArray[ItemDescriptionField];
-		if (text.Value is null) return;
+		var node = existing is not null ? existing : Create(addon, insert, template);
+		if (node is null) return;
 
-		var description = MemoryHelper.ReadSeStringNullTerminated((nint)text.Value);
-		if (description.TextValue.Contains(Marker)) return;
+		node->AtkResNode.ToggleVisibility(true);
+		node->SetText(note.EncodeWithNullTerminator());
+		node->ResizeNodeForCurrentText();
+		node->AtkResNode.SetPositionFloat(17f, addon->WindowNode->AtkResNode.Height - 10f);
 
-		if (description.TextValue.Trim().Length > 0) {
-			description.Payloads.Add(new NewLinePayload());
-			description.Payloads.Add(new NewLinePayload());
+		addon->WindowNode->AtkResNode.SetHeight(
+			(ushort)(addon->WindowNode->AtkResNode.Height + node->AtkResNode.Height));
+
+		var inner = addon->WindowNode->Component->UldManager.SearchNodeById(InsertBesideNode);
+		if (inner is not null) inner->SetHeight(addon->WindowNode->AtkResNode.Height);
+
+		insert->SetPositionFloat(insert->X, insert->Y + node->AtkResNode.Height);
+	}
+
+	private static AtkTextNode* Create(AtkUnitBase* addon, AtkResNode* insert, AtkTextNode* template) {
+		var node = IMemorySpace.GetUISpace()->Create<AtkTextNode>();
+		if (node is null) return null;
+
+		node->AtkResNode.Type = NodeType.Text;
+		node->AtkResNode.NodeId = OurNodeId;
+		node->AtkResNode.NodeFlags = NodeFlags.AnchorLeft | NodeFlags.AnchorTop;
+		node->AtkResNode.DrawFlags = 0;
+		node->AtkResNode.SetWidth(50);
+		node->AtkResNode.SetHeight(20);
+
+		node->AtkResNode.Color = template->AtkResNode.Color;
+		node->TextColor = template->TextColor;
+		node->EdgeColor = template->EdgeColor;
+
+		node->LineSpacing = 18;
+		node->AlignmentFontType = 0x00;
+		node->FontSize = 12;
+		node->TextFlags = template->TextFlags | TextFlags.MultiLine | TextFlags.AutoAdjustNodeSize;
+
+		// ⚠ Spliced into the sibling chain by hand. UpdateDrawNodeList afterwards is not optional —
+		// without it the node exists and is never drawn.
+		var prev = insert->PrevSiblingNode;
+		node->AtkResNode.ParentNode = insert->ParentNode;
+		insert->PrevSiblingNode = (AtkResNode*)node;
+		if (prev is not null) prev->NextSiblingNode = (AtkResNode*)node;
+		node->AtkResNode.PrevSiblingNode = prev;
+		node->AtkResNode.NextSiblingNode = insert;
+
+		addon->UldManager.UpdateDrawNodeList();
+		return node;
+	}
+
+	private static AtkTextNode* FindNode(AtkUnitBase* addon) {
+		if (addon is null) return null;
+
+		for (var i = 0; i < addon->UldManager.NodeListCount; i++) {
+			var node = addon->UldManager.NodeList[i];
+			if (node is null || node->NodeId != OurNodeId || node->Type != NodeType.Text) continue;
+
+			return (AtkTextNode*)node;
 		}
 
-		description.Payloads.Add(new TextPayload(Marker));
-		foreach (var payload in note) description.Payloads.Add(payload);
+		return null;
+	}
 
-		strings->SetValue(ItemDescriptionField, description.EncodeWithNullTerminator(), false);
-#pragma warning restore CS0162
+	/// <summary>
+	/// Take our node back out.
+	///
+	/// ⚠⚠ A plugin reload does NOT tear down the game's UI. A node left spliced into the addon
+	/// outlives us, pointing at a text buffer nobody owns any more.
+	/// </summary>
+	private static void RemoveNode() {
+		var addon = Plugin.GameGui.GetAddonByName("ItemDetail", 1);
+		if (addon.Address == nint.Zero) return;
+
+		var unit = (AtkUnitBase*)addon.Address;
+		var node = FindNode(unit);
+		if (node is null) return;
+
+		if (node->AtkResNode.PrevSiblingNode is not null)
+			node->AtkResNode.PrevSiblingNode->NextSiblingNode = node->AtkResNode.NextSiblingNode;
+
+		if (node->AtkResNode.NextSiblingNode is not null)
+			node->AtkResNode.NextSiblingNode->PrevSiblingNode = node->AtkResNode.PrevSiblingNode;
+
+		unit->UldManager.UpdateDrawNodeList();
+		node->AtkResNode.Destroy(true);
 	}
 
 	/// <summary>
@@ -149,8 +281,8 @@ internal sealed unsafe class DresserTooltip {
 	///
 	/// ⚠ Two lines at the very most. A tooltip is not a report — the Dresser tab is.
 	/// </summary>
-	private static List<Payload> Note(uint itemId) {
-		var lines = new List<Payload>();
+	private static SeString Note(uint itemId) {
+		var lines = new SeString();
 
 		var cache = DresserCache.Current;
 		if (cache is null) return lines;
@@ -158,27 +290,27 @@ internal sealed unsafe class DresserTooltip {
 		var where = Owned(cache, itemId);
 		if (where is not null) {
 			// ⭐ A real sprite, not a text glyph. See the note on Icons below.
-			lines.Add(new IconPayload(BitmapFontIcon.GreenDot));
-			lines.Add(new UIForegroundPayload(OwnedColour));
-			lines.Add(new TextPayload($" {where}"));
-			lines.Add(new UIForegroundPayload(0));
+			lines.Payloads.Add(new IconPayload(BitmapFontIcon.GreenDot));
+			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
+			lines.Payloads.Add(new TextPayload($" {where}"));
+			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
 		if (Wanted(cache, itemId) is { } wanted) {
-			if (lines.Count > 0) lines.Add(new NewLinePayload());
-			lines.Add(new IconPayload(BitmapFontIcon.Warning));
-			lines.Add(new UIForegroundPayload(WantedColour));
-			lines.Add(new TextPayload($" {wanted}"));
-			lines.Add(new UIForegroundPayload(0));
+			if (lines.Payloads.Count > 0) lines.Payloads.Add(new NewLinePayload());
+			lines.Payloads.Add(new IconPayload(BitmapFontIcon.Warning));
+			lines.Payloads.Add(new UIForegroundPayload(WantedColour));
+			lines.Payloads.Add(new TextPayload($" {wanted}"));
+			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
 		// ⚠ Only when it could be wrong. The dresser cannot change with its window shut, so on every
 		// ordinary tooltip this stays silent rather than stamping an "as of" nobody can act on.
-		if (lines.Count > 0 && cache.MaybeStale) {
-			lines.Add(new NewLinePayload());
-			lines.Add(new UIForegroundPayload(3));
-			lines.Add(new TextPayload("   (your dresser has changed since the last scan)"));
-			lines.Add(new UIForegroundPayload(0));
+		if (lines.Payloads.Count > 0 && cache.MaybeStale) {
+			lines.Payloads.Add(new NewLinePayload());
+			lines.Payloads.Add(new UIForegroundPayload(3));
+			lines.Payloads.Add(new TextPayload("   (your dresser has changed since the last scan)"));
+			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
 		return lines;

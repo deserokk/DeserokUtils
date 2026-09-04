@@ -50,15 +50,24 @@ internal static unsafe class DresserProbe {
 		Dalamud.Game.Addon.Lifecycle.AddonArgTypes.AddonArgs args) {
 		Plugin.AddonLifecycle.UnregisterListener(
 			Dalamud.Game.Addon.Lifecycle.AddonEvent.PostRefresh, "ItemDetail", OnTooltip);
-		armedForTooltip = false;
 
 		var item = FFXIVClientStructs.FFXIV.Client.UI.Agent.AgentItemDetail.Instance();
 		DresserLog.Step($"  probe ItemDetail: agent item {(item is null ? 0 : item->ItemId)}");
 
 		// ⚠ Values first: if the description is in here as a ManagedString, the whole feature is
 		// fifteen lines and needs nothing else.
-		Values("ItemDetail");
-		Text("ItemDetail");
+		// ⚠⚠ THE ADDON DALAMUD HANDED US, not one looked up by name. GetAddonByName("ItemDetail")
+		// reported "not open" at PostRefresh -- the tooltip is not flagged visible yet at the moment
+		// its contents are refreshed -- so the first attempt dumped nothing and looked like an addon
+		// with no values. The event already carries the pointer; there is nothing to look up.
+		var unit = (AtkUnitBase*)args.Addon.Address;
+		Values(unit, "ItemDetail");
+		Text(unit, "ItemDetail");
+
+		// ⚠ AFTER the dump, not before. Values and Text are gated on this flag, so clearing it
+		// first made the probe unregister itself and then write nothing -- which reads exactly like
+		// "the addon has no values", the opposite of what it found.
+		armedForTooltip = false;
 
 		Plugin.Chat.Print("Dresser: tooltip written to the log.");
 	}
@@ -76,7 +85,14 @@ internal static unsafe class DresserProbe {
 			return;
 		}
 
-		var unit = (AtkUnitBase*)addon.Address;
+		Values((AtkUnitBase*)addon.Address, addonName);
+	}
+
+	/// <summary>Every AtkValue an addon we already hold a pointer to is carrying.</summary>
+	public static void Values(AtkUnitBase* unit, string addonName) {
+		if (!Plugin.Verbose && !armedForTooltip) return;
+		if (unit is null) { DresserLog.Step($"  probe {addonName}: null addon"); return; }
+
 		var count = unit->AtkValuesCount;
 
 		DresserLog.Step($"  probe {addonName}: {count} value(s)");
@@ -114,7 +130,14 @@ internal static unsafe class DresserProbe {
 		var addon = Plugin.GameGui.GetAddonByName(addonName, 1);
 		if (addon.Address == nint.Zero || !addon.IsVisible) return;
 
-		var unit = (AtkUnitBase*)addon.Address;
+		Text((AtkUnitBase*)addon.Address, addonName);
+	}
+
+	/// <summary>Every piece of text an addon we already hold a pointer to is displaying.</summary>
+	public static void Text(AtkUnitBase* unit, string addonName) {
+		if (!Plugin.Verbose && !armedForTooltip) return;
+		if (unit is null) return;
+
 		DresserLog.Step($"  probe {addonName}: text");
 
 		var found = 0;
