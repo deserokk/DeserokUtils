@@ -371,8 +371,34 @@ internal sealed unsafe class DresserTooltip {
 	private static void Detail(SeString lines, (string Name, int Have, int Total) set, ushort colour) {
 		lines.Payloads.Add(new NewLinePayload());
 		lines.Payloads.Add(new UIForegroundPayload(colour));
-		lines.Payloads.Add(new TextPayload($"  {set.Name} ({set.Have}/{set.Total})"));
+		lines.Payloads.Add(new TextPayload($"  {Fit(set.Name)} ({set.Have}/{set.Total})"));
 		lines.Payloads.Add(new UIForegroundPayload(0));
+	}
+
+	/// <summary>
+	/// How much of a set name fits before the tooltip clips it.
+	///
+	/// ⚠⚠ THE NODE CLIPS, IT DOES NOT WRAP. Anything past the right edge is simply not drawn, and
+	/// it is not drawn SILENTLY — the line looks finished, just wrong. That is worse than an obvious
+	/// truncation, which at least says a name was cut.
+	///
+	/// ⭐⭐ 34 is measured, not chosen. The longest set name in deserok's real dresser is 39
+	/// characters ("Prestige High Allagan Attire of Healing"); the line that clipped in testing was
+	/// 60; the longest market board line that fits beside it is about 43. Two of indent plus a name
+	/// plus " (n/m)" lands a 34-character name at roughly 43, which is the width the game itself is
+	/// already using in the same box.
+	///
+	/// ⚠ Cut at a word boundary when there is one close by, because "Prestige High Allagan Attire
+	/// of…" reads as a name and "Prestige High Allagan Attire of Heal…" reads as a bug.
+	/// </summary>
+	private static string Fit(string name) {
+		const int max = 34;
+		if (name.Length <= max) return name;
+
+		var cut = name.LastIndexOf(' ', max - 1);
+		if (cut < max - 12) cut = max - 1;
+
+		return name[..cut].TrimEnd() + "…";
 	}
 
 	/// <summary>Where the item already is, in the words somebody at a vendor needs.</summary>
