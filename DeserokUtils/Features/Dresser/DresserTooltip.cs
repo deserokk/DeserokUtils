@@ -116,9 +116,17 @@ internal sealed unsafe class DresserTooltip {
 	/// ⭐ The intent: green for owned, amber for a piece that would join a set. Matching the plugin's
 	/// own accent pair, where blue reads and amber acts.
 	/// </summary>
+	/// <summary>
+	/// ⭐ Confirmed by looking: 43 renders green and 31 renders the amber that reads beside the
+	/// Warning sprite. Both were guesses when written and both happened to land — which is luck, not
+	/// method, and the reason /dsu-dresser colours exists.
+	/// </summary>
 	private const ushort OwnedColour = 43;
 
 	private const ushort WantedColour = 31;
+
+	/// <summary>⚠⚠ NOT YET SEEN. Pick it from /dsu-dresser colours rather than trusting this.</summary>
+	private const ushort MissingColour = 17;
 
 	/// <summary>
 	/// Ours, so a second refresh does not append the line twice.
@@ -332,12 +340,17 @@ internal sealed unsafe class DresserTooltip {
 		//
 		// ⭐ So the second line is the market board's shape: the set and how far along it is. Present
 		// when it adds something, absent when it does not.
+		// ⚠⚠ GEAR ONLY, and the gate matters far more now there is a negative line. Without it,
+		// every potion, crafting material and piece of furniture in the game would be told it is not
+		// an appearance you own — true, and absurd.
+		if (!IsAppearance(itemId)) return lines;
+
 		var owned = Owned(cache, itemId);
 		var wanted = Wanted(cache, itemId);
 
 		if (owned is { } have) {
 			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
-			lines.Payloads.Add(new TextPayload($"\u2713 You have this {have.Where}"));
+			lines.Payloads.Add(new TextPayload($"\u2713 You have this appearance — {have.Where}"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 
 			if (have.Set is { } set) Detail(lines, set, OwnedColour);
@@ -354,6 +367,19 @@ internal sealed unsafe class DresserTooltip {
 			lines.Payloads.Add(new UIForegroundPayload(0));
 
 			Detail(lines, need.Set, WantedColour);
+		}
+		else {
+			// ⭐⭐⭐ THE PLAIN NEGATIVE, and it was wrong to leave it out. The argument against was
+			// that it fires on almost every item in the game and rare lines are the ones that get
+			// read — but that reasons about sets, and deserok corrected the frame: *"the goal is 'do
+			// we have this appearance'."*
+			//
+			// Under that question silence is not an answer, it is the ABSENCE of one, and nobody can
+			// tell "you do not own this" apart from "the plugin did not run" or "the cache is empty".
+			// A tool asked one question should answer it every time, including when the answer is no.
+			lines.Payloads.Add(new UIForegroundPayload(MissingColour));
+			lines.Payloads.Add(new TextPayload("\u2717 You do not have this appearance"));
+			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
 		// ⚠ Only when it could be wrong. The dresser cannot change with its window shut, so on every
@@ -628,6 +654,19 @@ internal sealed unsafe class DresserTooltip {
 		row.Hands.RowId, row.Legs.RowId, row.Feet.RowId, row.Earrings.RowId,
 		row.Necklace.RowId, row.Bracelets.RowId, row.Ring.RowId,
 	};
+
+	/// <summary>
+	/// Is this a thing whose APPEARANCE you could own?
+	///
+	/// ⚠ Equippable and not a soul crystal. A coarse test on purpose: the real rules for what the
+	/// glamour dresser accepts are intricate, and being slightly too generous costs a line on a piece
+	/// of gear nobody glamours, where being too strict costs silence on gear somebody does.
+	/// </summary>
+	private static bool IsAppearance(uint itemId) {
+		if (Plugin.Data.GetExcelSheet<Item>()?.GetRowOrDefault(itemId) is not { } item) return false;
+
+		return item.EquipSlotCategory.RowId != 0 && item.ItemUICategory.RowId != 62;
+	}
 
 	private static string ItemName(uint itemId)
 		=> Plugin.Data.GetExcelSheet<Item>()?.GetRowOrDefault(itemId)?.Name.ExtractText() ?? $"#{itemId}";
