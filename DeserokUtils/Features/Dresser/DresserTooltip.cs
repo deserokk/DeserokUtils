@@ -2,6 +2,7 @@
 
 using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using FFXIVClientStructs.FFXIV.Client.Game;
@@ -42,18 +43,11 @@ namespace DeserokUtils.Features.Dresser;
 /// </summary>
 internal sealed unsafe class DresserTooltip {
 	/// <summary>
-	/// The item description, in the tooltip's string array.
-	///
-	/// ⚠ 13, taken verbatim from SimpleTweaks' ItemTooltipField rather than counted by hand. Its
-	/// neighbours are the item name (0), the glamour name (1) and the category (2) — so an
-	/// off-by-one here would overwrite the item's NAME with our note.
-	/// </summary>
-	/// <summary>
 	/// Our text node's id.
 	///
-	/// ⚠ Distinctive on purpose. The probe found node 32612 (Price Insight) and node 1398013963
-	/// already living in this addon, so the id space is genuinely shared with other people's plugins
-	/// and a low number would eventually collide with one.
+	/// ⚠ Distinctive on purpose. A probe of a live tooltip found node 32612 (Price Insight) and node
+	/// 1398013963 already living in this addon, so the id space is genuinely shared with other
+	/// people's plugins and a low number would eventually collide with one.
 	/// </summary>
 	private const uint OurNodeId = 0x44535501;
 
@@ -64,78 +58,58 @@ internal sealed unsafe class DresserTooltip {
 	private const uint StyleFromNode = 44;
 
 	/// <summary>
-	/// ⚠⚠⚠ THE ICON CHECKMARK WAS TRIED AND ABANDONED. Do not rebuild it without reading this.
+	/// Colours for the two lines that are NOT the default answer.
 	///
-	/// deserok asked for the game's own collected-tick — the one in the icon's lower corner on a
-	/// barding you own — rather than an icon of ours, which was the right instinct: it is the
-	/// affordance people already know.
+	/// ⚠ UIForegroundPayload takes a row of the game's own colour table, so these are the client's
+	/// palette rather than ours — which is the point. A line that matches the tooltip it sits in reads
+	/// as part of the game.
 	///
-	/// ⭐ It IS reachable, and finding it was not the problem. Node 19, an Image inside Res node 18,
-	/// located by dumping the whole node tree hovering a barding he owns, dumping it again hovering a
-	/// piece of gear, and diffing: out of 661 nodes exactly one flipped. It is also not gated on
-	/// UIState.IsItemActionUnlocked, so it would have worked for ordinary gear.
+	/// ⭐ 43 renders green and 31 the amber that sits beside the Warning sprite. Both were guesses
+	/// when written and both happened to land, which is luck rather than method; /dsu-dresser colours
+	/// exists so the next one can be chosen by looking.
 	///
-	/// ⚠⚠ WHAT KILLED IT: the write lands and does not hold. Measured 2026-09-04 — the node is
-	/// found, set visible, and reads back visible — then the next RequestedUpdate four milliseconds
-	/// later finds it hidden again. The icon component reapplies its own visibility after us, so
-	/// making it stick means writing every frame a tooltip is open, forever, against a component that
-	/// disagrees. That is a fight to lose slowly: it works until a patch and then stops quietly.
-	///
-	/// ⭐ The inline line already answers the question this was decoration for, so the trade was not
-	/// close. Recorded rather than deleted because "add the checkmark" is an obvious thing to suggest
-	/// again, and the next person deserves the measurement instead of the afternoon.
-	/// </summary>
-
-	/// <summary>
-	/// ⚠⚠ FONTAWESOME CANNOT GO HERE, and it is worth knowing why rather than trying. FontAwesome
-	/// is a font Dalamud loads for ImGui — our own windows. This tooltip is a GAME addon, drawn by
-	/// the game, rendering an SeString in the game's own font, which has never heard of it. Asking
-	/// for it produces a missing-glyph box, not a red exclamation mark.
-	///
-	/// ⭐⭐ What the game has instead is better for this anyway: BitmapFontIcon, a set of real
-	/// sprites the client already draws inline in chat and tooltips — the crossworld icon, the
-	/// grand company crests, quest markers. <c>Attention</c> is the yellow exclamation bubble, which
-	/// is precisely the "!" deserok asked for, and it arrives already coloured and at the right
-	/// baseline rather than as text pretending to be an icon.
-	///
-	/// ⚠ Colour is separate and applies only to the TEXT: UIForegroundPayload takes a row of the
-	/// game's own colour table, so these are the client's palette rather than ours. That is the point
-	/// — a line that matches the tooltip it is sitting in reads as part of the game.
-	///
-	/// ⭐ The two chosen, from the real enum rather than a guess at it: <c>GreenDot</c> for owned and
-	/// <c>Warning</c> — the yellow exclamation — for a piece that fits a set you are building. Both
-	/// are one word to change. Near neighbours if either reads wrong in place: GoldStar, BlueStar,
-	/// OrangeDiamond, ExclamationRectangle.
-	/// </summary>
-	/// <summary>
-	/// ⚠⚠ UNVERIFIED. UIForegroundPayload takes a row of the game's own colour table, and these two
-	/// numbers were picked without ever seeing them rendered — which is the same class of guess that
-	/// has been wrong three times today. /dsu-dresser colours prints the table so they can be chosen
-	/// by looking rather than by hoping.
-	///
-	/// ⭐ The intent: green for owned, amber for a piece that would join a set. Matching the plugin's
-	/// own accent pair, where blue reads and amber acts.
-	/// </summary>
-	/// <summary>
-	/// ⭐ Confirmed by looking: 43 renders green and 31 renders the amber that reads beside the
-	/// Warning sprite. Both were guesses when written and both happened to land — which is luck, not
-	/// method, and the reason /dsu-dresser colours exists.
+	/// ⚠⚠ There is deliberately no third colour. See the negative line in <see cref="Note"/>: it is
+	/// the DEFAULT state and should be the quietest, so it takes the game's own text colour. Row 17
+	/// was tried and came out a hard red, shouting about the ordinary case.
 	/// </summary>
 	private const ushort OwnedColour = 43;
 
 	private const ushort WantedColour = 31;
 
-	/// <summary>⚠⚠ NOT YET SEEN. Pick it from /dsu-dresser colours rather than trusting this.</summary>
-	private const ushort MissingColour = 17;
+	// ⚠⚠⚠ THE ICON CHECKMARK WAS TRIED AND ABANDONED. Do not rebuild it without reading this.
+	//
+	// deserok asked for the game's own collected-tick — the one in the icon's lower corner on a
+	// barding you own — rather than an icon of ours, which was the right instinct: it is the
+	// affordance people already know.
+	//
+	// ⭐ It IS reachable, and finding it was not the problem. Node 19, an Image inside Res node 18,
+	// located by dumping the whole node tree hovering a barding he owns, dumping it again hovering a
+	// piece of gear, and diffing: out of 661 nodes exactly one flipped. It is also not gated on
+	// UIState.IsItemActionUnlocked, so it would have worked for ordinary gear.
+	//
+	// ⚠⚠ WHAT KILLED IT: the write lands and does not hold. Measured 2026-09-04 — the node is
+	// found, set visible, and reads back visible — then the next RequestedUpdate four milliseconds
+	// later finds it hidden again. The icon component reapplies its own visibility after us, so making
+	// it stick means writing every frame a tooltip is open, forever, against a component that
+	// disagrees. That is a fight to lose slowly: it works until a patch and then stops quietly.
+	//
+	// ⭐ The inline line already answers the question this was decoration for, so the trade was not
+	// close. Recorded rather than deleted because "add the checkmark" is an obvious thing to suggest
+	// again, and the next person deserves the measurement instead of the afternoon.
 
-	/// <summary>
-	/// Ours, so a second refresh does not append the line twice.
-	///
-	/// ⚠ The tooltip refreshes more than once per hover. SimpleTweaks uses an invisible link payload
-	/// as its marker; a zero-width space is the same idea without registering a link handler for
-	/// something nobody will ever click.
-	/// </summary>
-	private const string Marker = "​";
+	// ⚠⚠ ON GLYPHS, because two assumptions about them were both wrong in one afternoon.
+	//
+	// FontAwesome cannot go here: it is a font Dalamud loads for ImGui — our own windows — and this
+	// is a GAME addon rendering an SeString in the game's font, which has never heard of it.
+	//
+	// Ordinary Unicode MOSTLY works: ✓ (U+2713) renders, which deserok proved by pointing at his own
+	// adventurer plate. But ✗ (U+2717) came out a blank box, so "the font handles Unicode" does not
+	// generalise — some characters are in it and some are not, and there is no telling which without
+	// looking. Where it matters, prefer SeIconChar: those are private-use codepoints the game
+	// guarantees, and SeIconChar.Cross is the one standing in for the ✗ that would not draw.
+	//
+	// BitmapFontIcon is the third option and the only one that carries its own colour: real inline
+	// sprites, already at the right baseline. Warning is the yellow exclamation.
 
 	public void Listen() {
 		Plugin.AddonLifecycle.RegisterListener(
@@ -377,9 +351,22 @@ internal sealed unsafe class DresserTooltip {
 			// Under that question silence is not an answer, it is the ABSENCE of one, and nobody can
 			// tell "you do not own this" apart from "the plugin did not run" or "the cache is empty".
 			// A tool asked one question should answer it every time, including when the answer is no.
-			lines.Payloads.Add(new UIForegroundPayload(MissingColour));
-			lines.Payloads.Add(new TextPayload("\u2717 You do not have this appearance"));
-			lines.Payloads.Add(new UIForegroundPayload(0));
+			// \u26a0\u26a0 SeIconChar.Cross, not the Unicode \u2717. U+2717 rendered as a blank box: the earlier
+			// lesson that the game's font handles ordinary Unicode came from a checkmark, and it does
+			// not generalise \u2014 some characters are in that font and some are not, and there is no
+			// telling which without looking. deserok found this one for us; it is the PlayStation
+			// cross, and it is in the private-use range the game guarantees.
+			//
+			// \u2b50\u2b50 NO COLOUR AT ALL, which is a design decision rather than a retreat from the red.
+			// Row 17 came out a hard red, and that is wrong twice over: this is the DEFAULT state \u2014
+			// most gear in the game is gear you do not own \u2014 so it is the line that appears most
+			// often and should be the quietest of the three, not the loudest. Green is good news,
+			// amber is act on this, and "no" is merely information.
+			//
+			// \u2b50 Leaving the payload off means the game's own tooltip colour, which cannot be the
+			// wrong shade and needs no palette row guessed at.
+			lines.Payloads.Add(new TextPayload(
+				$"{SeIconChar.Cross.ToIconString()} You do not have this appearance"));
 		}
 
 		// ⚠ Only when it could be wrong. The dresser cannot change with its window shut, so on every
