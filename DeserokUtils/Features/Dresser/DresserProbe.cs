@@ -62,7 +62,7 @@ internal static unsafe class DresserProbe {
 		// with no values. The event already carries the pointer; there is nothing to look up.
 		var unit = (AtkUnitBase*)args.Addon.Address;
 		Values(unit, "ItemDetail");
-		Text(unit, "ItemDetail");
+		Nodes(unit, "ItemDetail");
 
 		// ⚠ AFTER the dump, not before. Values and Text are gated on this flag, so clearing it
 		// first made the probe unregister itself and then write nothing -- which reads exactly like
@@ -146,6 +146,58 @@ internal static unsafe class DresserProbe {
 			if (node is null) continue;
 			found += Walk(node, 0);
 		}
+	}
+
+	/// <summary>
+	/// Every node in the addon: id, kind, and whether it is being drawn.
+	///
+	/// ⭐⭐⭐ BUILT TO BE DIFFED, which is the only reason it can answer the question it exists for.
+	/// The tooltip shows a small checkmark on the item icon for things you have collected — a
+	/// barding you own has it, a piece of gear never does. Nothing in the text says which node that
+	/// is, and there is no documentation for a game addon's node layout.
+	///
+	/// But it does not need deriving. Dump the tree for an item that HAS the checkmark and again for
+	/// one that does not, and the node that changes visibility between them is the checkmark. Two
+	/// hovers, no guessing, and the answer is exact rather than plausible.
+	///
+	/// ⚠ Visibility is the field that matters, so it is printed for every node even though most of
+	/// the tree is static. A diff of two dumps is worthless if the interesting column is missing.
+	/// </summary>
+	public static void Nodes(AtkUnitBase* unit, string addonName) {
+		if (!Plugin.Verbose && !armedForTooltip) return;
+		if (unit is null) return;
+
+		DresserLog.Step($"  probe {addonName}: nodes");
+
+		for (var i = 0; i < unit->UldManager.NodeListCount; i++)
+			WalkNode(unit->UldManager.NodeList[i], 0);
+	}
+
+	private static void WalkNode(AtkResNode* node, int depth) {
+		if (node is null || depth > 8) return;
+
+		var kind = node->Type.ToString();
+		var seen = node->IsVisible() ? "shown" : "hidden";
+		var pad = new string(' ', depth * 2);
+
+		var extra = string.Empty;
+		if (node->Type == NodeType.Text) {
+			var text = ((AtkTextNode*)node)->NodeText.ToString();
+			if (!string.IsNullOrWhiteSpace(text)) extra = $" \"{text}\"";
+		}
+
+		DresserLog.Step($"        {pad}[{node->NodeId}] {kind} {seen}{extra}");
+
+		if ((ushort)node->Type >= 1000) {
+			var component = ((AtkComponentNode*)node)->Component;
+			if (component is not null) {
+				for (var i = 0; i < component->UldManager.NodeListCount; i++)
+					WalkNode(component->UldManager.NodeList[i], depth + 1);
+			}
+		}
+
+		for (var child = node->ChildNode; child is not null; child = child->PrevSiblingNode)
+			WalkNode(child, depth + 1);
 	}
 
 	/// <summary>⚠ Depth-capped. A component tree can nest further than is ever interesting here.</summary>

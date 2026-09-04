@@ -63,6 +63,25 @@ internal sealed unsafe class DresserTooltip {
 	private const uint StyleFromNode = 44;
 
 	/// <summary>
+	/// The collected-checkmark on the item icon.
+	///
+	/// ⭐⭐⭐ THE GAME'S OWN MARK, not one we draw. It is the small tick in the icon's lower corner
+	/// that says "you have this" on a barding or a minion, and reusing it is the whole reason this
+	/// reads as part of the game instead of as a plugin shouting over it. deserok asked for exactly
+	/// this and he was right to — it is the affordance people already know.
+	///
+	/// ⭐⭐ FOUND BY DIFFING, because there is no documentation for a game addon's node layout and
+	/// two guesses had already been wrong today. Dump the whole node tree hovering a barding he owns,
+	/// dump it again hovering a piece of gear, and compare: out of 661 nodes exactly one flipped.
+	/// Node 19, an Image inside Res node 18. Not derived, not plausible — measured.
+	///
+	/// ⭐ And it settles the worry that route was built around. The checkmark is NOT gated on
+	/// UIState.IsItemActionUnlocked and needs no hook: it is a node whose visibility the game sets,
+	/// which means it works for ordinary gear that has no ItemAction at all.
+	/// </summary>
+	private const uint CollectedMarkNode = 19;
+
+	/// <summary>
 	/// ⚠⚠ FONTAWESOME CANNOT GO HERE, and it is worth knowing why rather than trying. FontAwesome
 	/// is a font Dalamud loads for ImGui — our own windows. This tooltip is a GAME addon, drawn by
 	/// the game, rendering an SeString in the game's own font, which has never heard of it. Asking
@@ -123,6 +142,16 @@ internal sealed unsafe class DresserTooltip {
 		var addon = (AtkUnitBase*)args.Addon.Address;
 		if (addon is null || addon->WindowNode is null) return;
 
+		// ⚠ Ours to put back, in the same handler that undoes the height. The game sets this node
+		// per item, but only for items it has an opinion about — leaving it lit after WE lit it would
+		// carry the mark onto the next thing hovered, which is the one lie this feature must not
+		// tell.
+		if (this.litTheMark) {
+			var mark = Find(addon, CollectedMarkNode, NodeType.Image);
+			if (mark is not null) mark->ToggleVisibility(false);
+			this.litTheMark = false;
+		}
+
 		var node = FindNode(addon);
 		if (node is null || !node->AtkResNode.IsVisible()) return;
 
@@ -171,6 +200,16 @@ internal sealed unsafe class DresserTooltip {
 		// every id it handles.
 		var itemId = DresserCache.PureItemId(agent->ItemId);
 		if (itemId == 0) return;
+
+		// ⭐ The mark goes on for anything owned, whether or not there is a line to write — it is the
+		// glance, and the text is the detail behind it.
+		if (DresserCache.Current is { } cache && Owned(cache, itemId) is not null) {
+			var mark = Find(addon, CollectedMarkNode, NodeType.Image);
+			if (mark is not null && !mark->IsVisible()) {
+				mark->ToggleVisibility(true);
+				this.litTheMark = true;
+			}
+		}
 
 		var note = Note(itemId);
 		if (note.Payloads.Count == 0) return;
@@ -231,6 +270,48 @@ internal sealed unsafe class DresserTooltip {
 
 		addon->UldManager.UpdateDrawNodeList();
 		return node;
+	}
+
+	/// <summary>Whether WE turned the checkmark on, and therefore owe turning it back off.</summary>
+	private bool litTheMark;
+
+	/// <summary>
+	/// Find a node anywhere in the addon, including inside its components.
+	///
+	/// ⚠ AtkUnitBase.GetNodeById searches only the top level, and the checkmark is nested two
+	/// components deep — so the obvious call returns null and looks like the node not existing.
+	/// </summary>
+	private static AtkResNode* Find(AtkUnitBase* addon, uint nodeId, NodeType type) {
+		if (addon is null) return null;
+
+		for (var i = 0; i < addon->UldManager.NodeListCount; i++) {
+			var found = FindIn(addon->UldManager.NodeList[i], nodeId, type, 0);
+			if (found is not null) return found;
+		}
+
+		return null;
+	}
+
+	private static AtkResNode* FindIn(AtkResNode* node, uint nodeId, NodeType type, int depth) {
+		if (node is null || depth > 8) return null;
+		if (node->NodeId == nodeId && node->Type == type) return node;
+
+		if ((ushort)node->Type >= 1000) {
+			var component = ((AtkComponentNode*)node)->Component;
+			if (component is not null) {
+				for (var i = 0; i < component->UldManager.NodeListCount; i++) {
+					var found = FindIn(component->UldManager.NodeList[i], nodeId, type, depth + 1);
+					if (found is not null) return found;
+				}
+			}
+		}
+
+		for (var child = node->ChildNode; child is not null; child = child->PrevSiblingNode) {
+			var found = FindIn(child, nodeId, type, depth + 1);
+			if (found is not null) return found;
+		}
+
+		return null;
 	}
 
 	private static AtkTextNode* FindNode(AtkUnitBase* addon) {
