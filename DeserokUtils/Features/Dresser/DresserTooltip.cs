@@ -319,37 +319,40 @@ internal sealed unsafe class DresserTooltip {
 		var cache = DresserCache.Current;
 		if (cache is null) return lines;
 
-		// ⭐⭐⭐ THE VERDICT COMES FIRST, THEN THE DETAIL. This used to open with the location —
-		// "In your Thavnairian Attire (Bustier) outfit" — and deserok caught that it reads two
-		// opposite ways: the piece is already IN that outfit, or it BELONGS to that outfit and you
-		// still need it. Both are sentences somebody could act on wrongly.
+		// ⭐⭐⭐ SHORT VERDICT, THEN THE DETAIL ON ITS OWN LINE. The first version put everything on
+		// one — "You have this — packed in your Thavnairian Attire (Bustier)" — and it ran straight
+		// out of the right edge of the tooltip, because the node clips rather than wraps.
 		//
-		// ⭐ "You have this" / "Not in your dresser" cannot be misread, and everything after the dash
-		// is elaboration nobody has to parse to get the answer. His framing, 2026-09-04: *"we design
-		// around the idiot... I look for how something can be misunderstood."*
-		var where = Owned(cache, itemId);
-		if (where is not null) {
-			// ⭐⭐ A PLAIN UNICODE CHECKMARK, U+2713. Neither SeIconChar nor BitmapFontIcon has one,
-			// and the conclusion drawn from that — "a checkmark is not available" — was wrong.
-			// deserok's own adventurer plate reads "WU/T ✓": the game's font renders ordinary Unicode
-			// perfectly well, so the private-use glyph tables were never the limit. The named enums
-			// are a convenience for the SPRITES; text is just text.
-			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
-			lines.Payloads.Add(new TextPayload($"✓ You have this — {where}"));
-			lines.Payloads.Add(new UIForegroundPayload(0));
-		}
+		// ⭐⭐ deserok's fix, 2026-09-04, and it is better than making it wrap: *"we shouldn't make it
+		// so verbose... don't need to specify which outfit, normally the item itself is labeled, and
+		// honestly they're going to just go home and pack it anyways, letting the addon sort it."* The
+		// set NAME is decoration — you are holding a Thavnairian Headdress, you can see what set it is
+		// for. What you cannot see is whether you already have one.
+		//
+		// ⭐ So the second line is the market board's shape: the set and how far along it is. Present
+		// when it adds something, absent when it does not.
+		var owned = Owned(cache, itemId);
+		var wanted = Wanted(cache, itemId);
 
-		if (Wanted(cache, itemId) is { } wanted) {
-			if (lines.Payloads.Count > 0) lines.Payloads.Add(new NewLinePayload());
+		if (owned is { } have) {
+			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
+			lines.Payloads.Add(new TextPayload($"\u2713 You have this {have.Where}"));
+			lines.Payloads.Add(new UIForegroundPayload(0));
+
+			if (have.Set is { } set) Detail(lines, set, OwnedColour);
+		}
+		else if (wanted is { } need) {
 			lines.Payloads.Add(new IconPayload(BitmapFontIcon.Warning));
 			lines.Payloads.Add(new UIForegroundPayload(WantedColour));
 
 			// ⚠ "Not in your dresser", never "you do not own this". The cache knows the dresser and
 			// the armoire and nothing else — the piece may well be sitting in the bags of the person
-			// reading it, which is exactly the looting case this feature is for. Claiming otherwise
-			// would be the one kind of wrong that makes somebody stop trusting the rest.
-			lines.Payloads.Add(new TextPayload($" Not in your dresser — {wanted}"));
+			// reading it, which is exactly the looting case this feature is for.
+			lines.Payloads.Add(new TextPayload(
+				need.Completes ? " Not in your dresser — completes a set!" : " You need this for an outfit"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
+
+			Detail(lines, need.Set, WantedColour);
 		}
 
 		// ⚠ Only when it could be wrong. The dresser cannot change with its window shut, so on every
@@ -357,24 +360,36 @@ internal sealed unsafe class DresserTooltip {
 		if (lines.Payloads.Count > 0 && cache.MaybeStale) {
 			lines.Payloads.Add(new NewLinePayload());
 			lines.Payloads.Add(new UIForegroundPayload(3));
-			lines.Payloads.Add(new TextPayload("   (your dresser has changed since the last scan)"));
+			lines.Payloads.Add(new TextPayload("  dresser changed since the last scan"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 		}
 
 		return lines;
 	}
 
+	/// <summary>The set line: name and how many of its slots are filled. ⚠ Indented, never wrapped.</summary>
+	private static void Detail(SeString lines, (string Name, int Have, int Total) set, ushort colour) {
+		lines.Payloads.Add(new NewLinePayload());
+		lines.Payloads.Add(new UIForegroundPayload(colour));
+		lines.Payloads.Add(new TextPayload($"  {set.Name} ({set.Have}/{set.Total})"));
+		lines.Payloads.Add(new UIForegroundPayload(0));
+	}
+
 	/// <summary>Where the item already is, in the words somebody at a vendor needs.</summary>
-	private static string? Owned(DresserCache cache, uint itemId) {
-		if (cache.LoosePieces.Contains(itemId)) return "loose in your glamour dresser";
+	private static (string Where, (string Name, int Have, int Total)? Set)? Owned(
+		DresserCache cache, uint itemId) {
+		if (cache.LoosePieces.Contains(itemId)) return ("in your glamour dresser", null);
 
 		foreach (var (setItemId, slot) in Sets(itemId)) {
-			if (cache.OutfitSlots.TryGetValue(setItemId, out var filled) && filled.Contains(slot))
-				return $"packed in your {ItemName(setItemId)}";
+			if (!cache.OutfitSlots.TryGetValue(setItemId, out var filled)) continue;
+			if (!filled.Contains(slot)) continue;
+
+			return ("in an outfit",
+				(ItemName(setItemId), filled.Count, SlotCount(setItemId)));
 		}
 
 		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
-			return "in your Armoire";
+			return ("in your Armoire", null);
 
 		return null;
 	}
@@ -386,19 +401,18 @@ internal sealed unsafe class DresserTooltip {
 	/// the useful fact when you are looking at a pair of Rebel Boots — "your Rebel Set is missing
 	/// exactly that slot" is.
 	/// </summary>
-	private static string? Wanted(DresserCache cache, uint itemId) {
+	private static ((string Name, int Have, int Total) Set, bool Completes)? Wanted(
+		DresserCache cache, uint itemId) {
 		foreach (var (setItemId, slot) in Sets(itemId)) {
 			if (!cache.OutfitSlots.TryGetValue(setItemId, out var filled)) continue;
 			if (filled.Contains(slot)) continue;
 
 			var total = SlotCount(setItemId);
 
-			// ⚠ "Completes" only when it genuinely does. Every other case says how far along you
-			// are — the same care as OutfitsExtended in the packer, and for the same reason: one
-			// small untruth and nobody believes the rest of the numbers.
-			return filled.Count + 1 == total
-				? $"it would COMPLETE your {ItemName(setItemId)}"
-				: $"it joins your {ItemName(setItemId)}, which has {filled.Count} of {total}";
+			// ⚠ "Completes" only when it genuinely does. Every other case just shows the count —
+			// the same care as OutfitsExtended in the packer, and for the same reason: one small
+			// untruth and nobody believes the rest of the numbers.
+			return ((ItemName(setItemId), filled.Count, total), filled.Count + 1 == total);
 		}
 
 		return null;
