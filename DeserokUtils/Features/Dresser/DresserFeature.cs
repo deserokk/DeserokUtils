@@ -39,6 +39,17 @@ internal sealed class DresserFeature {
 	private string? logPath;
 	private readonly DresserPacker packer = new();
 
+	/// <summary>
+	/// ⚠ Wired here rather than inside the packer: the packer re-reads the dresser when it finishes,
+	/// and this tab is what would otherwise keep showing the scan from before the run.
+	/// </summary>
+	public DresserFeature() {
+		this.packer.Rescanned = fresh => {
+			this.last = fresh;
+			DresserCache.Save(fresh);
+		};
+	}
+
 	/// <summary>For the overlay attached to the dresser window.</summary>
 	internal DresserPacker Packer => this.packer;
 

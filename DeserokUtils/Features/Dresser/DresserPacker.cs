@@ -259,6 +259,38 @@ internal sealed unsafe class DresserPacker {
 	private int usedAtStart;
 	private int predicted;
 
+	/// <summary>
+	/// Which pass of the run this is.
+	///
+	/// ⭐⭐⭐ THE RUN KEEPS GOING UNTIL NOTHING MOVES. deserok, 2026-09-04, on being told
+	/// "expected -3, measured -2. Run the scan again to see what is left": *"I mean, it saw it, it
+	/// should just do the scan again."* He is right, and it is worse than a missing convenience —
+	/// pressing Pack twice off ONE scan is what produced the failure he was looking at, because the
+	/// second run tried to restore pieces the first had already packed away.
+	///
+	/// ⚠ A pass exists because packing changes the answer. Every outfit built frees slots and
+	/// removes loose pieces, which can make a job possible that was not before. The scan that started
+	/// the run is stale the moment the first outfit lands.
+	/// </summary>
+	private int pass;
+
+	/// <summary>⚠ A ceiling. A pass that packs nothing stops the run anyway; this is for safety.</summary>
+	private const int MaxPasses = 5;
+
+	/// <summary>Dresser occupancy at the very start, across all passes.</summary>
+	private int usedAtRunStart;
+
+	/// <summary>Outfits packed in THIS pass, which is the loop's stopping condition.</summary>
+	private int packedThisPass;
+
+	/// <summary>
+	/// Hands a fresh scan back to whoever owns this packer.
+	///
+	/// ⚠ Without it the Dresser tab and its Pack button keep showing the scan from BEFORE the run,
+	/// so pressing Pack again re-queues work that is already done.
+	/// </summary>
+	internal Action<DresserScan.Result>? Rescanned;
+
 	/// <summary>What the final re-scan actually measured, once there is one.</summary>
 	public string? Verified { get; private set; }
 
@@ -274,6 +306,7 @@ internal sealed unsafe class DresserPacker {
 		// ⚠ The last line of defence, not the first. Both buttons are gone, but a packer that can
 		// still be started by anything at all is a packer that will be.
 		if (!Enabled) {
+			this.pass = 0;
 			this.state = State.Failed;
 			this.Status = "Packing is turned off in this build.";
 			return;
@@ -281,19 +314,37 @@ internal sealed unsafe class DresserPacker {
 
 		this.queue.Clear();
 		this.jobIndex = 0;
-		this.OutfitsPacked = 0;
-		this.OutfitsCreated = 0;
-		this.OutfitsExtended = 0;
-		this.SlotsFreed = 0;
+
+		// ⚠⚠ THE TALLIES SURVIVE A PASS. pass == 0 means a run somebody started; anything else is
+		// this packer calling itself after a re-scan, and zeroing the totals there would report only
+		// the last pass's work — "1 new outfit" at the end of a run that built nine.
+		var fresh = this.pass == 0;
+
+		if (fresh) {
+			this.OutfitsPacked = 0;
+			this.OutfitsCreated = 0;
+			this.OutfitsExtended = 0;
+			this.SlotsFreed = 0;
+			this.duplicatesPulled = 0;
+		}
+
+		// ⚠ These two are per-pass by nature: the skip list describes THIS attempt, and duplicates
+		// are re-derived from the scan that just ran.
 		this.skipped.Clear();
 		this.duplicates.Clear();
-		this.duplicatesPulled = 0;
 
 		// ⚠ One entry per SURPLUS copy: the first of each stays in the dresser.
 		foreach (var d in r.Duplicates)
 			for (var i = 1; i < d.Indices.Count; i++) this.duplicates.Add(d.ItemId);
 		this.Verified = null;
 		this.usedAtStart = r.Used;
+
+		if (this.pass == 0) {
+			this.pass = 1;
+			this.usedAtRunStart = r.Used;
+		}
+
+		this.packedThisPass = 0;
 		// ⚠ Duplicates count too. Leaving them out made the run always report a mismatch —
 		// predicted 173, measured 179, the difference being exactly the six duplicates pulled.
 		// A check that is always wrong by a known amount is a check nobody reads.
@@ -320,6 +371,7 @@ internal sealed unsafe class DresserPacker {
 
 		if (needed > free) {
 			this.queue.Clear();
+			this.pass = 0;
 			this.state = State.Failed;
 			this.Status = $"Needs {needed} free bag slot(s) for the biggest outfit; you have {free}. "
 			            + "Make room and try again.";
@@ -331,6 +383,7 @@ internal sealed unsafe class DresserPacker {
 		if (this.queue.Count == 0) {
 			// ⭐ Idempotent, and it says so. Running this after a session with nothing new must do
 			// nothing rather than churn -- it is meant to be run habitually.
+			this.pass = 0;
 			this.state = State.Done;
 			this.Status = "Nothing to pack.";
 			return;
@@ -355,6 +408,9 @@ internal sealed unsafe class DresserPacker {
 
 	public void Stop(string why) {
 		if (!this.Running) return;
+
+		// ⚠ Ends the whole run, not just this pass. Stopping should stop.
+		this.pass = 0;
 		this.state = State.Failed;
 		this.Status = why;
 		DresserLog.Step($"STOPPED: {why}");
@@ -706,12 +762,40 @@ internal sealed unsafe class DresserPacker {
 		var after = new DresserScan().Scan();
 
 		if (after.Problem is not null || !after.Loaded) {
+			this.pass = 0;
 			this.Status = $"Packed {this.OutfitsPacked} outfit(s). Could not re-check the dresser.";
 			Plugin.Chat.Print($"Dresser: {this.Status}");
 			return;
 		}
 
-		var actual = this.usedAtStart - after.Used;
+		// ⚠⚠ HAND THE FRESH SCAN BACK BEFORE ANYTHING ELSE. The tab and its Pack button otherwise
+		// keep showing the scan from before the run — which is exactly how deserok hit this: pressing
+		// Pack twice off ONE scan made the second run try to restore pieces the first had already
+		// packed, and report them as missing.
+		this.Rescanned?.Invoke(after);
+
+		// ⭐⭐⭐ GO AGAIN IF THE LAST PASS ACHIEVED SOMETHING. Packing changes the answer: every
+		// outfit built frees slots and consumes loose pieces, which can make a job possible that was
+		// not before. Telling somebody "run the scan again to see what is left" was the tool asking
+		// them to do a thing it had already done — the fresh scan is right here.
+		//
+		// ⚠ The stopping condition is a pass that packs NOTHING, not an empty queue. Some jobs can
+		// never succeed — a piece the game filed into the armoury, a set whose dialog opens wrong —
+		// and those would otherwise be retried forever.
+		var stillToDo = after.Additions.Count + after.NewOutfits.Count;
+
+		if (stillToDo > 0 && this.packedThisPass > 0 && this.pass < MaxPasses) {
+			this.pass++;
+			DresserLog.Step($"=== PASS {this.pass}: {stillToDo} job(s) still to do "
+			              + $"after packing {this.packedThisPass} ===");
+
+			this.Status = $"Packed {this.OutfitsPacked} so far; going again...";
+			this.Start(after);
+			return;
+		}
+
+		var actual = this.usedAtRunStart - after.Used;
+		this.pass = 0;
 
 		// ⭐ Say what was ACHIEVED, not what the machine did. "55 outfits packed" is a statement
 		// about the tool; "179 slots recovered, 55 new outfits" is a statement about the dresser,
@@ -723,23 +807,20 @@ internal sealed unsafe class DresserPacker {
 			parts.Add($"{Plural(this.duplicatesPulled, "duplicate")} back in your bags");
 
 		this.Status = $"All done — {Plural(actual, "dresser slot")} recovered "
-		            + $"({this.usedAtStart} → {after.Used})";
+		            + $"({this.usedAtRunStart} → {after.Used})";
 
 		if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts) + ".";
 		else this.Status += ".";
 
 		Plugin.Chat.Print($"Dresser: {this.Status}");
 
-		// ⚠ Only speaks when the prediction and the measurement disagree. Silence means they matched,
-		// which is the ordinary case and does not need announcing.
-		if (actual != this.predicted) {
-			Plugin.Chat.Print(
-				$"Dresser: expected {this.predicted}, measured {actual}. "
-				+ "Run the scan again to see what is left.");
-		}
-
+		// ⚠⚠ THE PREDICTION LINE IS GONE. It said "expected -3, measured -2. Run the scan again to
+		// see what is left" — which is a number nobody can act on followed by an instruction the tool
+		// should have followed itself. It now does, so a mismatch resolves into another pass or into
+		// the skip list below, both of which say something useful.
 		if (this.skipped.Count > 0) {
-			Plugin.Chat.Print($"Dresser: {this.skipped.Count} outfit(s) skipped -- see the log.");
+			Plugin.Chat.Print(
+				$"Dresser: {this.skipped.Count} outfit(s) could not be packed -- see the Dresser tab.");
 			foreach (var entry in this.skipped) DresserLog.Step($"  skipped: {entry}");
 		}
 
@@ -801,6 +882,7 @@ internal sealed unsafe class DresserPacker {
 			// ⭐ Here, and only here. The pieces are gone from the bags, which is the first moment
 			// anything is known rather than assumed.
 			this.OutfitsPacked++;
+			this.packedThisPass++;
 			if (done.ExistingIndex is null) this.OutfitsCreated++;
 			else this.OutfitsExtended++;
 
@@ -1105,6 +1187,7 @@ internal sealed unsafe class DresserPacker {
 		if (delta <= expectedDelta) return false;
 
 		var name = this.jobIndex < this.queue.Count ? this.queue[this.jobIndex].Name : "?";
+		this.pass = 0;
 		this.state = State.Failed;
 		this.Status = $"Stopped after {this.OutfitsPacked} outfit(s): the dresser gained "
 		            + $"{Plural(delta - expectedDelta, "entry")} nobody asked for while packing {name}. "
