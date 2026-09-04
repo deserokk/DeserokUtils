@@ -73,6 +73,7 @@ public sealed class Plugin: IDalamudPlugin {
 
 	private Features.Dresser.DresserFeature? dresser;
 	private Features.Dresser.DresserOverlay? dresserOverlay;
+	private Features.Dresser.DresserTooltip? dresserTooltip;
 
 	private readonly FateWatchFeature fateWatch;
 	private readonly FcBuffsFeature fcBuffs;
@@ -173,6 +174,9 @@ public sealed class Plugin: IDalamudPlugin {
 		var dresser = new Features.Dresser.DresserFeature();
 		this.dresser = dresser;
 		dresser.Listen();
+
+		this.dresserTooltip = new Features.Dresser.DresserTooltip();
+		this.dresserTooltip.Listen();
 		this.dresserOverlay = new Features.Dresser.DresserOverlay(dresser);
 		this.debuffs = debuffs;
 		this.marks = marks;
@@ -320,6 +324,7 @@ public sealed class Plugin: IDalamudPlugin {
 		// ⚠ Not in this.features -- the Dresser is wired by hand, so its listener has to be
 		// unregistered by hand too. A stale AddonLifecycle listener survives a plugin reload.
 		this.dresser?.Dispose();
+		this.dresserTooltip?.Dispose();
 
 		foreach (var feature in this.features)
 			feature.Dispose();

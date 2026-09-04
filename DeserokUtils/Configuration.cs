@@ -153,6 +153,14 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public bool Verbose { get; set; } = false;
 
+	/// <summary>
+	/// Note glamour-dresser ownership on the game's item tooltips.
+	///
+	/// ⭐ On by default. The participant case is install it and it works — a note that only appears
+	/// on gear you own or nearly own is not something anybody needs to opt into.
+	/// </summary>
+	public bool DresserTooltip { get; set; } = true;
+
 	// ── FateWatch ────────────────────────────────────────────────────────────────────────────
 
 	public bool FateWatchEnabled { get; set; } = true;
