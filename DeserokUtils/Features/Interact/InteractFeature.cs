@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Numerics;
 
 using Dalamud.Bindings.ImGui;
@@ -94,17 +94,28 @@ internal sealed class InteractFeature: IDisposable {
 	/// <summary>
 	/// Operate the thing in front of you, and touch nothing else.
 	///
-	/// ⭐ Calls <c>InteractWithObject(obj, checkLineOfSight: false)</c>.
+	/// ⭐ Calls <c>InteractWithObject(obj, checkLineOfSight: true)</c> — exactly what the real key
+	/// does, verified rather than assumed.
 	///
-	/// ⚠⚠ It passed <c>true</c> until 2026-08-28 and was changed while chasing the Snowcloak winch,
-	/// on a theory that turned out to be WRONG. The winch was never a raycast problem: <see
-	/// cref="Choose"/> was picking a gate standing nearer than the winch. So this argument is now
-	/// an UNPROVEN deviation from what the recording showed Num0 doing, kept only because it is the
-	/// state everything since has been tested in.
+	/// ⚠⚠⚠ IT PASSED <c>false</c> FROM 2026-08-28 TO 2026-09-03, AND THAT BROKE GATHERING.
+	/// The change was made while chasing the Snowcloak winch, on a theory that turned out to be wrong
+	/// twice over: the winch was never a raycast problem — <see cref="Choose"/> was picking a gate
+	/// standing nearer than the winch — and the argument was never verified against the recording
+	/// afterwards. It sat here for six days as a known-unproven deviation, doing nothing anybody
+	/// noticed, until Bunny tried to pick a tree.
 	///
-	/// ⭐ Putting it back to <c>true</c> is a one-press experiment at any wall-mounted object, and if it
-	/// holds, this line should go back to matching the real key exactly. Left alone for now rather than
-	/// changed blind, which is the habit that produced this comment in the first place.
+	/// ⭐⭐ What settled it, and it took one press. The sniffer already hooks both interaction
+	/// functions, so the vanilla key answers the question itself:
+	/// <code>
+	/// InteractWithObject("Mature Tree" kind=GatheringPoint dataId=30015, checkLineOfSight: True)
+	/// </code>
+	/// Same function — the guess that gathering needed <c>OpenObjectInteraction</c> was wrong too —
+	/// and the only difference in the whole call was this argument.
+	///
+	/// ⚠ THE LESSON IS THE COMMENT ITSELF. The previous version of this block said, in as many
+	/// words, that putting it back was a one-press experiment. Nobody ran the press for six days,
+	/// because nothing was visibly broken. A deviation you have written down as unproven is still a
+	/// deviation; the note is not a substitute for the press.
 	///
 	/// ⭐ Still untouched: <c>OpenObjectInteraction</c>, which the mouse path pairs with this. That
 	/// one is the menu-opening route and is what this feature exists to avoid. The line-of-sight
@@ -176,8 +187,9 @@ internal sealed class InteractFeature: IDisposable {
 		// Arming early can only ever be harmless -- an unused window expires in three seconds.
 		this.gimmicks.Arm();
 
+		// ⚠ true, matching the key. See the note above: false silently broke gathering nodes.
 		ulong result = TargetSystem.Instance()->InteractWithObject(
-			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, false);
+			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)chosen.Address, true);
 		this.lastInteract = DateTime.UtcNow;
 
 		string after = Plugin.Targets.Target?.Name.ToString() ?? "none";
