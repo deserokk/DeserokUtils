@@ -21,23 +21,23 @@ namespace DeserokUtils.Features.Dresser;
 /// market board, a Need/Greed roll: those are where "do I own this" is a decision rather than a
 /// lookup, and every one of them raises this same tooltip.
 ///
-/// ## ⭐⭐ No signature hooks, and that is the whole trick
+/// ## ⭐⭐ A node of our own, and no signature hooks
 ///
-/// SimpleTweaks reaches this data through five hand-written signature scans, because it is building
-/// a general tooltip framework — number arrays, action tooltips, sixty fields. We want one line, so
-/// none of that is needed: Dalamud's AddonLifecycle raises PreRequestedUpdate on <c>ItemDetail</c>
-/// and hands over the same StringArrayData. Stable API, nothing to re-scan on patch day, and the
-/// bloat deserok wanted to leave behind is exactly the part we skip.
+/// SimpleTweaks reaches tooltip TEXT through five hand-written signature scans, because it is
+/// building a general framework — number arrays, action tooltips, sixty fields. That is the bloat
+/// deserok wanted to leave behind, and none of it is needed for one line: this creates its own
+/// AtkTextNode and splices it in, driven by Dalamud's AddonLifecycle. Stable API, nothing to
+/// re-scan on patch day.
 ///
-/// ⚠ One thing is taken verbatim rather than derived: <see cref="ItemDescriptionField"/>.
+/// ⚠ Two other plugins were already doing exactly this in his client when we looked — a probe of
+/// a live tooltip found node 32612 (Price Insight's market board block) and one more sitting in the
+/// same addon. This is the normal way to add a line here, not a clever one.
 ///
-/// ## ⚠ What it deliberately does not do
-///
-/// No checkmark on the icon. That IS a real mechanism — <c>UIState.IsItemActionUnlocked</c>, hooked,
-/// returning 1 or 2, which is how SimpleTweaks marks fully-collected card packs. But the game only
-/// asks that question about items which HAVE an ItemAction: mounts, minions, Triple Triad cards.
-/// Ordinary gear has none, so there is most likely nothing to answer and the hook would never fire.
-/// Worth one test before anybody writes it, and not worth guessing at.
+/// ⚠⚠ THE ROUTE THAT LOOKS EASIER IS THE ONE THAT CRASHES. Writing the description straight into
+/// the tooltip's string array is what the framework above does safely, and it is NOT available from
+/// the lifecycle event: <c>AddonRequestedUpdateArgs</c> carries <c>StringArrayData**</c>, the whole
+/// table, which the docs say plainly. Casting it as one array put an access violation inside the
+/// client. See the note on <see cref="AfterUpdate"/>.
 /// </summary>
 internal sealed unsafe class DresserTooltip {
 	/// <summary>
@@ -63,23 +63,27 @@ internal sealed unsafe class DresserTooltip {
 	private const uint StyleFromNode = 44;
 
 	/// <summary>
-	/// The collected-checkmark on the item icon.
+	/// ⚠⚠⚠ THE ICON CHECKMARK WAS TRIED AND ABANDONED. Do not rebuild it without reading this.
 	///
-	/// ⭐⭐⭐ THE GAME'S OWN MARK, not one we draw. It is the small tick in the icon's lower corner
-	/// that says "you have this" on a barding or a minion, and reusing it is the whole reason this
-	/// reads as part of the game instead of as a plugin shouting over it. deserok asked for exactly
-	/// this and he was right to — it is the affordance people already know.
+	/// deserok asked for the game's own collected-tick — the one in the icon's lower corner on a
+	/// barding you own — rather than an icon of ours, which was the right instinct: it is the
+	/// affordance people already know.
 	///
-	/// ⭐⭐ FOUND BY DIFFING, because there is no documentation for a game addon's node layout and
-	/// two guesses had already been wrong today. Dump the whole node tree hovering a barding he owns,
-	/// dump it again hovering a piece of gear, and compare: out of 661 nodes exactly one flipped.
-	/// Node 19, an Image inside Res node 18. Not derived, not plausible — measured.
+	/// ⭐ It IS reachable, and finding it was not the problem. Node 19, an Image inside Res node 18,
+	/// located by dumping the whole node tree hovering a barding he owns, dumping it again hovering a
+	/// piece of gear, and diffing: out of 661 nodes exactly one flipped. It is also not gated on
+	/// UIState.IsItemActionUnlocked, so it would have worked for ordinary gear.
 	///
-	/// ⭐ And it settles the worry that route was built around. The checkmark is NOT gated on
-	/// UIState.IsItemActionUnlocked and needs no hook: it is a node whose visibility the game sets,
-	/// which means it works for ordinary gear that has no ItemAction at all.
+	/// ⚠⚠ WHAT KILLED IT: the write lands and does not hold. Measured 2026-09-04 — the node is
+	/// found, set visible, and reads back visible — then the next RequestedUpdate four milliseconds
+	/// later finds it hidden again. The icon component reapplies its own visibility after us, so
+	/// making it stick means writing every frame a tooltip is open, forever, against a component that
+	/// disagrees. That is a fight to lose slowly: it works until a patch and then stops quietly.
+	///
+	/// ⭐ The inline line already answers the question this was decoration for, so the trade was not
+	/// close. Recorded rather than deleted because "add the checkmark" is an obvious thing to suggest
+	/// again, and the next person deserves the measurement instead of the afternoon.
 	/// </summary>
-	private const uint CollectedMarkNode = 19;
 
 	/// <summary>
 	/// ⚠⚠ FONTAWESOME CANNOT GO HERE, and it is worth knowing why rather than trying. FontAwesome
@@ -142,16 +146,6 @@ internal sealed unsafe class DresserTooltip {
 		var addon = (AtkUnitBase*)args.Addon.Address;
 		if (addon is null || addon->WindowNode is null) return;
 
-		// ⚠ Ours to put back, in the same handler that undoes the height. The game sets this node
-		// per item, but only for items it has an opinion about — leaving it lit after WE lit it would
-		// carry the mark onto the next thing hovered, which is the one lie this feature must not
-		// tell.
-		if (this.litTheMark) {
-			var mark = Find(addon, CollectedMarkNode, NodeType.Image);
-			if (mark is not null) mark->ToggleVisibility(false);
-			this.litTheMark = false;
-		}
-
 		var node = FindNode(addon);
 		if (node is null || !node->AtkResNode.IsVisible()) return;
 
@@ -200,16 +194,6 @@ internal sealed unsafe class DresserTooltip {
 		// every id it handles.
 		var itemId = DresserCache.PureItemId(agent->ItemId);
 		if (itemId == 0) return;
-
-		// ⭐ The mark goes on for anything owned, whether or not there is a line to write — it is the
-		// glance, and the text is the detail behind it.
-		if (DresserCache.Current is { } cache && Owned(cache, itemId) is not null) {
-			var mark = Find(addon, CollectedMarkNode, NodeType.Image);
-			if (mark is not null && !mark->IsVisible()) {
-				mark->ToggleVisibility(true);
-				this.litTheMark = true;
-			}
-		}
 
 		var note = Note(itemId);
 		if (note.Payloads.Count == 0) return;
@@ -270,48 +254,6 @@ internal sealed unsafe class DresserTooltip {
 
 		addon->UldManager.UpdateDrawNodeList();
 		return node;
-	}
-
-	/// <summary>Whether WE turned the checkmark on, and therefore owe turning it back off.</summary>
-	private bool litTheMark;
-
-	/// <summary>
-	/// Find a node anywhere in the addon, including inside its components.
-	///
-	/// ⚠ AtkUnitBase.GetNodeById searches only the top level, and the checkmark is nested two
-	/// components deep — so the obvious call returns null and looks like the node not existing.
-	/// </summary>
-	private static AtkResNode* Find(AtkUnitBase* addon, uint nodeId, NodeType type) {
-		if (addon is null) return null;
-
-		for (var i = 0; i < addon->UldManager.NodeListCount; i++) {
-			var found = FindIn(addon->UldManager.NodeList[i], nodeId, type, 0);
-			if (found is not null) return found;
-		}
-
-		return null;
-	}
-
-	private static AtkResNode* FindIn(AtkResNode* node, uint nodeId, NodeType type, int depth) {
-		if (node is null || depth > 8) return null;
-		if (node->NodeId == nodeId && node->Type == type) return node;
-
-		if ((ushort)node->Type >= 1000) {
-			var component = ((AtkComponentNode*)node)->Component;
-			if (component is not null) {
-				for (var i = 0; i < component->UldManager.NodeListCount; i++) {
-					var found = FindIn(component->UldManager.NodeList[i], nodeId, type, depth + 1);
-					if (found is not null) return found;
-				}
-			}
-		}
-
-		for (var child = node->ChildNode; child is not null; child = child->PrevSiblingNode) {
-			var found = FindIn(child, nodeId, type, depth + 1);
-			if (found is not null) return found;
-		}
-
-		return null;
 	}
 
 	private static AtkTextNode* FindNode(AtkUnitBase* addon) {
