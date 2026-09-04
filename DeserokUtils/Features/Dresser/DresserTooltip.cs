@@ -382,17 +382,21 @@ internal sealed unsafe class DresserTooltip {
 	/// it is not drawn SILENTLY — the line looks finished, just wrong. That is worse than an obvious
 	/// truncation, which at least says a name was cut.
 	///
-	/// ⭐⭐ 34 is measured, not chosen. The longest set name in deserok's real dresser is 39
-	/// characters ("Prestige High Allagan Attire of Healing"); the line that clipped in testing was
-	/// 60; the longest market board line that fits beside it is about 43. Two of indent plus a name
-	/// plus " (n/m)" lands a 34-character name at roughly 43, which is the width the game itself is
-	/// already using in the same box.
+	/// ⭐⭐ 44, AND THE POINT IS THAT IT NEVER FIRES. The first attempt was 34, reasoned from the
+	/// longest market board line that fits beside ours — deserok looked at the rendered box and said
+	/// there was room for about ten more, which there is. Bracketed by two real measurements: the
+	/// line that clipped was 60, and this does not.
+	///
+	/// ⭐ At 44 every set name in his dresser passes through untouched — the longest is 39,
+	/// "Prestige High Allagan Attire of Healing". So this stopped being a routine truncation and
+	/// became insurance against a name nobody has seen yet, which is the right job for it. A cap
+	/// that trims ordinary names is a cap set too low.
 	///
 	/// ⚠ Cut at a word boundary when there is one close by, because "Prestige High Allagan Attire
 	/// of…" reads as a name and "Prestige High Allagan Attire of Heal…" reads as a bug.
 	/// </summary>
 	private static string Fit(string name) {
-		const int max = 34;
+		const int max = 44;
 		if (name.Length <= max) return name;
 
 		var cut = name.LastIndexOf(' ', max - 1);
