@@ -201,6 +201,9 @@ internal sealed unsafe class DresserPacker {
 	/// <summary>The inventory list is dumped once a run, not once a job.</summary>
 	private bool probedList;
 
+	/// <summary>The slot picker likewise: its contents are the same shape every time.</summary>
+	private bool probedMenu;
+
 	/// <summary>Eleven, matching MirageStoreSetItem's columns. A hard ceiling on Job.SlotCount.</summary>
 	private const int SetSlots = 11;
 
@@ -341,6 +344,7 @@ internal sealed unsafe class DresserPacker {
 		this.restoreIssued = false;
 		this.loggedAddons = false;
 		this.probedList = false;
+		this.probedMenu = false;
 		this.usedAtJobStart = UsedEntries();
 		this.Status = $"Packing {this.queue.Count} outfit(s)...";
 
@@ -896,6 +900,16 @@ internal sealed unsafe class DresserPacker {
 		// a menu whose first entry is "remove this piece" would empty a slot instead of filling one.
 		// DresserProbe writes the menu out under Verbose so this stops being an assumption.
 		if (AddonVisible("ContextIconMenu")) {
+			// ⚠ Values as well as text, and only the first time in a run. This is the one step
+			// nothing has ever been able to see: every job so far has been a single piece, where the
+			// cogged item fills its own slot and no picker ever opens. A multi-piece run is the first
+			// time entry 0 gets chosen sight unseen, and if it turns out to be a "remove" option
+			// rather than the piece, this is the line that will say so.
+			if (!this.probedMenu) {
+				this.probedMenu = true;
+				DresserProbe.Values("ContextIconMenu");
+			}
+
 			DresserProbe.Text("ContextIconMenu");
 			TryFireMenu("ContextIconMenu");
 			this.menusAnswered++;
