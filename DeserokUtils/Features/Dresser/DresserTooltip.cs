@@ -204,7 +204,19 @@ internal sealed unsafe class DresserTooltip {
 		node->AtkResNode.ToggleVisibility(true);
 		node->SetText(note.EncodeWithNullTerminator());
 		node->ResizeNodeForCurrentText();
-		node->AtkResNode.SetPositionFloat(17f, addon->WindowNode->AtkResNode.Height - 10f);
+
+		// ⚠⚠⚠ ANCHORED TO THE FOOTER, NOT TO THE WINDOW'S BOTTOM EDGE. This used to sit at
+		// WindowNode.Height - 10, copied from SimpleTweaks — and that height is a number EVERY plugin
+		// in this tooltip is mutating. Price Insight grows it for its market board block, another grows
+		// it for a crafting line, and whoever computes second works from a baseline that already
+		// includes the others. deserok saw ours drawn straight through Price Insight's heading,
+		// 2026-09-04.
+		//
+		// ⭐⭐ Node 2 is the "Alt Key — Hide item details" footer, and every participant pushes it
+		// down by exactly its own height after placing something above it. So its CURRENT position is
+		// the free space, whoever has already been through: take that, then push the footer down by
+		// ours. No arithmetic depending on what anybody else did, and no shared number to race on.
+		node->AtkResNode.SetPositionFloat(17f, insert->Y);
 
 		addon->WindowNode->AtkResNode.SetHeight(
 			(ushort)(addon->WindowNode->AtkResNode.Height + node->AtkResNode.Height));
