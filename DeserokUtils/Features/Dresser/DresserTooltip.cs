@@ -4,6 +4,7 @@ using Dalamud.Game.Addon.Lifecycle;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
+using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.System.Memory;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -421,8 +422,66 @@ internal sealed unsafe class DresserTooltip {
 		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
 			return ("in your Armoire", null);
 
+		// ⭐⭐⭐ THE ARMOURY CHEST, AND IT IS THE WHOLE REASON THIS PARAGRAPH EXISTS. deserok,
+		// 2026-09-04: *"looking through the armory chest is... each thing is in its own tab, there's
+		// no search, and it's just icons, so you have to mouse over everything."* That is the single
+		// worst place in the game to answer "do I already have this", which makes it the most
+		// valuable place to answer it for somebody.
+		//
+		// ⭐⭐ LIVE, not cached, and the distinction is not an oversight. The dresser needs a cache
+		// because the game only sends its contents while you are standing at one. The armoury and
+		// your equipment are ALWAYS loaded, so reading them fresh is both simpler and strictly more
+		// correct — there is no staleness to reason about at all.
+		//
+		// ⚠ Cheap enough for a tooltip: about 550 slot reads, each a pointer deref and an integer
+		// compare, with no allocation and no sheet lookup. The two draw-loop disasters in this
+		// project's history were sheet walks doing string extraction, which is a different order of
+		// cost entirely.
+		if (Worn(itemId)) return ("equipped right now", null);
+		if (InArmoury(itemId)) return ("in your armoury chest", null);
+
+		// ⚠ THE BAGS ARE DELIBERATELY NOT SEARCHED. If a piece is in your inventory you are almost
+		// certainly looking straight at it, and "you have this in your bags" would be the same
+		// useless redundancy as marking an item inside the glamour dresser — which deserok already
+		// caught and rejected. The hidden places are the ones worth reporting.
 		return null;
 	}
+
+	private static bool Worn(uint itemId) => Holds(InventoryType.EquippedItems, itemId);
+
+	private static bool InArmoury(uint itemId) {
+		foreach (var bag in Armoury) {
+			if (Holds(bag, itemId)) return true;
+		}
+
+		return false;
+	}
+
+	private static bool Holds(InventoryType type, uint itemId) {
+		var manager = InventoryManager.Instance();
+		if (manager is null) return false;
+
+		var page = manager->GetInventoryContainer(type);
+		if (page is null || !page->IsLoaded) return false;
+
+		for (var i = 0; i < page->Size; i++) {
+			var item = page->GetInventorySlot(i);
+
+			// ⚠ Normalised, because a high-quality item in the armoury carries the flag and would
+			// otherwise never match the id the tooltip is asking about.
+			if (item is not null && DresserCache.PureItemId(item->ItemId) == itemId) return true;
+		}
+
+		return false;
+	}
+
+	/// <summary>⚠ Every armoury category. Missing one reads as "you do not own it", silently.</summary>
+	private static readonly InventoryType[] Armoury = {
+		InventoryType.ArmoryMainHand, InventoryType.ArmoryOffHand, InventoryType.ArmoryHead,
+		InventoryType.ArmoryBody, InventoryType.ArmoryHands, InventoryType.ArmoryLegs,
+		InventoryType.ArmoryFeets, InventoryType.ArmoryEar, InventoryType.ArmoryNeck,
+		InventoryType.ArmoryWrist, InventoryType.ArmoryRings,
+	};
 
 	/// <summary>
 	/// Whether it would fill a gap in an outfit you already have.
