@@ -416,7 +416,7 @@ internal sealed unsafe class DresserTooltip {
 			if (!filled.Contains(slot)) continue;
 
 			return ("in an outfit",
-				(ItemName(setItemId), filled.Count, SlotCount(setItemId)));
+				(ItemName(setItemId), Progress(cache, setItemId).Count, SlotCount(setItemId)));
 		}
 
 		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
@@ -493,18 +493,60 @@ internal sealed unsafe class DresserTooltip {
 	private static ((string Name, int Have, int Total) Set, bool Completes)? Wanted(
 		DresserCache cache, uint itemId) {
 		foreach (var (setItemId, slot) in Sets(itemId)) {
-			if (!cache.OutfitSlots.TryGetValue(setItemId, out var filled)) continue;
-			if (filled.Contains(slot)) continue;
+			var have = Progress(cache, setItemId);
+
+			// ⚠ Already got that slot covered, packed or loose. Nothing to say.
+			if (have.Contains(slot)) continue;
+
+			// ⚠⚠ Silent when you own NOTHING of the set. deserok asked whether a third colour was
+			// worth it for "you have neither this nor the outfit" — it is not, and the reason is that
+			// it describes almost every item in the game. These lines work because they are rare; one
+			// that fires on every vendor tooltip stops being read, and "you do not own this" is the
+			// least actionable of the three anyway. Silence already means it.
+			if (have.Count == 0) continue;
 
 			var total = SlotCount(setItemId);
 
 			// ⚠ "Completes" only when it genuinely does. Every other case just shows the count —
 			// the same care as OutfitsExtended in the packer, and for the same reason: one small
 			// untruth and nobody believes the rest of the numbers.
-			return ((ItemName(setItemId), filled.Count, total), filled.Count + 1 == total);
+			return ((ItemName(setItemId), have.Count, total), have.Count + 1 == total);
 		}
 
 		return null;
+	}
+
+	/// <summary>
+	/// Which of a set's slots you already have covered, packed OR loose.
+	///
+	/// ⭐⭐⭐ LOOSE PIECES COUNT, and leaving them out was a real gap. The count used to come only
+	/// from a packed outfit's filled slots, so three Rebel pieces sitting loose in the dresser with
+	/// no Rebel Set built yet counted as zero — and hovering a fourth said nothing at all. That is
+	/// exactly the person this feature is for: someone accidentally collecting a set who has no idea
+	/// they are three-fifths of the way through it.
+	///
+	/// ⚠ A HashSet of slots rather than a count, because a loose piece and a packed piece can be
+	/// the same slot, and adding the two totals would claim you own more of the set than you do.
+	/// </summary>
+	private static HashSet<int> Progress(DresserCache cache, uint setItemId) {
+		var slots = new HashSet<int>();
+
+		if (cache.OutfitSlots.TryGetValue(setItemId, out var filled)) {
+			foreach (var slot in filled) slots.Add(slot);
+		}
+
+		if (Plugin.Data.GetExcelSheet<MirageStoreSetItem>()?.GetRowOrDefault(setItemId)
+			is not { } row) return slots;
+
+		var columns = Columns(row);
+		for (var slot = 0; slot < columns.Length; slot++) {
+			var piece = columns[slot];
+			if (piece == 0 || slots.Contains(slot)) continue;
+
+			if (cache.LoosePieces.Contains(piece)) slots.Add(slot);
+		}
+
+		return slots;
 	}
 
 	// ── Memoised sheet reads ─────────────────────────────────────────────────────────────
