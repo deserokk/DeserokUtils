@@ -50,9 +50,9 @@ internal sealed unsafe class DresserPacker {
 	///
 	/// ⚠ Turning it on again means the verification in TickConfirming first, not just this flag.
 	/// </summary>
-	/// ⚠ static readonly rather than const, so the parked code does not compile away into a
-	/// wall of unreachable-code warnings that would train everyone to ignore warnings.
-	internal static readonly bool Enabled = false;
+	/// ⚠ static readonly rather than const, so parking it does not compile the feature away into
+	/// a wall of unreachable-code warnings that would train everyone to ignore warnings.
+	internal static readonly bool Enabled = true;
 
 	/// <summary>Ticks to wait for the server before giving up on a step.</summary>
 	private const int StepTimeoutTicks = 600;
@@ -77,7 +77,8 @@ internal sealed unsafe class DresserPacker {
 	/// "ghost" outfits and a run of duplicates on 2026-09-03, and which nothing was watching for.
 	/// </summary>
 	private sealed record Job(
-		uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex, int FromDresser) {
+		uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex, int FromDresser,
+		int SlotCount) {
 		/// <summary>How the dresser's entry count should move when this job succeeds.</summary>
 		public int ExpectedDelta => (this.ExistingIndex is null ? 1 : 0) - this.FromDresser;
 	}
@@ -122,15 +123,40 @@ internal sealed unsafe class DresserPacker {
 
 	private const int MaxRestoreAttempts = 3;
 
-	/// <summary>Whether the cogwheel has been pressed for the current job.</summary>
-	/// <summary>Which row of the equipment list to try the cogwheel on next.</summary>
-	private int cogRow;
+	/// <summary>
+	/// The row of the glamour-ready list holding one of this job's pieces. ⚠ -1 until it is read.
+	///
+	/// ⭐⭐⭐ READ, not guessed. This used to be row 0, and then a walk over every row until
+	/// something happened — both of which open the outfit dialog for whatever item is sitting there,
+	/// which is how outfits appeared for sets nobody asked about. DresserList reads it.
+	/// </summary>
+	private int cogTarget = -1;
 
 	/// <summary>Whether the cogwheel has already opened the outfit dialog for this job.</summary>
 	private bool cogDone;
 
-	/// <summary>⚠ A ceiling: headers plus items, so comfortably more rows than any real list.</summary>
-	private const int MaxCogRows = 40;
+	private int cogAttempts;
+
+	/// <summary>⚠ The cog is a request; the dialog takes a moment. Three tries, then give up on the
+	/// job rather than press a fourth time at something that is clearly not listening.</summary>
+	private const int MaxCogAttempts = 3;
+
+	/// <summary>
+	/// Set when the dialog turned out to be for the wrong set and has to be dismissed before
+	/// anything else happens.
+	///
+	/// ⚠ Not a straight SkipJob: leaving a stray dialog open means the NEXT job's first act is to
+	/// find it already there, and the mess compounds. Close it, watch it close, then move on.
+	/// </summary>
+	private bool cancelling;
+
+	private int cancelAttempts;
+
+	/// <summary>Ticks spent waiting for the dialog to say which set it is about.</summary>
+	private int verifyWaits;
+
+	/// <summary>⚠ About half a second. Long enough for a slow frame, short enough to notice.</summary>
+	private const int VerifyWaitTicks = 60;
 
 	/// <summary>How many of the outfit dialog's slots have been ticked for this job.</summary>
 	private int tickSlot;
@@ -172,8 +198,35 @@ internal sealed unsafe class DresserPacker {
 	/// <summary>The inventory list is dumped once a run, not once a job.</summary>
 	private bool probedList;
 
-	/// <summary>Eleven, matching MirageStoreSetItem. Out-of-range indices are harmless.</summary>
+	/// <summary>Eleven, matching MirageStoreSetItem's columns. A hard ceiling on Job.SlotCount.</summary>
 	private const int SetSlots = 11;
+
+	/// <summary>
+	/// How many slots the outfit dialog shows for a set: its columns that are not empty.
+	///
+	/// ⚠⚠ THE DIALOG'S SLOT INDEX IS DENSE, and is not the MirageStoreSetItem column number.
+	/// Vanguard Attire of Aiming has nine pieces spread across columns 2..10, and the dialog answered
+	/// [13,1] through [13,8] — nine rows numbered from zero, with the cogged piece already filled in.
+	/// Firing past the end does nothing, which is why the old code got away with always firing all
+	/// eleven, but there is no reason to knock on doors that are not there.
+	/// </summary>
+	private static int SetSlotCount(uint setItemId) {
+		if (Plugin.Data.GetExcelSheet<MirageStoreSetItem>()?.GetRowOrDefault(setItemId)
+			is not { } row) return SetSlots;
+
+		var columns = new[] {
+			row.MainHand.RowId, row.OffHand.RowId, row.Head.RowId, row.Body.RowId,
+			row.Hands.RowId, row.Legs.RowId, row.Feet.RowId, row.Earrings.RowId,
+			row.Necklace.RowId, row.Bracelets.RowId, row.Ring.RowId,
+		};
+
+		var count = 0;
+		foreach (var id in columns) {
+			if (id != 0) count++;
+		}
+
+		return count == 0 ? SetSlots : count;
+	}
 
 	/// <summary>⚠ Shorter than the others: ticking a box needs no server round trip.</summary>
 	private const int TickSettle = 4;
@@ -245,12 +298,12 @@ internal sealed unsafe class DresserPacker {
 		foreach (var a in r.Additions)
 			this.queue.Add(new Job(a.OutfitItemId, a.OutfitName,
 				a.Pieces.Select(p => p.ItemId).ToList(), a.OutfitIndex,
-				a.Pieces.Count(p => p.Index != uint.MaxValue)));
+				a.Pieces.Count(p => p.Index != uint.MaxValue), SetSlotCount(a.OutfitItemId)));
 
 		foreach (var o in r.NewOutfits)
 			this.queue.Add(new Job(o.SetItemId, o.SetName,
 				o.Pieces.Select(p => p.ItemId).ToList(), null,
-				o.Pieces.Count(p => p.Index != uint.MaxValue)));
+				o.Pieces.Count(p => p.Index != uint.MaxValue), SetSlotCount(o.SetItemId)));
 
 		// ⚠⚠ Refuse before starting rather than stalling halfway. A run that stops mid-way leaves the
 		// bags full of loose gear the player now has to sort out by hand; refusing leaves everything
@@ -543,8 +596,12 @@ internal sealed unsafe class DresserPacker {
 
 		this.state = State.Confirming;
 		this.loggedAddons = false;
-		this.cogRow = 0;
+		this.cogTarget = -1;
+		this.cogAttempts = 0;
 		this.cogDone = false;
+		this.cancelling = false;
+		this.cancelAttempts = 0;
+		this.verifyWaits = 0;
 		this.tickSlot = 0;
 		this.storePressed = false;
 		this.confirmPressed = false;
@@ -741,10 +798,60 @@ internal sealed unsafe class DresserPacker {
 		// the row walk it was meant to stop kept walking. Dead code that reads like a fix is worse than
 		// no fix: it makes the bug look already handled.
 		var dialogUp = AddonVisible("MiragePrismPrismSetConvert");
+
+		// ⚠ Dismissing a wrong dialog comes before everything, including answering prompts — the
+		// whole point is to touch nothing further.
+		if (this.cancelling) {
+			if (!dialogUp) {
+				this.cancelling = false;
+				this.SkipJob("the game opened the wrong outfit");
+				return;
+			}
+
+			if (++this.cancelAttempts > 5) {
+				this.Stop("could not close a dialog the game opened for the wrong outfit");
+				return;
+			}
+
+			CancelDialog();
+			DresserLog.Trace("  fired: MiragePrismPrismSetConvert [-2] (cancel)");
+			this.settle = SettleTicks;
+			return;
+		}
+
 		if (dialogUp && !this.cogDone) {
+			var shown = SetConvertSetId();
+
+			// ⚠ Visible and filled in are not the same instant. A zero here on the first tick or two
+			// is the window having opened before the server said what it is about; a zero that never
+			// resolves is the field having moved, which a patch could do. Waiting a moment tells the
+			// two apart, and both end safely — one proceeds, the other cancels.
+			if (shown == 0 && ++this.verifyWaits < VerifyWaitTicks) return;
+
 			this.cogDone = true;
 			DresserProbe.Values("MiragePrismPrismSetConvert");
 			DresserProbe.Text("MiragePrismPrismSetConvert");
+
+			// ⭐⭐⭐ THE CHECK THAT WAS MISSING, and it is one comparison. The dialog says which
+			// set it is about; until now nothing read it, so the packer would happily fill in and
+			// commit whatever had opened. Measured 2026-09-03, 19:51: job two asked for 45314,
+			// Boulevardier's Attire, and the dialog that opened said 51649, Vanguard Attire of
+			// Scouting — which is the duplicate that landed in deserok's dresser.
+			//
+			// ⚠ A zero here means the value could not be read at all, which after a patch is
+			// exactly what a moved field looks like. Treated as a failure, deliberately: skipping
+			// every job and saying so is a far better way to find that out than committing them.
+			var job = this.queue[this.jobIndex];
+
+			if (shown != job.SetItemId) {
+				DresserLog.Step($"  WRONG SET: the dialog is for {ItemName(shown)} ({shown}), "
+					+ $"wanted {job.Name} ({job.SetItemId}) -- cancelling, nothing committed");
+				this.cancelling = true;
+				this.cancelAttempts = 0;
+				return;
+			}
+
+			DresserLog.Step($"  dialog confirmed as {job.Name} ({shown}) from row {this.cogTarget}");
 		}
 
 		// ⚠⚠ INNERMOST FIRST. The equipment list stays open for the whole flow, so checking it
@@ -784,7 +891,7 @@ internal sealed unsafe class DresserPacker {
 			return;
 		}
 
-		if (!this.storePressed && dialogUp && this.tickSlot < SetSlots) {
+		if (!this.storePressed && dialogUp && this.tickSlot < this.queue[this.jobIndex].SlotCount) {
 			TryFire2("MiragePrismPrismSetConvert", 13, this.tickSlot);
 			DresserLog.Trace($"  fired: MiragePrismPrismSetConvert [13,{this.tickSlot}] (open slot picker)");
 			this.tickSlot++;
@@ -800,37 +907,43 @@ internal sealed unsafe class DresserPacker {
 		if (!this.storePressed && dialogUp && TryFire("MiragePrismPrismSetConvert", 14)) {
 			this.storePressed = true;
 			DresserLog.Step($"  commit {this.queue[this.jobIndex].Name}: "
-				+ $"{this.menusAnswered} slot(s) picked from cog row {this.cogRow - 1}");
+				+ $"{this.menusAnswered} slot(s) picked from row {this.cogTarget}");
 			this.settle = SettleTicks;
 			return;
 		}
 
-		// ⚠ Once per job. The window it lives on never closes, so without this it is not a step but
-		// a loop.
-		// ⚠⚠ THE ROW IS NOT ALWAYS ZERO. That list interleaves slot headers with items — "Main
-		// Hand", the weapon, "Head", the hat — so which row carries our piece depends on whatever
-		// else is in the bags. Row 0 worked for fifty-five outfits by luck of what happened to be
-		// there — the bags were empty except for what we had just restored — and then missed every
-		// single-piece job once there was real loot in them: deserok's recording of one by hand shows
-		// [14, 4, 1].
-		//
-		// ⚠⚠ A WALK IS STILL A GUESS. Cogging an arbitrary row opens the outfit dialog for whatever
-		// item sits on it, which is how outfits appeared for sets nobody asked about. It is left in
-		// place only because storePressed now caps the damage at one entry and MadeCollateral stops the
-		// run — the real answer is to READ the list and cog the row holding our piece, which is what
-		// DresserProbe is dumping the data for.
-		if (!this.cogDone && this.cogRow < MaxCogRows) {
-			if (!this.probedList) {
-				this.probedList = true;
-				DresserProbe.Values("MiragePrismPrismBoxCrystallize");
-				DresserProbe.Text("MiragePrismPrismBoxCrystallize");
+		// ⭐⭐⭐ ONE KNOWN ROW. Not row 0, and not a walk over every row until something opens —
+		// both of those cog whatever item happens to be sitting there, and the dialog they open is
+		// for that item's set. See DresserList for how the row is read, and the check above for what
+		// catches it when the read is wrong anyway.
+		if (!this.cogDone) {
+			if (this.cogTarget < 0) {
+				if (!this.probedList) {
+					this.probedList = true;
+					DresserProbe.Values("MiragePrismPrismBoxCrystallize");
+					DresserProbe.Text("MiragePrismPrismBoxCrystallize");
+				}
+
+				this.cogTarget = this.ResolveCogRow();
+
+				if (this.cogTarget < 0) {
+					// ⚠ The piece is in the bags — we watched it land — but the game is not offering
+					// it as glamour-ready. Registered to a gear set with that filter ticked is the
+					// likeliest reason, and that is the player's setting to change, not ours.
+					this.SkipJob($"the game is not offering {this.queue[this.jobIndex].Name}'s "
+						+ "pieces as glamour-ready");
+					return;
+				}
 			}
 
-			TryFireCogRow("MiragePrismPrismBoxCrystallize", this.cogRow);
-			DresserLog.Trace($"  fired: MiragePrismPrismBoxCrystallize [14,{this.cogRow},1] (cogwheel)");
-			this.cogRow++;
-			this.settle = TickSettle;
-			return;
+			if (this.cogAttempts < MaxCogAttempts) {
+				TryFireCogRow("MiragePrismPrismBoxCrystallize", this.cogTarget);
+				this.cogAttempts++;
+				DresserLog.Trace(
+					$"  fired: MiragePrismPrismBoxCrystallize [14,{this.cogTarget},1] (cogwheel)");
+				this.settle = SettleTicks;
+				return;
+			}
 		}
 
 		// Nothing known is up and the pieces are still here. Say what IS open, once, so a stall
@@ -840,6 +953,73 @@ internal sealed unsafe class DresserPacker {
 			DresserLog.Trace("  stuck; no known dialog is open. Currently visible:");
 			foreach (var name in VisibleAddonNames()) DresserLog.Trace($"        {name}");
 		}
+	}
+
+	/// <summary>
+	/// Which row of the glamour-ready list to cog for the current job. ⚠ -1 if none of its pieces
+	/// are in that list.
+	///
+	/// ⚠ ANY piece of the set will do — the dialog that opens is for the SET, not for the piece —
+	/// so this takes the first one the game is offering rather than insisting on a particular one.
+	/// The cogged piece gets its own slot filled for free, which is why a single-piece outfit needs
+	/// no slot picking at all.
+	/// </summary>
+	private int ResolveCogRow() {
+		var job = this.queue[this.jobIndex];
+		var items = Plugin.Data.GetExcelSheet<Item>();
+
+		foreach (var itemId in job.ItemIds) {
+			if (items?.GetRowOrDefault(itemId) is not { } item) continue;
+
+			var row = DresserList.RowForIcon(item.Icon);
+			if (row < 0) continue;
+
+			DresserLog.Trace($"  list: {ItemName(itemId)} (icon {item.Icon}) is row {row}");
+			return row;
+		}
+
+		DresserLog.Step($"  none of {job.Name}'s pieces are in the glamour-ready list "
+			+ $"({DresserList.Rows().Count} row(s) showing)");
+		return -1;
+	}
+
+	/// <summary>
+	/// Which set the outfit dialog is currently about. ⚠ 0 when it cannot be read.
+	///
+	/// ⭐ Value 4, measured from a live dialog on 2026-09-03: a job for Whisperfine Wool Attire
+	/// opened a dialog reporting 45325, which is that set's item id exactly.
+	/// </summary>
+	private static uint SetConvertSetId() {
+		var addon = Plugin.GameGui.GetAddonByName("MiragePrismPrismSetConvert", 1);
+		if (addon.Address == nint.Zero || !addon.IsVisible) return 0;
+
+		var unit = (AtkUnitBase*)addon.Address;
+		if (unit->AtkValuesCount <= 4) return 0;
+
+		var v = unit->AtkValues[4];
+		return v.Type switch {
+			AtkValueType.UInt => v.UInt,
+			AtkValueType.Int => v.Int < 0 ? 0u : (uint)v.Int,
+			_ => 0u,
+		};
+	}
+
+	/// <summary>
+	/// Close the outfit dialog without storing anything.
+	///
+	/// ⭐ [Int = -2] with close FALSE, copied from the game closing the dialog itself in a recording
+	/// rather than invented. Every other value in this file was recorded the same way, and the one
+	/// time a payload here was reasoned about instead of observed it pressed something else.
+	/// </summary>
+	private static void CancelDialog() {
+		var addon = Plugin.GameGui.GetAddonByName("MiragePrismPrismSetConvert", 1);
+		if (addon.Address == nint.Zero || !addon.IsVisible) return;
+
+		var unit = (AtkUnitBase*)addon.Address;
+		var values = stackalloc AtkValue[1];
+		values[0].Type = AtkValueType.Int;
+		values[0].Int = -2;
+		unit->FireCallback(1, values, false);
 	}
 
 	/// <summary>How many entries the dresser holds right now. ⚠ -1 when it cannot be read.</summary>
@@ -919,8 +1099,12 @@ internal sealed unsafe class DresserPacker {
 		if (this.MadeCollateral(expectedDelta)) return;
 
 		this.jobIndex++;
-		this.cogRow = 0;
+		this.cogTarget = -1;
+		this.cogAttempts = 0;
 		this.cogDone = false;
+		this.cancelling = false;
+		this.cancelAttempts = 0;
+		this.verifyWaits = 0;
 		this.tickSlot = 0;
 		this.storePressed = false;
 		this.confirmPressed = false;
