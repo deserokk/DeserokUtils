@@ -177,10 +177,37 @@ internal sealed class InteractFeature: IDisposable {
 		// chest. So the "stuck targeting a lever until you press escape" annoyance is gone for free,
 		// and the target save/restore that was going to be written is not needed at all.
 		//
+		// ⚠⚠ TRUE OF EVERY KIND EXCEPT ONE, found 2026-09-03. See the gathering block below: a
+		// node has to BE your target, so for that kind alone this key does set it. A full dungeon of
+		// evidence is still a full dungeon of ONE KIND OF THING, and "nothing needs a target" was a
+		// generalisation from a sample that happened not to contain the exception.
+		//
 		// ⚠ The reading is KEPT rather than deleted now it has answered. It costs two string reads on
 		// a keypress, and it is the canary if a patch ever makes interaction start setting the target
 		// -- which would bring the original annoyance back silently.
 		string before = Plugin.Targets.Target?.Name.ToString() ?? "none";
+
+		// ⭐⭐⭐ GATHERING NODES MUST BE YOUR TARGET. Everything else in the world operates from
+		// no target at all -- a whole dungeon of doors, levers and coffers proved that -- but a tree
+		// does nothing unless it is targeted first. Bunny found it; deserok confirmed it in one press
+		// on 2026-09-03: *"works if targetted first, confirmed."*
+		//
+		// ⚠ Why it hid for three weeks: the vanilla key is console-shaped and targets on the first
+		// press, so nobody using it can tell the two steps apart. Ours does the whole thing in one
+		// press, which is the point of it, and that is exactly what made the missing half invisible.
+		//
+		// ⚠⚠ THIS KIND ONLY, deliberately. Setting the target for everything would hand back the
+		// "stuck targeting a lever until you press escape" annoyance that not touching it removed for
+		// free. The exception is scoped to what has been demonstrated and no wider.
+		//
+		// ⚠ No restore afterwards, and that is not an oversight: the gathering window IS built
+		// around the target, so putting the old one back would close the thing we just opened. It
+		// also matches what the real key leaves behind, which is the node.
+		if (chosen.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.GatheringPoint
+		    && Plugin.Targets.Target?.Address != chosen.Address) {
+			Plugin.Targets.Target = chosen;
+			Trace($"targeted \"{chosen.Name}\" first -- gathering nodes need it");
+		}
 
 		// ⚠ Armed BEFORE the call, not after. The window is what tells GimmickConfirm a box belongs to
 		// us, and nothing here guarantees the box cannot appear during the call rather than after it.
