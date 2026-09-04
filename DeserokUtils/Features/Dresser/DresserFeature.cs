@@ -119,6 +119,32 @@ internal sealed class DresserFeature {
 		ImGui.TextWrapped(this.Summary);
 		ImGui.Spacing();
 
+		// ⭐⭐ THE TOOLTIP IS THE PART MOST PEOPLE WILL EVER USE, so it is settled here rather than
+		// buried: it works with no scan, no button and no reading, which is the participant case.
+		//
+		// ⚠ On by default, and a switch all the same. "Install it and it works" is the goal, but a
+		// feature that writes on every item tooltip in the game and cannot be turned off is somebody
+		// else's plugin fighting yours with no way to stop it.
+		var tooltip = Plugin.Config.DresserTooltip;
+		if (ImGui.Checkbox("Note what you own on item tooltips", ref tooltip)) {
+			Plugin.Config.DresserTooltip = tooltip;
+			Plugin.Config.Save();
+		}
+
+		if (ImGui.IsItemHovered()) {
+			ImGui.SetTooltip(
+				"Adds a line to the game's own item tooltips, anywhere they appear:\n"
+				+ "a vendor, the market board, your bags, a Need/Greed roll.\n\n"
+				+ "    ✓ You have this appearance — in your armoury chest\n"
+				+ "    ! You need this for an outfit\n"
+				+ "    x You do not have this appearance\n\n"
+				+ "The dresser half is remembered from your last scan, because the game\n"
+				+ "only sends its contents while you stand at one. Your armoury and what\n"
+				+ "you are wearing are read live.");
+		}
+
+		ImGui.Spacing();
+
 		if (Accent.Button("Scan my dresser", Accent.Blue)) this.Run();
 
 		ImGui.SameLine();
