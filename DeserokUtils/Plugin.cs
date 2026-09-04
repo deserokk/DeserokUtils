@@ -172,6 +172,7 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(repairs);
 		var dresser = new Features.Dresser.DresserFeature();
 		this.dresser = dresser;
+		dresser.Listen();
 		this.dresserOverlay = new Features.Dresser.DresserOverlay(dresser);
 		this.debuffs = debuffs;
 		this.marks = marks;
@@ -315,6 +316,10 @@ public sealed class Plugin: IDalamudPlugin {
 		PluginInterface.UiBuilder.OpenMainUi -= this.OpenMain;
 		PluginInterface.UiBuilder.OpenConfigUi -= this.OpenMain;
 		this.windows.RemoveAllWindows();
+
+		// ⚠ Not in this.features -- the Dresser is wired by hand, so its listener has to be
+		// unregistered by hand too. A stale AddonLifecycle listener survives a plugin reload.
+		this.dresser?.Dispose();
 
 		foreach (var feature in this.features)
 			feature.Dispose();

@@ -2,6 +2,8 @@
 using System.Linq;
 
 using Dalamud.Bindings.ImGui;
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 
 using DeserokUtils.UI;
 
@@ -44,8 +46,51 @@ internal sealed class DresserFeature {
 
 	public void Tick() => this.packer.Tick();
 
+	/// <summary>
+	/// Keep the cached snapshot honest, without anybody having to remember to scan.
+	///
+	/// ⭐⭐⭐ THE DRESSER CANNOT CHANGE WITH ITS WINDOW SHUT. deserok, 2026-09-04: *"this is one
+	/// snapshot that only can be stale if the user opens the glamour chest, puts something in and
+	/// doesn't scan, and we know when the dresser is open because we have to draw the button."*
+	/// That observation is what makes a cache trustworthy rather than merely convenient — there is
+	/// exactly one moment when it can go wrong.
+	///
+	/// ⭐⭐ THE TRIGGER IS BORROWED, and it is better than the one it replaces. This first polled
+	/// the window every frame and refreshed when it closed. Seventhxiv/Collections listens for
+	/// <c>PostRefresh</c> on the dresser addon instead, which the game raises whenever the contents
+	/// change — a page turn, a store, a restore. That is both cheaper (no per-frame work at all, in a
+	/// codebase that has been bitten by draw-loop cost twice) and more correct: the cache keeps up
+	/// WHILE you rearrange, rather than catching up when you walk away.
+	///
+	/// ⚠ Silent. No chat line, no log dump — those belong to a scan somebody asked for. This one
+	/// exists so nobody has to ask, because "remember to press Scan or the tooltips lie" is not a
+	/// thing to build on.
+	///
+	/// ⚠ <see cref="DresserCache.MarkStale"/> stays for the case this cannot cover: the plugin
+	/// enabled halfway through a dresser session, or contents that never loaded.
+	/// </summary>
+	public void Listen() {
+		Plugin.AddonLifecycle.RegisterListener(
+			AddonEvent.PostRefresh, "MiragePrismPrismBox", this.OnDresserRefreshed);
+	}
+
+	public void Dispose() {
+		Plugin.AddonLifecycle.UnregisterListener(
+			AddonEvent.PostRefresh, "MiragePrismPrismBox", this.OnDresserRefreshed);
+	}
+
+	private void OnDresserRefreshed(AddonEvent type, AddonArgs args) {
+		var fresh = new DresserScan().Scan();
+
+		if (fresh.Loaded && fresh.Problem is null) DresserCache.Save(fresh);
+		else DresserCache.MarkStale();
+	}
+
 	public void Run() {
 		this.last = this.scan.Scan();
+
+		// ⚠ Before the report, so a scan that then fails to print still leaves the cache correct.
+		DresserCache.Save(this.last);
 
 		// ⭐⭐ Always dump. Two things in this feature could not be settled from documentation and
 		// are answerable only from a real dresser — and a summary relayed through a person drops

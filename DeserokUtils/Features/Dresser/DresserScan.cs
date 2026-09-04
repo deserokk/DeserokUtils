@@ -103,6 +103,19 @@ internal sealed unsafe class DresserScan {
 		public int LooseInBags;
 
 		/// <summary>
+		/// Every loose piece in the dresser, by item id, whatever the packing made of it.
+		///
+		/// ⚠ DELIBERATELY WIDER than the packing lists. Those answer "what is worth doing"; this one
+		/// answers "do you own this", and a piece that is unpackable, dyed, or already spoken for is
+		/// still a piece you own. Narrowing it to the packable ones would make the tooltip lie by
+		/// omission about exactly the items somebody is most likely to be looking at.
+		/// </summary>
+		public HashSet<uint> LoosePieceIds = new();
+
+		/// <summary>Armoire rows already stored. ⚠ Cabinet row ids, not item ids.</summary>
+		public HashSet<uint> ArmoireRows = new();
+
+		/// <summary>
 		/// Outfits in the dresser holding nothing at all.
 		///
 		/// ⚠⚠ THESE ARE DAMAGE, and this tool made them. A run on 2026-09-03 pressed "Store as
@@ -382,6 +395,27 @@ internal sealed unsafe class DresserScan {
 		var plateItems = PlateItems();
 		var cabinet = this.Cabinet();
 
+		// ⭐⭐ The armoire, whole, before the dresser passes touch anything.
+		//
+		// ⚠ It is NOT enumerable from the dresser — an item in the armoire is not in the dresser at
+		// all, which is the entire reason the armoire is worth using. So "do you own this" can only
+		// be answered for armoire items by walking the Cabinet sheet and asking the game about each
+		// row. ~1000 lookups once per scan, against a tooltip that would otherwise have to guess.
+		//
+		// ⚠⚠ GATED ON IsCabinetLoaded, taken from Seventhxiv/Collections rather than found the hard
+		// way. Without it, IsItemInCabinet answers from a buffer the server has not filled, and an
+		// empty answer is indistinguishable from "you own nothing" — which would quietly wipe the
+		// armoire half of the cache every time somebody scanned away from an inn.
+		//
+		// ⭐ Their note is worth keeping too: the dresser being loaded is itself good evidence you
+		// are at an inn, where the armoire is standing next to it.
+		if (UIState.Instance()->Cabinet.IsCabinetLoaded()) {
+			foreach (var (_, cabinetRow) in cabinet) {
+				if (UIState.Instance()->Cabinet.IsItemInCabinet(cabinetRow))
+					result.ArmoireRows.Add(cabinetRow);
+			}
+		}
+
 		// Pass one: split the dresser into packed outfits and loose pieces.
 		var outfits = new List<(uint Index, uint ItemId)>();
 		var loose = new List<(uint Index, uint ItemId)>();
@@ -399,6 +433,7 @@ internal sealed unsafe class DresserScan {
 				outfits.Add((i, itemId));
 			}
 			else if (cabinet.TryGetValue(itemId, out var cabinetRow)) {
+				result.LoosePieceIds.Add(itemId);
 				// ⭐⭐ The Armoire takes this for free. Never queue it for packing: an outfit would
 				// spend a prism to amortise one slot across a set, where the Armoire takes the whole
 				// slot to zero and gives it back on demand.
@@ -408,6 +443,8 @@ internal sealed unsafe class DresserScan {
 					result.ArmoireEligible.Add(ItemName(itemId));
 			}
 			else {
+				result.LoosePieceIds.Add(itemId);
+
 				// ⚠ A piece a glamour plate is using is still packable — the game only asks first.
 				// An earlier version excluded these and cost six recoverable slots for nothing.
 				if (plateItems.Contains(itemId)) result.InUseByPlate.Add(ItemName(itemId));
