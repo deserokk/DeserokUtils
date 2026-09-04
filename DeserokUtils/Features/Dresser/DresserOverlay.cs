@@ -70,7 +70,7 @@ internal sealed unsafe class DresserOverlay {
 			if (Accent.Button("Stop packing", Accent.Amber)) packer.Stop("you stopped it");
 		}
 		else if (Accent.Button("Scan dresser", Accent.Blue)) {
-			this.feature.Run();
+			this.feature.Run(quiet: true);
 			this.showResults = true;
 		}
 
@@ -261,7 +261,7 @@ internal sealed unsafe class DresserOverlay {
 		if (ImGui.Checkbox("Leave dyed pieces alone", ref skipDyed)) {
 			Plugin.Config.DresserSkipDyed = skipDyed;
 			Plugin.Config.Save();
-			this.feature.Run();
+			this.feature.Run(quiet: true);
 		}
 		if (ImGui.IsItemHovered())
 			ImGui.SetTooltip(
@@ -284,6 +284,14 @@ internal sealed unsafe class DresserOverlay {
 			// ⭐ Say it plainly and in the place the button was. A feature that quietly vanishes
 			// reads as a broken build; one that says it was withdrawn reads as a decision.
 			ImGui.TextDisabled("Packing is off in this build — see the tab for why.");
+		}
+
+		// ⚠ Here too. This window is the one open at the dresser, which is where somebody is
+		// standing when they can actually act on "move it into your bags".
+		foreach (var why in packer.Skipped) {
+			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
+			ImGui.TextWrapped($"• {why}");
+			ImGui.PopStyleColor();
 		}
 
 		if (packer.Verified is { } done) {

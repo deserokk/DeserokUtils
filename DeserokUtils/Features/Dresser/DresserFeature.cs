@@ -97,18 +97,25 @@ internal sealed class DresserFeature {
 		else DresserCache.MarkStale();
 	}
 
-	public void Run() {
+	/// <param name="quiet">
+	/// ⭐⭐ True when the player is LOOKING at the result already — the tab, or the button on the
+	/// dresser window. deserok, 2026-09-04: *"probably want less log spam in this next release, fine
+	/// for us but Q and Bunny hate it."* Five chat lines for one button press is five lines somebody
+	/// has to read past, and every one of them was already on screen.
+	/// </param>
+	public void Run(bool quiet = false) {
 		this.last = this.scan.Scan();
 
 		// ⚠ Before the report, so a scan that then fails to print still leaves the cache correct.
 		DresserCache.Save(this.last);
 
-		// ⭐⭐ Always dump. Two things in this feature could not be settled from documentation and
-		// are answerable only from a real dresser — and a summary relayed through a person drops
-		// exactly the detail the dump exists to carry. See DresserLog.
-		this.logPath = DresserLog.Write(this.last);
+		// ⚠⚠ The full dump is a DIAGNOSTIC and is now behind Verbose. It answered two questions
+		// that could not be settled from documentation, and it stays for that — but writing several
+		// hundred lines per scan on somebody else's machine, forever, to answer a question nobody is
+		// asking, is a cost they never agreed to. Outcomes still always log.
+		if (Plugin.Verbose) this.logPath = DresserLog.Write(this.last);
 
-		Report();
+		if (!quiet) Report();
 	}
 
 	private void Report() {
@@ -119,11 +126,15 @@ internal sealed class DresserFeature {
 			return;
 		}
 
+		// ⚠ One line. It is the answer to /dsu-dresser, and anything more belongs in the tab —
+		// which is where the sentence sends you.
 		Plugin.Chat.Print(
 			$"Dresser: {r.Used}/{r.Capacity} used, {r.SlotsRecoverable} slot(s) recoverable. "
 			+ "See the Dresser tab for the breakdown.");
 
-		if (this.logPath is { } path) Plugin.Chat.Print($"Dresser: details written to {path}");
+		// ⚠ Diagnostic. Nobody who did not turn Verbose on wants a file path in their chat log.
+		if (Plugin.Verbose && this.logPath is { } path)
+			Plugin.Chat.Print($"Dresser: details written to {path}");
 	}
 
 	public void DrawTab() {
@@ -156,7 +167,7 @@ internal sealed class DresserFeature {
 
 		ImGui.Spacing();
 
-		if (Accent.Button("Scan my dresser", Accent.Blue)) this.Run();
+		if (Accent.Button("Scan my dresser", Accent.Blue)) this.Run(quiet: true);
 
 		ImGui.SameLine();
 		ImGui.TextDisabled("(or /dsu-dresser)");
@@ -242,6 +253,15 @@ internal sealed class DresserFeature {
 					+ "Takes a few minutes and needs the glamour dresser window open the\n"
 					+ "whole time — it stops if you close it. Everything it does is undone\n"
 					+ "by right-clicking an outfit and choosing Restore Item.");
+
+			// ⚠ Named, not counted. "2 outfits could not be packed" tells somebody there is a
+			// problem and nothing about which one; the whole value is the name, because every reason
+			// here is something they can go and fix.
+			foreach (var why in this.packer.Skipped) {
+				ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
+				ImGui.TextWrapped($"• {why}");
+				ImGui.PopStyleColor();
+			}
 
 			if (this.packer.Verified is { } done) {
 				ImGui.SameLine();

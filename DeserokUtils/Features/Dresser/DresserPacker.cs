@@ -294,6 +294,15 @@ internal sealed unsafe class DresserPacker {
 	/// <summary>What the final re-scan actually measured, once there is one.</summary>
 	public string? Verified { get; private set; }
 
+	/// <summary>
+	/// What could not be packed, and why, for the tab to show.
+	///
+	/// ⚠ The chat line says "see the Dresser tab", and until this existed that was a promise the
+	/// UI did not keep — the reasons were in the log file, which is exactly the place somebody who
+	/// does not read logs was being sent away from.
+	/// </summary>
+	public IReadOnlyList<string> Skipped => this.skipped;
+
 	public bool Running
 		=> this.state is State.Waiting or State.Restoring or State.Storing
 			or State.Confirming or State.Duplicates;
@@ -809,24 +818,32 @@ internal sealed unsafe class DresserPacker {
 		this.Status = $"All done — {Plural(actual, "dresser slot")} recovered "
 		            + $"({this.usedAtRunStart} → {after.Used})";
 
-		if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts) + ".";
-		else this.Status += ".";
+		if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts);
 
+		// ⭐ Folded into the same sentence rather than a line of its own. A run that packs
+		// twenty-six outfits and cannot do two is a success with a footnote, and it should read like
+		// one — not like two separate announcements of equal weight.
+		if (this.skipped.Count > 0)
+			this.Status += $". {this.skipped.Count} could not be packed — see the Dresser tab";
+
+		this.Status += ".";
+
+		// ⚠⚠ ONE LINE FOR THE WHOLE RUN, however many passes it took. This used to print the
+		// result, then the prediction, then the skip count — three lines for one button, on somebody
+		// else's screen, every time.
 		Plugin.Chat.Print($"Dresser: {this.Status}");
 
 		// ⚠⚠ THE PREDICTION LINE IS GONE. It said "expected -3, measured -2. Run the scan again to
 		// see what is left" — which is a number nobody can act on followed by an instruction the tool
 		// should have followed itself. It now does, so a mismatch resolves into another pass or into
 		// the skip list below, both of which say something useful.
-		if (this.skipped.Count > 0) {
-			Plugin.Chat.Print(
-				$"Dresser: {this.skipped.Count} outfit(s) could not be packed -- see the Dresser tab.");
-			foreach (var entry in this.skipped) DresserLog.Step($"  skipped: {entry}");
-		}
+		foreach (var entry in this.skipped) DresserLog.Step($"  skipped: {entry}");
 
 		this.Verified = this.Status;
 		DresserLog.Step($"=== PACK DONE: {this.Status} ===");
-		DresserLog.Write(after);
+
+		// ⚠ Behind Verbose with the rest of the dumps. The outcome line above always logs.
+		if (Plugin.Verbose) DresserLog.Write(after);
 	}
 
 	/// <summary>
