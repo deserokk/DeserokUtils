@@ -1116,6 +1116,32 @@ internal sealed unsafe class DresserPacker {
 	/// ⚠ Worth naming rather than reporting as a generic refusal, because it is fixable in about
 	/// two seconds by whoever is standing there and by nobody else.
 	/// </summary>
+	/// <summary>
+	/// ⚠⚠⚠ DO NOT "FIX" THIS BY MOVING THE PIECE OUT OF THE ARMOURY. It was tried on
+	/// 2026-09-05 and reverted within the minute.
+	///
+	/// The suggestion is obvious — the message tells the player to move an item by hand while
+	/// MoveItemSlot sits right there — and it is wrong for two reasons that compound.
+	///
+	/// ⚠⚠ FindInBags searches the bags and THEN the armoury, so a piece found in the armoury is not
+	/// necessarily the one we just restored. If the restore quietly failed and the player owns a
+	/// second copy filed away, the "cleanup" moves THEIR copy.
+	///
+	/// ⭐⭐ And that copy is not spare. deserok: *"there are some pieces of gear that are in valid
+	/// use, while the rest of the set is less ideal — you glam those, keep the useful ones in the
+	/// chest."* The armoury is WORKING INVENTORY. The same item id means two different things
+	/// depending on which container holds it: a dresser copy is an appearance, an armoury copy is
+	/// equipment somebody is wearing or has bound to a gear set. A tool that tidies the second while
+	/// thinking about the first is rearranging gear its owner is using.
+	///
+	/// ⭐ The Armoire transfer moves armoury pieces and that is not a contradiction: everything in
+	/// its queue came out of the dresser seconds earlier, so anything it finds IS the piece it just
+	/// restored. The difference is provenance, not permission.
+	///
+	/// ⚠ If this ever does need fixing, the safe shape is to record whether the item was in the
+	/// armoury BEFORE issuing the restore. Absent then and present now is provably ours; present in
+	/// both is ambiguous and must stay untouched.
+	/// </summary>
 	private string WhyNotOffered() {
 		var job = this.queue[this.jobIndex];
 
