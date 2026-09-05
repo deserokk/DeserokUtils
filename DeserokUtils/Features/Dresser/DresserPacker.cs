@@ -505,30 +505,7 @@ internal sealed unsafe class DresserPacker {
 
 		var want = this.pending[0];
 
-		if (FindInBags(want, out var landedIn, out var landedSlot)) {
-			// ⚠⚠⚠ OUT OF THE ARMOURY, NOT A COMPLAINT ABOUT IT. A restored piece lands wherever
-			// the game likes, and equipment goes to the matching armoury category when there is room
-			// — but the glamour-ready list the cogwheel indexes is built from your BAGS. So the piece
-			// arrives perfectly well somewhere the packing cannot reach.
-			//
-			// ⚠⚠ This used to skip the outfit and tell the player to move it by hand, which is a
-			// tool describing a problem it is holding the solution to. The Armoire transfer learned
-			// the same lesson an hour earlier and this file did not get it — the second time tonight a
-			// fix landed in one place and not in its twin.
-			if (IsArmoury(landedIn)) {
-				if (!FreeBagSlot(out var destination, out var destinationSlot)) {
-					this.SkipJob($"no free bag slot to move {ItemName(want)} out of your armoury chest");
-					return;
-				}
-
-				DresserLog.Step($"  moving {ItemName(want)} from {landedIn} to your bags");
-				InventoryManager.Instance()->MoveItemSlot(
-					landedIn, landedSlot, destination, destinationSlot, true);
-
-				this.settle = SettleTicks;
-				return;
-			}
-
+		if (FindInBags(want, out var landedIn, out _)) {
 			DresserLog.Trace($"  landed: {ItemName(want)} ({want}) in {landedIn}");
 			this.pending.RemoveAt(0);
 			this.restoreIssued = false;
@@ -1535,40 +1512,6 @@ internal sealed unsafe class DresserPacker {
 		InventoryType.ArmoryFeets, InventoryType.ArmoryEar, InventoryType.ArmoryNeck,
 		InventoryType.ArmoryWrist, InventoryType.ArmoryRings,
 	};
-
-	/// <summary>⚠ Anything that is not one of the four ordinary bags.</summary>
-	private static bool IsArmoury(InventoryType type) {
-		foreach (var bag in Bags) {
-			if (bag == type) return false;
-		}
-
-		return true;
-	}
-
-	/// <summary>The first empty ordinary bag slot. ⚠ Never the armoury — that is what we are leaving.</summary>
-	private static bool FreeBagSlot(out InventoryType where, out ushort slot) {
-		where = default;
-		slot = 0;
-
-		var manager = InventoryManager.Instance();
-		if (manager is null) return false;
-
-		foreach (var bag in Bags) {
-			var page = manager->GetInventoryContainer(bag);
-			if (page is null || !page->IsLoaded) continue;
-
-			for (var i = 0; i < page->Size; i++) {
-				var item = page->GetInventorySlot(i);
-				if (item is not null && item->ItemId != 0) continue;
-
-				where = bag;
-				slot = (ushort)i;
-				return true;
-			}
-		}
-
-		return false;
-	}
 
 	private static bool FindInBags(uint itemId, out InventoryType container, out ushort slot)
 		=> Search(Bags, itemId, out container, out slot)
