@@ -196,13 +196,9 @@ internal sealed unsafe class DresserOverlay {
 
 			if (ImGui.IsItemHovered())
 				ImGui.SetTooltip(
-					"Every piece in these is Armoire-eligible, so the whole entry could go and the
-"
-					+ "slot would cost nothing. Unpacking is not automated yet.
-
-  "
-					+ string.Join("
-  ", System.Linq.Enumerable.Select(
+					"Every piece in these is Armoire-eligible, so the whole entry could go\n"
+					+ "and the slot would cost nothing. Unpacking is not automated yet.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Select(
 						System.Linq.Enumerable.Take(result.FullyArmoireOutfits, 12),
 						x => $"{x.Name} ({x.Pieces})")));
 		}
