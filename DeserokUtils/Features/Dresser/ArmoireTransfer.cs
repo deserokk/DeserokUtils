@@ -190,13 +190,18 @@ internal sealed unsafe class ArmoireTransfer {
 		}
 
 
-		if (r.ArmoireTransfer.Count == 0) {
+		// ⚠⚠ BOTH SOURCES. This asked only about loose pieces and returned "nothing to do" — so a
+		// dresser with twenty dissolvable outfits and no loose pieces would have been told there was
+		// nothing the Armoire wanted, before the outfit queue was even built.
+		if (r.ArmoireTransfer.Count == 0 && r.Dissolvable.Count == 0) {
 			this.state = State.Done;
-			this.Status = "Nothing in your dresser that the Armoire would take.";
+			this.Status = "Nothing the Armoire would take.";
 			return;
 		}
 
-		if (Room() < 1) {
+		// ⚠ Only a restore needs landing space. A piece already in your bags is already landed, and
+		// an outfit is dissolved only when there is room for all of it — checked per outfit later.
+		if (Room() < 1 && r.ArmoireTransfer.Exists(x => !InBags(x.ItemId))) {
 			this.Fail($"Needs at least {SlotsToLeaveFree + 1} free bag slots; make a little room.");
 			return;
 		}
