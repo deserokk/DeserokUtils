@@ -32,6 +32,29 @@ namespace DeserokUtils.Features.Dresser;
 /// ⚠ So the risk in this file is wasted time and a confused dresser, not lost items — a reason to
 /// be careful rather than frightened, and not a reason to relax about what gets built next to it.
 ///
+/// ## ⚠⚠⚠ TWO PIECES OF FURNITURE, NOT ONE INTERFACE
+///
+/// deserok, 2026-09-05, and it shapes everything: *"armoire is not the same UI as the glamour chest,
+/// it's a different furniture item like 1 yard away, so it involves closing the glam chest,
+/// interacting with the armoire then using that interface."*
+///
+/// So there is no moment when both windows are open. The physical loop is: open the dresser, take
+/// pieces out, close it, turn around, open the Armoire, put them in. That is WHY the batch is sized
+/// by free bag slots — each round trip costs a walk, so the run should carry as much as it can.
+///
+/// ⭐ What this code bets on: the loaded FLAGS outlive their windows. PrismBoxLoaded and
+/// IsCabinetLoaded describe whether the server has sent the contents, not whether you are looking at
+/// them — so opening each once should let the rest run as plain API calls with nothing on screen.
+///
+/// ⚠⚠ UNPROVEN, and it is the thing to watch on the first run. If StoreCabinetItem needs the
+/// Armoire window actually open, the symptom is exact and readable: the restore lands, the store
+/// fires, and IsItemInCabinet never turns true. The log says which step stalled, so the answer comes
+/// out of one attempt rather than out of reasoning.
+///
+/// ⭐ And the fallback is already built elsewhere: the Interact feature can operate a furnishing
+/// from a standing position, which is exactly what "turn around and open the Armoire" is. Worth
+/// reaching for only once the simple version is proven not to work.
+///
 /// ## ⭐ Loose, not packed
 ///
 /// deserok: *"no outfit packing, things go in loose."* Nothing here touches MirageStoreSetItem, the
@@ -137,11 +160,12 @@ internal sealed unsafe class ArmoireTransfer {
 		if (!this.Running) return;
 		if (this.settle > 0) { this.settle--; return; }
 
-		if (!UIState.Instance()->Cabinet.IsCabinetLoaded()) {
-			this.Stop("lost sight of the Armoire");
-			return;
-		}
-
+		// ⚠⚠ NOT aborted on IsCabinetLoaded here, deliberately. The player has to CLOSE one window
+		// and open the other to do this at all, so a flag that turns out to be window-scoped rather
+		// than session-scoped would kill every run mid-way — and the failure would look like the
+		// plugin breaking rather than like an assumption being wrong. The step timeout catches a real
+		// loss of the cabinet and names it.
+		//
 		// ⚠ Answered before anything else, and bounded. A restore or a store can raise one, and an
 		// unanswered prompt looks exactly like a step that never completed.
 		if (this.yesno < MaxYesno && FireYes()) {
