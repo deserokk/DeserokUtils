@@ -101,7 +101,12 @@ internal sealed unsafe class ArmoireTransfer {
 	/// <summary>Ticks between actions. ⚠ Every one of these is a request to the server.</summary>
 	private const int Settle = 20;
 
-	/// <summary>How long to wait for one step before giving up on that piece.</summary>
+	/// <summary>
+	/// How long to wait for one step before giving up on it.
+	///
+	/// ⚠ Generous, because it now also covers opening a piece of furniture and waiting for a server
+	/// round trip — roughly seven seconds at 60fps.
+	/// </summary>
 	private const int StepTimeoutTicks = 400;
 
 	/// <summary>⚠ SelectYesno is generic. Answer a bounded number, never in a loop.</summary>
@@ -273,23 +278,27 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		// ⭐⭐⭐ THE MENU IS NOT ENOUGH. Interacting raises "Store an item / Remove an item /
-		// Nothing" and the server sends nothing until one is chosen — measured 2026-09-05, where the
-		// interact turned him to face the Armoire, the menu appeared, and IsCabinetLoaded stayed
-		// false. deserok: *"we forgot to press 'store item'."*
+		// ⚠⚠⚠ THE MENU FIRST, ALWAYS. The previous version checked "have I interacted enough times"
+		// before checking "is the menu already up", and fired three interacts inside 370 milliseconds —
+		// before the game had drawn anything at all. The whole budget was gone before the first
+		// response, and then it gave up one tick after finally answering the menu.
 		//
-		// ⚠ Entry 0, "Store an item", chosen because it matches what we are here to do. Answering a
-		// menu we raised ourselves is a different thing from answering one that merely happens to be
-		// open, which is why this is bounded and only ever runs inside Opening.
+		// ⭐ Same shape as the packer's confirming loop, and for the same reason: answer what is in
+		// front of you before deciding to knock again.
 		if (this.menuAnswers < MaxOpenAttempts && FireMenuEntry(0)) {
 			this.menuAnswers++;
 			DresserLog.Step($"  chose 'Store an item' (attempt {this.menuAnswers})");
-			this.settle = Settle;
+			this.settle = OpenSettle;
 			return;
 		}
 
+		// ⚠ Already asked and nothing on screen to answer — the server is still thinking. The step
+		// timeout is what decides this has failed, not an attempt counter that cannot see the game.
+		if (this.menuAnswers > 0) return;
+
 		if (this.opens >= MaxOpenAttempts) {
-			this.Fail("Could not reach your Armoire — stand next to it and try again.");
+			DresserProbe.Visible("after interacting with the Armoire");
+			this.Fail("Could not open your Armoire — open it once yourself and try again.");
 			return;
 		}
 
@@ -298,17 +307,16 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		// ⚠ Once, and only when we are about to try again — a stall should name its own cause
-		// rather than needing to be described afterwards.
-		if (this.opens == 1) DresserProbe.Visible("while opening the Armoire");
-
 		this.opens++;
 		DresserLog.Step($"  interacting with the Armoire (attempt {this.opens})");
 
 		TargetSystem.Instance()->InteractWithObject(
 			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)armoire.Address, true);
 
-		this.settle = Settle;
+		// ⚠⚠ A whole second, not a fifth of one. Opening a piece of furniture is a round trip to the
+		// server and then a window animation; the old Settle was tuned for firing a button on a window
+		// that is already there.
+		this.settle = OpenSettle;
 	}
 
 	/// <summary>
@@ -346,6 +354,9 @@ internal sealed unsafe class ArmoireTransfer {
 
 	/// <summary>⚠ A few tries, then say so. Interacting forever at furniture is not a plan.</summary>
 	private const int MaxOpenAttempts = 3;
+
+	/// <summary>⚠ About a second. Furniture opening is a server round trip plus an animation.</summary>
+	private const int OpenSettle = 60;
 
 	private int opens;
 
