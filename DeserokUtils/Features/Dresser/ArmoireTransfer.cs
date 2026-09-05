@@ -832,20 +832,41 @@ internal sealed unsafe class ArmoireTransfer {
 	private void Finish() {
 		this.state = State.Done;
 
-		this.Status = this.Stored == 0
-			? "Nothing was moved to your Armoire."
-			: $"Moved {this.Stored} piece(s) to your Armoire — {this.Stored} dresser slot(s) freed.";
+		// ⚠⚠ LEAD WITH WHAT HAPPENED. This used to open "Nothing was moved to your Armoire" and
+		// then add "11 outfit(s) taken apart", which contradicts itself in the space of one sentence
+		// — eleven outfits came apart, which is real work, and the run reported it as nothing.
+		//
+		// ⭐ Unpacking with nothing stored is a specific and explainable state, not a failure: the
+		// pieces are in your bags. Saying so is the difference between "it broke" and "it got as far
+		// as it could".
+		if (this.Stored > 0 && this.Unpacked > 0) {
+			this.Status = $"Took apart {Plural(this.Unpacked, "outfit")} and moved "
+			            + $"{Plural(this.Stored, "piece")} to your Armoire — "
+			            + $"{Plural(this.Stored + this.Unpacked, "dresser slot")} freed.";
+		}
+		else if (this.Stored > 0) {
+			this.Status = $"Moved {Plural(this.Stored, "piece")} to your Armoire — "
+			            + $"{Plural(this.Stored, "dresser slot")} freed.";
+		}
+		else if (this.Unpacked > 0) {
+			this.Status = $"Took apart {Plural(this.Unpacked, "outfit")}; "
+			            + "their pieces are in your bags.";
+		}
+		else {
+			this.Status = "Nothing was moved to your Armoire.";
+		}
 
-		if (this.Unpacked > 0)
-			this.Status += $" {this.Unpacked} outfit(s) taken apart.";
-
-		if (this.failed.Count > 0) this.Status += $" {this.failed.Count} could not be moved.";
+		if (this.failed.Count > 0)
+			this.Status += $" {this.failed.Count} could not be moved — see the list.";
 
 		Plugin.Chat.Print($"Dresser: {this.Status}");
 		DresserLog.Step($"=== ARMOIRE DONE: {this.Status} ===");
 
 		foreach (var entry in this.failed) DresserLog.Step($"  failed: {entry}");
 	}
+
+	/// <summary>"1 outfit", "3 outfits". ⚠ Never "outfit(s)" — that reads as unfinished software.</summary>
+	private static string Plural(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 
 	private void Fail(string why) {
 		this.state = State.Failed;
