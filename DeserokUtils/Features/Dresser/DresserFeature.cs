@@ -235,6 +235,39 @@ internal sealed class DresserFeature {
 			return;
 		}
 
+		// ⭐⭐ ALSO HERE, not only on the dresser overlay. The overlay is drawn from the glamour
+		// dresser window — and this is the one feature you must CLOSE that window to finish, because
+		// the Armoire is separate furniture a yard away. A button that vanishes at the moment you need
+		// it is not a button.
+		if (Plugin.Config.DresserArmoire && r.ArmoireTransfer.Count > 0) {
+			ImGui.Spacing();
+
+			if (this.armoire.Running) {
+				ImGui.TextColored(new System.Numerics.Vector4(0.62f, 0.86f, 0.68f, 1f), this.armoire.Status);
+				ImGui.SameLine();
+				if (ImGui.SmallButton("Stop##armoiretab")) this.armoire.Stop("you stopped it");
+			}
+			else {
+				if (Accent.Button($"Move {r.ArmoireTransfer.Count} piece(s) to the Armoire", Accent.Amber))
+					this.armoire.Start(r);
+
+				if (ImGui.IsItemHovered())
+					ImGui.SetTooltip(
+						"Open your glamour dresser once and your Armoire once, so the game sends\n"
+						+ "the contents of each. Then this can run with neither window open.");
+			}
+
+			if (this.armoire.Current is ArmoireTransfer.State.Done or ArmoireTransfer.State.Failed
+			    && this.armoire.Status.Length > 0)
+				ImGui.TextDisabled(this.armoire.Status);
+
+			foreach (var why in this.armoire.Failed) {
+				ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
+				ImGui.TextWrapped($"• {why}");
+				ImGui.PopStyleColor();
+			}
+		}
+
 		ImGui.Spacing();
 		ImGui.TextDisabled($"Would cost about {r.PrismsNeeded} glamour prism(s)");
 		ImGui.TextDisabled($"Needs {r.FreeSlotsNeeded} free inventory slot(s) at once");
