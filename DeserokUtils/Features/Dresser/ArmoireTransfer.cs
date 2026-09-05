@@ -78,6 +78,25 @@ internal sealed unsafe class ArmoireTransfer {
 	/// </summary>
 	private const int SlotsToLeaveFree = 3;
 
+	/// <summary>
+	/// ⚠⚠ A CEILING ON TOP OF THE FREE-SLOT RULE. The first run restored all forty-seven pieces in
+	/// a single tick, which should have been impossible under (free - 3) and was not — and until the
+	/// log says why, an arithmetic slip must not be able to empty a dresser into somebody's bags.
+	/// A wrong batch size then costs one extra round trip instead of a mess to clean up by hand.
+	/// </summary>
+	private const int MaxBatch = 8;
+
+	/// <summary>⚠ Ticks between one item and the next — roughly half a second at 60fps.</summary>
+	private const int PaceTicks = 30;
+
+	/// <summary>⚠ Up to this much more, at random. An even beat is a signature of its own.</summary>
+	private const int PaceJitter = 25;
+
+	private readonly Random jitter = new();
+
+	/// <summary>The one piece currently on its way out of the dresser, if any.</summary>
+	private (uint ItemId, uint CabinetRow, string Name)? inFlight;
+
 	/// <summary>Ticks between actions. ⚠ Every one of these is a request to the server.</summary>
 	private const int Settle = 20;
 
@@ -114,6 +133,7 @@ internal sealed unsafe class ArmoireTransfer {
 		this.queue.Clear();
 		this.batch.Clear();
 		this.failed.Clear();
+		this.inFlight = null;
 		this.Stored = 0;
 		this.yesno = 0;
 
@@ -139,7 +159,31 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		this.queue.AddRange(r.ArmoireTransfer);
+		// ⚠⚠⚠ NEVER A PIECE YOU ARE WEARING. deserok, seeing the Armoire's own store window:
+		// *"we just want to be careful to not put equipped items in, or armory chest items."*
+		//
+		// The sharp edge is that StoreCabinetItem takes a CABINET ROW, not a container and slot — it
+		// names the item, not the copy — so the game chooses which one to consume and we cannot tell
+		// it otherwise. For most Armoire gear that is moot, since you own exactly one. The case that
+		// bites is owning two: one worn, one in the dresser. Store could plausibly take the worn one
+		// and leave you stripped, still holding the dresser copy.
+		//
+		// ⭐ So the piece is simply not offered while it is on your body. Cheaper than proving what
+		// the game prefers, and it turns an unknown into a non-issue rather than a hope.
+		foreach (var piece in r.ArmoireTransfer) {
+			if (Equipped(piece.ItemId)) {
+				DresserLog.Step($"  {piece.Name}: you are wearing one, leaving it alone");
+				continue;
+			}
+
+			this.queue.Add(piece);
+		}
+
+		if (this.queue.Count == 0) {
+			this.state = State.Done;
+			this.Status = "Nothing to move — you are wearing the pieces the Armoire would take.";
+			return;
+		}
 		this.state = State.Restoring;
 		this.settle = 0;
 		this.waited = 0;
@@ -191,63 +235,88 @@ internal sealed unsafe class ArmoireTransfer {
 	/// deserok's rule sizes it by what is actually free rather than by a constant somebody guessed.
 	/// </summary>
 	private void TickRestore() {
-		if (this.batch.Count > 0 && AllLanded(this.batch)) {
+		// ⚠ One in flight at a time. See Pace().
+		if (this.inFlight is { } flying) {
+			if (!InBags(flying.ItemId)) return;
+
+			DresserLog.Trace($"  landed: {flying.Name}");
+			this.batch.Add(flying);
+			this.inFlight = null;
+			this.waited = 0;
+			this.settle = Pace();
+			return;
+		}
+
+		var free = DresserPacker.FreeBagSlots();
+		var room = Math.Min(Math.Max(0, free - SlotsToLeaveFree), MaxBatch);
+
+		// Gathered as much as this trip can carry, or there is nothing left to gather.
+		if (this.batch.Count >= room || this.queue.Count == 0) {
+			if (this.batch.Count == 0) { this.Finish(); return; }
+
+			DresserLog.Step($"  storing {this.batch.Count} piece(s)");
 			this.state = State.Storing;
 			this.waited = 0;
 			return;
 		}
 
-		if (this.batch.Count > 0) {
-			// Still arriving. ⚠ Never re-issue: a restore is a request, and asking twice for two
-			// copies of something is how the packer once pulled a piece it did not mean to.
-			return;
-		}
+		var piece = this.queue[0];
+		this.queue.RemoveAt(0);
 
-		if (this.queue.Count == 0) {
-			this.Finish();
-			return;
-		}
-
-		var room = Room();
-		if (room < 1) {
-			this.Stop($"your bags are too full to continue; {this.Stored} moved so far");
+		// ⭐ Already out. A piece the scan found in your bags needs no restore at all — it goes
+		// straight to the store step, and costs no bag slot to gather because it already occupies one.
+		if (InBags(piece.ItemId)) {
+			this.batch.Add(piece);
 			return;
 		}
 
 		var mirage = MirageManager.Instance();
-		var ids = mirage->PrismBoxItemIds;
-
-		while (this.batch.Count < room && this.queue.Count > 0) {
-			var piece = this.queue[0];
-			this.queue.RemoveAt(0);
-
-			// ⚠⚠ The index is read HERE, not remembered from the scan. Removing an entry can move
-			// everything after it, so an index is only ever valid in the tick that read it.
-			var index = -1;
-			for (var i = 0; i < ids.Length; i++) {
-				if (ids[i] != piece.ItemId) continue;
-				index = i;
-				break;
-			}
-
-			if (index < 0) {
-				DresserLog.Step($"  {piece.Name}: no longer in the dresser, skipping");
-				continue;
-			}
-
-			if (!MirageManager.MemberFunctionPointers.RestorePrismBoxItem(mirage, (uint)index)) {
-				DresserLog.Step($"  {piece.Name}: the game refused to restore it");
-				this.failed.Add($"{piece.Name} (could not be taken out of the dresser)");
-				continue;
-			}
-
-			DresserLog.Trace($"  restore: {piece.Name} from index {index}");
-			this.batch.Add(piece);
+		if (mirage is null || !mirage->PrismBoxLoaded) {
+			this.Stop("lost sight of the dresser contents");
+			return;
 		}
 
+		// ⚠⚠ The index is read HERE, in the tick that uses it. Removing an entry can move everything
+		// after it, so an index remembered from the scan is a different item by the time it is used.
+		var ids = mirage->PrismBoxItemIds;
+		var index = -1;
+		for (var i = 0; i < ids.Length; i++) {
+			if (ids[i] != piece.ItemId) continue;
+			index = i;
+			break;
+		}
+
+		if (index < 0) {
+			DresserLog.Step($"  {piece.Name}: no longer in the dresser, skipping");
+			return;
+		}
+
+		if (!MirageManager.MemberFunctionPointers.RestorePrismBoxItem(mirage, (uint)index)) {
+			DresserLog.Step($"  {piece.Name}: the game refused to restore it");
+			this.failed.Add($"{piece.Name} (could not be taken out of the dresser)");
+			return;
+		}
+
+		DresserLog.Trace($"  restore: {piece.Name} from index {index} ({free} free)");
+		this.inFlight = piece;
 		this.waited = 0;
-		this.settle = Settle;
+		this.settle = Pace();
 	}
+
+	/// <summary>
+	/// How long to wait before touching anything again.
+	///
+	/// ⭐⭐⭐ ONE ITEM AT A TIME, PACED. The first run pulled forty-seven pieces out of the dresser
+	/// inside twenty milliseconds, and deserok stopped it for the right reason: *"lets limit to 1
+	/// withdrawn item over n milliseconds, this seems super detectible if we allow all items out at
+	/// once."* He is right, and it is not only about detection — a burst is also unreadable, unstoppable
+	/// and unrecoverable. Forty-seven simultaneous requests cannot be watched, cannot be interrupted
+	/// halfway, and if one goes wrong there is no telling which.
+	///
+	/// ⚠ Jittered, because a perfectly even beat is its own signature. The variation is small and
+	/// costs nothing: speed was never a constraint here — the alternative is doing this by hand.
+	/// </summary>
+	private int Pace() => PaceTicks + this.jitter.Next(PaceJitter);
 
 	/// <summary>
 	/// Put the batch into the Armoire, one piece at a time, confirming each.
@@ -278,11 +347,25 @@ internal sealed unsafe class ArmoireTransfer {
 		// ⚠ Only ask once per settle window; the confirmation above is what decides it worked.
 		UIState.Instance()->Cabinet.StoreCabinetItem(piece.CabinetRow);
 		DresserLog.Trace($"  store: {piece.Name} (cabinet {piece.CabinetRow})");
-		this.settle = Settle;
+
+		// ⚠ Paced like the restores, and for the same reasons. A store is a request to the server
+		// too, and forty-seven of them in a burst is the same signature the restores were.
+		this.settle = this.Pace();
 	}
 
 	/// <summary>Abandon whatever step stalled, and keep going with the rest.</summary>
 	private void GiveUpOnCurrent(string why) {
+		// ⚠ The in-flight restore is the thing that stalled, when there is one. Popping from the
+		// batch instead would blame a piece that arrived perfectly well.
+		if (this.inFlight is { } flying) {
+			this.failed.Add($"{flying.Name} ({why})");
+			DresserLog.Step($"  SKIPPED {flying.Name}: {why}");
+			this.inFlight = null;
+			this.waited = 0;
+			this.yesno = 0;
+			return;
+		}
+
 		if (this.batch.Count > 0) {
 			var piece = this.batch[0];
 			this.batch.RemoveAt(0);
@@ -295,7 +378,7 @@ internal sealed unsafe class ArmoireTransfer {
 
 		// ⚠ Pieces already restored are sitting in the bags. Said plainly at the end rather than
 		// tidied away silently, because they are the player's to deal with and they can see them.
-		if (this.batch.Count == 0 && this.queue.Count == 0) this.Finish();
+		if (this.batch.Count == 0 && this.queue.Count == 0 && this.inFlight is null) this.Finish();
 	}
 
 	private void Finish() {
@@ -331,15 +414,25 @@ internal sealed unsafe class ArmoireTransfer {
 	}
 
 	/// <summary>
-	/// ⚠ The bags only, unlike the packer's search. A restored piece the game filed into the armoury
-	/// chest cannot be stored from there, so finding it would be worse than not finding it — it
-	/// would look landed and then never store.
+	/// ⚠⚠⚠ THE ARMOURY COUNTS, AND LEAVING IT OUT IS WHAT STALLED THE FIRST RUN. Forty-seven
+	/// pieces restored, not one store attempted, every one timing out in turn — because the game
+	/// files restored EQUIPMENT into the matching armoury category when there is room, and this
+	/// looked only in the bags. So nothing ever "landed" and the wait never ended.
+	///
+	/// The packer learned this exact thing on Skyworker's Boots and wrote it down; I did not carry it
+	/// across to a file that does the same restore. A lesson recorded in one place is not a lesson
+	/// applied in another.
+	///
+	/// ⚠ Safe to accept the armoury copy here, which it would NOT be in general: every id in this
+	/// queue came out of the dresser moments ago, so anything found is the piece we just restored
+	/// rather than gear that was already filed away. Equipped pieces are excluded before the queue is
+	/// built, which is the case that actually needed guarding.
 	/// </summary>
 	private static bool InBags(uint itemId) {
 		var manager = InventoryManager.Instance();
 		if (manager is null) return false;
 
-		foreach (var bag in Bags) {
+		foreach (var bag in Anywhere) {
 			var page = manager->GetInventoryContainer(bag);
 			if (page is null || !page->IsLoaded) continue;
 
@@ -352,9 +445,30 @@ internal sealed unsafe class ArmoireTransfer {
 		return false;
 	}
 
-	private static readonly InventoryType[] Bags = {
+	/// <summary>⚠ On your body right now. See the note in Start.</summary>
+	private static bool Equipped(uint itemId) {
+		var manager = InventoryManager.Instance();
+		if (manager is null) return false;
+
+		var page = manager->GetInventoryContainer(InventoryType.EquippedItems);
+		if (page is null || !page->IsLoaded) return false;
+
+		for (var i = 0; i < page->Size; i++) {
+			var item = page->GetInventorySlot(i);
+			if (item is not null && item->ItemId == itemId) return true;
+		}
+
+		return false;
+	}
+
+	/// <summary>⚠ Bags AND armoury: the two places a restore can arrive.</summary>
+	private static readonly InventoryType[] Anywhere = {
 		InventoryType.Inventory1, InventoryType.Inventory2,
 		InventoryType.Inventory3, InventoryType.Inventory4,
+		InventoryType.ArmoryMainHand, InventoryType.ArmoryOffHand, InventoryType.ArmoryHead,
+		InventoryType.ArmoryBody, InventoryType.ArmoryHands, InventoryType.ArmoryLegs,
+		InventoryType.ArmoryFeets, InventoryType.ArmoryEar, InventoryType.ArmoryNeck,
+		InventoryType.ArmoryWrist, InventoryType.ArmoryRings,
 	};
 
 	private static bool FireYes() {

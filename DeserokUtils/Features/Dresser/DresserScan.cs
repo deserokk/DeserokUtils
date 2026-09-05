@@ -494,6 +494,18 @@ internal sealed unsafe class DresserScan {
 					var item = page->GetInventorySlot(slot);
 					if (item is null || item->ItemId == 0) continue;
 
+					// ⭐⭐ THE ARMOIRE TAKES THINGS OUT OF YOUR BAGS TOO, and it is free there as well.
+					// This pass only ever looked for outfit pieces, so a piece sitting loose in your
+					// inventory that the Armoire would take was invisible — which meant the transfer
+					// could only ever act on the dresser, and anything it had ALREADY pulled out was
+					// beyond its reach. Found the hard way: a stalled run left forty-seven pieces in
+					// the bags and a fresh scan could not see any of them.
+					if (cabinet.TryGetValue(item->ItemId, out var bagCabinetRow)
+					    && !UIState.Instance()->Cabinet.IsItemInCabinet(bagCabinetRow)) {
+						result.ArmoireTransfer.Add(
+							(item->ItemId, bagCabinetRow, ItemName(item->ItemId)));
+					}
+
 					// Only things that could ever join an outfit.
 					if (!membership.ContainsKey(item->ItemId)) continue;
 
