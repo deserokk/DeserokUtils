@@ -109,7 +109,17 @@ internal sealed unsafe class ArmoireTransfer {
 	/// </summary>
 	private const int StepTimeoutTicks = 400;
 
-	/// <summary>⚠ SelectYesno is generic. Answer a bounded number, never in a loop.</summary>
+	/// <summary>
+	/// ⚠⚠ PER ACTION, NOT PER RUN, and getting that wrong cost four outfits. A restore raises
+	/// "this is used by a glamour plate, take it anyway?" — the same prompt the packer met on
+	/// Skyworker's Boots — so a run of twenty outfits can legitimately need twenty answers. Capped at
+	/// three for the whole run, it went silent after six and every unpack after that hung waiting for
+	/// a box nobody was answering. deserok saw it from the other side: *"it did a lot of 'a yes no
+	/// opened but not from this key, leaving it alone'"* — another plugin narrating our own stall.
+	///
+	/// ⚠ Still bounded, because SelectYesno is generic and answering one in a loop is how you say
+	/// yes to something nobody asked about. Three per action is a prompt and a retry, not a habit.
+	/// </summary>
 	private const int MaxYesno = 3;
 
 	private readonly List<(uint ItemId, uint CabinetRow, string Name)> queue = new();
@@ -460,39 +470,23 @@ internal sealed unsafe class ArmoireTransfer {
 		// Still waiting for the last one to actually leave.
 		if (this.dissolving is { } pending) {
 			if (Used(mirage) < this.usedBeforeDissolve) {
-				DresserLog.Step($"  unpacked {pending.Name} (layout {this.bitLayout})");
+				DresserLog.Step($"  unpacked {pending.Name}");
 				this.Unpacked++;
 				this.dissolving = null;
-				this.bitLayout = 0;
 				this.waited = 0;
 				this.settle = this.Pace();
 				return;
 			}
 
-			// ⚠⚠⚠ IT RETURNED TRUE AND DID NOTHING, which is the third time this codebase has met
-			// that exact lie — StoreNewOutfit, StoreCabinetItem, and now this. The bool means "the
-			// call was made", never "the thing happened".
-			//
-			// ⭐⭐ So rather than reason about the byte layout a third time, TRY BOTH and let the
-			// dresser say which one worked. restoreBits is a byte*, and eleven slots admit two obvious
-			// readings: a packed bitfield across two bytes, or eleven bytes with one flag each. Every
-			// previous attempt to derive this shape from first principles has been wrong, and the
-			// experiment costs one outfit and four seconds.
-			if (++this.layoutWait < LayoutTimeout) return;
+			// ⚠⚠ The bool is not the answer. RestorePrismBoxSetItem returns true whether or not
+			// anything moves — the third time this codebase has met that exact lie, after StoreNewOutfit
+			// and StoreCabinetItem. The dresser's entry count is the truth, so that is what is watched.
+			if (++this.layoutWait < DissolveTimeout) return;
 
 			this.layoutWait = 0;
-
-			if (this.bitLayout == 0) {
-				this.bitLayout = 1;
-				DresserLog.Step($"  {pending.Name}: packed layout did nothing, trying one byte per slot");
-				this.Dissolve(mirage, pending);
-				return;
-			}
-
-			DresserLog.Step($"  {pending.Name}: neither bit layout worked");
+			DresserLog.Step($"  {pending.Name}: nothing came back");
 			this.failed.Add($"{pending.Name} (could not be unpacked)");
 			this.dissolving = null;
-			this.bitLayout = 0;
 			this.waited = 0;
 			return;
 		}
@@ -530,8 +524,7 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		this.bitLayout = 0;
-		this.layoutWait = 0;
+		this.yesno = 0;
 		this.dissolving = next;
 		this.Dissolve(mirage, next);
 	}
@@ -539,12 +532,15 @@ internal sealed unsafe class ArmoireTransfer {
 	/// <summary>
 	/// Fire the unpack with whichever byte layout we are currently trying.
 	///
-	/// ⚠ Layout 0: the mask packed across two bytes, little-endian — the shape the UI's own callback
-	/// carries as a single number (124, 56, 52).
-	/// ⚠ Layout 1: eleven bytes, one per slot, 1 where a piece should come back. A `byte*` for eleven
-	/// flags reads at least as naturally as a bitfield, and an earlier attempt at this API with all
-	/// eleven bits set was refused rather than ignored — which suggests it was being READ, just not
-	/// the way it was written.
+	/// ⭐⭐ THE MASK, PACKED LITTLE-ENDIAN, and it is measured rather than argued. Two readings were
+	/// tried against a live dresser — this one, and eleven bytes with a flag each — and this is the
+	/// one that works: six outfits came apart on it in a single run, including a nine-piece Vanguard
+	/// set with mask 2044. The loser is deleted rather than kept as a fallback, because a fallback
+	/// nobody can trigger is only a second thing to maintain.
+	///
+	/// ⭐ It is the same number the UI sends: the recorded confirm callback carries 124 for a
+	/// five-piece and 56 for a three-piece, exactly what the scan computes from the filled slots. This
+	/// API and that button are two doors onto one function.
 	/// </summary>
 	private void Dissolve(
 		MirageManager* mirage, (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces) outfit) {
@@ -565,19 +561,12 @@ internal sealed unsafe class ArmoireTransfer {
 		var bits = stackalloc byte[SetSlots];
 		for (var i = 0; i < SetSlots; i++) bits[i] = 0;
 
-		if (this.bitLayout == 0) {
-			bits[0] = (byte)(outfit.Mask & 0xFF);
-			bits[1] = (byte)((outfit.Mask >> 8) & 0xFF);
-		}
-		else {
-			for (var slot = 0; slot < SetSlots; slot++) {
-				if ((outfit.Mask & (1 << slot)) != 0) bits[slot] = 1;
-			}
-		}
+		bits[0] = (byte)(outfit.Mask & 0xFF);
+		bits[1] = (byte)((outfit.Mask >> 8) & 0xFF);
 
 		this.usedBeforeDissolve = Used(mirage);
 		DresserLog.Step($"  unpacking {outfit.Name} at index {index}, mask {outfit.Mask}, "
-			+ $"layout {this.bitLayout} ({outfit.Pieces} piece(s))");
+			+ $"({outfit.Pieces} piece(s))");
 
 		var ok = MirageManager.MemberFunctionPointers.RestorePrismBoxSetItem(
 			mirage, (uint)index, bits);
@@ -591,13 +580,10 @@ internal sealed unsafe class ArmoireTransfer {
 	/// <summary>Eleven, matching MirageStoreSetItem's columns.</summary>
 	private const int SetSlots = 11;
 
-	/// <summary>Which reading of restoreBits is being tried. 0 = packed, 1 = one byte per slot.</summary>
-	private int bitLayout;
-
 	private int layoutWait;
 
 	/// <summary>⚠ About two seconds. Long enough for a server round trip, short enough to try again.</summary>
-	private const int LayoutTimeout = 120;
+	private const int DissolveTimeout = 120;
 
 	private static int Used(MirageManager* mirage) {
 		var ids = mirage->PrismBoxItemIds;
@@ -679,6 +665,7 @@ internal sealed unsafe class ArmoireTransfer {
 		}
 
 		DresserLog.Trace($"  restore: {piece.Name} from index {index} ({free} free)");
+		this.yesno = 0;
 		this.inFlight = piece;
 		this.waited = 0;
 		this.settle = Pace();
@@ -728,6 +715,7 @@ internal sealed unsafe class ArmoireTransfer {
 		}
 
 		// ⚠ Only ask once per settle window; the confirmation above is what decides it worked.
+		this.yesno = 0;
 		UIState.Instance()->Cabinet.StoreCabinetItem(piece.CabinetRow);
 		DresserLog.Trace($"  store: {piece.Name} (cabinet {piece.CabinetRow})");
 
@@ -745,7 +733,6 @@ internal sealed unsafe class ArmoireTransfer {
 			this.failed.Add($"{outfit.Name} ({why})");
 			DresserLog.Step($"  SKIPPED {outfit.Name}: {why}");
 			this.dissolving = null;
-			this.bitLayout = 0;
 			this.layoutWait = 0;
 			this.waited = 0;
 			return;
