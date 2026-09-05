@@ -221,7 +221,11 @@ internal sealed unsafe class DresserOverlay {
 		// your bags scores MINUS one dresser slot (the dresser goes from holding none to holding an
 		// outfit), so the job was real, worth doing, and silently hidden. Reported by deserok with a
 		// Mistwake hood sitting in his bags, 2026-09-03.
-		var work = result.Additions.Count + result.NewOutfits.Count + result.Duplicates.Count;
+		// ⚠⚠ PHASE TWO COUNTS AS WORK. Without it the tab said "Nothing left to pack" while a pile
+		// of loose gear sat in the bags waiting to be stored — the packer's whole reason for existing
+		// reported as nothing to do.
+		var work = result.Additions.Count + result.NewOutfits.Count
+		         + result.Duplicates.Count + result.StoreLoose.Count;
 
 		if (work == 0) {
 			ImGui.TextDisabled(result.ArmoireEligible.Count > 0
@@ -232,6 +236,15 @@ internal sealed unsafe class DresserOverlay {
 
 		// ⭐ The headline first. Somebody stood at the dresser wants the number that decides whether
 		// to bother, not a breakdown.
+		if (result.StoreLoose.Count > 0) {
+			ImGui.TextUnformatted($"{result.StoreLoose.Count} loose piece(s) to put in the dresser");
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"Gear in your bags whose appearance the dresser does not already hold.\n\n  "
+					+ string.Join("\n  ", System.Linq.Enumerable.Select(
+						System.Linq.Enumerable.Take(result.StoreLoose, 12), x => x.Name)));
+		}
+
 		if (result.SlotsRecoverable > 0) {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
 			ImGui.Text($"{result.SlotsRecoverable} dresser slot(s) recoverable");

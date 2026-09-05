@@ -64,7 +64,7 @@ internal sealed unsafe class DresserPacker {
 	/// </summary>
 	private const int SettleTicks = 20;
 
-	internal enum State { Idle, Waiting, Restoring, Storing, Confirming, Duplicates, Done, Failed }
+	internal enum State { Idle, Waiting, Restoring, Storing, Confirming, Loose, Duplicates, Done, Failed }
 
 	/// <summary>
 	/// One outfit to build: the set, the item ids that should go into it, and how many of those
@@ -305,7 +305,10 @@ internal sealed unsafe class DresserPacker {
 
 	public bool Running
 		=> this.state is State.Waiting or State.Restoring or State.Storing
-			or State.Confirming or State.Duplicates;
+			or State.Confirming or State.Loose or State.Duplicates;
+
+	/// <summary>Loose pieces stored into the dresser this run. ⚠ Phase two.</summary>
+	public int LooseStored { get; private set; }
 
 	/// <summary>
 	/// Queue everything a scan found. ⚠ Additions first: a piece joining an outfit that already
@@ -345,6 +348,11 @@ internal sealed unsafe class DresserPacker {
 		// ⚠ One entry per SURPLUS copy: the first of each stays in the dresser.
 		foreach (var d in r.Duplicates)
 			for (var i = 1; i < d.Indices.Count; i++) this.duplicates.Add(d.ItemId);
+
+		this.loose.Clear();
+		this.loose.AddRange(r.StoreLoose);
+		this.storingLoose = null;
+		if (fresh) this.LooseStored = 0;
 		this.Verified = null;
 		this.usedAtStart = r.Used;
 
@@ -386,6 +394,15 @@ internal sealed unsafe class DresserPacker {
 			            + "Make room and try again.";
 			DresserLog.Step($"REFUSED: needs {needed} free slots, has {free}");
 			Plugin.Chat.Print($"Dresser: {this.Status}");
+			return;
+		}
+
+		if (this.queue.Count == 0 && this.loose.Count > 0) {
+			this.state = State.Loose;
+			this.waited = 0;
+			this.settle = 0;
+			this.Status = $"Storing {this.loose.Count} loose piece(s)...";
+			DresserLog.Step($"=== PACK START: {this.loose.Count} loose piece(s), no outfits ===");
 			return;
 		}
 
@@ -477,6 +494,7 @@ internal sealed unsafe class DresserPacker {
 			case State.Restoring: this.TickRestore(mirage); break;
 			case State.Storing: this.TickStore(mirage); break;
 			case State.Confirming: this.TickConfirming(); break;
+			case State.Loose: this.TickLoose(mirage); break;
 			case State.Duplicates: this.TickDuplicates(mirage); break;
 		}
 	}
@@ -709,6 +727,102 @@ internal sealed unsafe class DresserPacker {
 	/// already packed and that was the point of the run — so a failure here just moves to the next
 	/// one and is counted at the end.
 	/// </summary>
+	/// <summary>
+	/// Phase two: put loose gear into the dresser, plainly.
+	///
+	/// ⭐⭐⭐ THE ORIGINAL POINT OF THE WHOLE FEATURE, and it was missing until 2026-09-05.
+	/// Everything before this could only form OUTFITS, so a piece belonging to no set, or to a set
+	/// you own nothing else of, was looked at and left in your bags. deserok: *"The entire spec was
+	/// 'save me from having to sift through what exists'."* Sifting is exactly what you still had to
+	/// do for anything phase one could not use.
+	///
+	/// ⭐⭐ The call is one flag away from the one we already had:
+	/// <code>
+	///   MiragePrismPrismBoxCrystallize [14, row, 1]   the cogwheel — store as an outfit
+	///   MiragePrismPrismBoxCrystallize [14, row, 0]   store it plainly
+	/// </code>
+	/// Recorded from deserok clicking one item's name rather than its cog. It also explains a
+	/// [14, 0, 0] in the very first recording three days ago that nothing could account for at the
+	/// time — that was a plain store, seen before we knew there was such a thing.
+	///
+	/// ⚠ It raises a SelectYesno every time, which is answered here rather than assumed away.
+	/// </summary>
+	private void TickLoose(MirageManager* mirage) {
+		// The one in flight has arrived when it is no longer in the bags.
+		if (this.storingLoose is { } sent) {
+			if (FindInBags(sent.ItemId, out _, out _)) {
+				// ⚠ The prompt is part of the store, not an interruption to it.
+				if (this.looseYesno < MaxYesno && TryFire("SelectYesno", 0)) {
+					this.looseYesno++;
+					DresserLog.Trace($"  fired: SelectYesno [0] (store {sent.Name})");
+					this.settle = SettleTicks;
+				}
+
+				return;
+			}
+
+			DresserLog.Step($"  stored {sent.Name} in the dresser");
+			this.LooseStored++;
+			this.storingLoose = null;
+			this.waited = 0;
+			this.settle = SettleTicks;
+			return;
+		}
+
+		if (this.loose.Count == 0) {
+			this.state = State.Duplicates;
+			this.waited = 0;
+			return;
+		}
+
+		var piece = this.loose[0];
+		this.loose.RemoveAt(0);
+
+		// ⚠ Read the row now. The list is rebuilt every time something leaves it, so a row number
+		// from a moment ago is a different item.
+		var items = Plugin.Data.GetExcelSheet<Item>();
+		if (items?.GetRowOrDefault(piece.ItemId) is not { } row) return;
+
+		var listRow = DresserList.RowForIcon(row.Icon);
+		if (listRow < 0) {
+			DresserLog.Step($"  {piece.Name}: the game is not offering it as glamour-ready");
+			this.skipped.Add($"{piece.Name} (not offered as glamour-ready)");
+			return;
+		}
+
+		DresserLog.Step($"  storing {piece.Name} from row {listRow}");
+		TryFireCrystallize(listRow, 0);
+
+		this.storingLoose = piece;
+		this.looseYesno = 0;
+		this.waited = 0;
+		this.settle = SettleTicks;
+	}
+
+	private readonly List<(uint ItemId, string Name)> loose = new();
+	private (uint ItemId, string Name)? storingLoose;
+	private int looseYesno;
+
+	/// <summary>
+	/// Press a row of the glamour-ready list. ⚠ <paramref name="action"/> is 1 for the cogwheel
+	/// (store as an outfit) and 0 for a plain store — recorded, not derived.
+	/// </summary>
+	private static bool TryFireCrystallize(int row, int action) {
+		var addon = Plugin.GameGui.GetAddonByName("MiragePrismPrismBoxCrystallize", 1);
+		if (addon.Address == nint.Zero || !addon.IsVisible) return false;
+
+		var unit = (AtkUnitBase*)addon.Address;
+
+		var values = stackalloc AtkValue[3];
+		for (var i = 0; i < 3; i++) values[i].Type = AtkValueType.UInt;
+		values[0].UInt = 14;
+		values[1].UInt = (uint)row;
+		values[2].UInt = (uint)action;
+
+		unit->FireCallback(3, values, true);
+		return true;
+	}
+
 	private void TickDuplicates(MirageManager* mirage) {
 		if (this.duplicates.Count == 0) {
 			this.state = State.Done;
@@ -831,6 +945,9 @@ internal sealed unsafe class DresserPacker {
 		var parts = new List<string>();
 		if (this.OutfitsCreated > 0) parts.Add(Plural(this.OutfitsCreated, "new outfit"));
 		if (this.OutfitsExtended > 0) parts.Add($"{Plural(this.OutfitsExtended, "outfit")} extended");
+		if (this.LooseStored > 0)
+			parts.Add($"{Plural(this.LooseStored, "loose piece")} stored");
+
 		if (this.duplicatesPulled > 0)
 			parts.Add($"{Plural(this.duplicatesPulled, "duplicate")} back in your bags");
 
@@ -1308,7 +1425,9 @@ internal sealed unsafe class DresserPacker {
 		this.usedAtJobStart = UsedEntries();
 
 		if (this.jobIndex >= this.queue.Count) {
-			this.state = State.Duplicates;
+			// ⭐ Phase two before phase three: put things IN before taking duplicates OUT, so a piece
+			// stored this run can be recognised as the copy that makes another one surplus.
+			this.state = this.loose.Count > 0 ? State.Loose : State.Duplicates;
 			this.restoreIssued = false;
 			this.restoreAttempts = 0;
 			this.restoreWait = 0;

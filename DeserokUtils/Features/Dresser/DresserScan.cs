@@ -204,6 +204,20 @@ internal sealed unsafe class DresserScan {
 		public List<(uint ItemId, uint CabinetRow, string Name)> ArmoireTransfer = new();
 
 		/// <summary>
+		/// Loose gear in your bags whose appearance the dresser does not already hold.
+		///
+		/// ⭐⭐⭐ PHASE TWO, and the whole original point. deserok, restating the spec after an hour
+		/// of me polishing the wrong end of it: *"Pack should take all items that can fit in outfits
+		/// and put them in outfits, lets call this phase 1, then it should take every loose item that
+		/// does not exist in the glam chest and pull them in. The entire spec was 'save me from having
+		/// to sift through what exists'."*
+		///
+		/// ⚠ Only what phase one did not claim. A piece that is about to become part of an outfit is
+		/// already spoken for, and storing it loose first would cost a slot to undo.
+		/// </summary>
+		public List<(uint ItemId, string Name)> StoreLoose = new();
+
+		/// <summary>
 		/// Pieces already sitting in the Armoire, of which the dresser holds another copy.
 		///
 		/// ⚠ Different advice: there is nothing to store, the copy is simply surplus. Worth naming
@@ -428,6 +442,7 @@ internal sealed unsafe class DresserScan {
 		var stain1 = mirage->PrismBoxStain1Ids;
 
 		var sets = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
+		var items = Plugin.Data.GetExcelSheet<Item>();
 		var membership = this.Membership();
 		var plateItems = PlateItems();
 		var cabinet = this.Cabinet();
@@ -749,6 +764,62 @@ internal sealed unsafe class DresserScan {
 		foreach (var o in result.NewOutfits) {
 			foreach (var p in o.Pieces) {
 				if (p.Index == FromBags) result.BagSlotsFreed++;
+			}
+		}
+
+		// ⭐⭐ PHASE TWO. Everything left in the bags that the dresser does not already hold — after
+		// the outfit passes have taken what they want, so nothing is claimed twice.
+		//
+		// ⚠ "Already holds" means the APPEARANCE, not the item: a piece sitting loose in the dresser
+		// and the same piece filling a slot of a packed outfit are both reasons not to store another.
+		var owned = new HashSet<uint>(result.LoosePieceIds);
+
+		foreach (var outfit in result.Packed) {
+			foreach (var (slot, _, filled) in outfit.Slots) {
+				if (!filled) continue;
+				if (sets?.GetRowOrDefault(outfit.ItemId) is not { } row) continue;
+
+				var columns = new[] {
+					row.MainHand.RowId, row.OffHand.RowId, row.Head.RowId, row.Body.RowId,
+					row.Hands.RowId, row.Legs.RowId, row.Feet.RowId, row.Earrings.RowId,
+					row.Necklace.RowId, row.Bracelets.RowId, row.Ring.RowId,
+				};
+
+				if (slot < columns.Length && columns[slot] != 0) owned.Add(columns[slot]);
+			}
+		}
+
+		// ⚠ And whatever phase one is about to pack, which is not in the dresser yet but will be.
+		foreach (var a in result.Additions) {
+			foreach (var piece in a.Pieces) owned.Add(piece.ItemId);
+		}
+
+		foreach (var o in result.NewOutfits) {
+			foreach (var piece in o.Pieces) owned.Add(piece.ItemId);
+		}
+
+		var manager2 = InventoryManager.Instance();
+		if (manager2 is not null) {
+			var seen = new HashSet<uint>();
+
+			foreach (var bag in Bags) {
+				var page = manager2->GetInventoryContainer(bag);
+				if (page is null || !page->IsLoaded) continue;
+
+				for (var slot = 0; slot < page->Size; slot++) {
+					var item = page->GetInventorySlot(slot);
+					if (item is null || item->ItemId == 0) continue;
+
+					var itemId = item->ItemId > 1_000_000 ? item->ItemId - 1_000_000 : item->ItemId;
+					if (owned.Contains(itemId) || !seen.Add(itemId)) continue;
+
+					// ⚠ Gear only, and nothing the dresser would refuse. A soul crystal is
+					// equippable and is not an appearance.
+					if (items?.GetRowOrDefault(itemId) is not { } row2) continue;
+					if (row2.EquipSlotCategory.RowId == 0 || row2.ItemUICategory.RowId == 62) continue;
+
+					result.StoreLoose.Add((itemId, ItemName(itemId)));
+				}
 			}
 		}
 
