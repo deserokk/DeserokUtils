@@ -502,6 +502,17 @@ internal sealed unsafe class ArmoireTransfer {
 			if (Used(mirage) < this.usedBeforeDissolve) {
 				DresserLog.Step($"  unpacked {pending.Name}");
 				this.Unpacked++;
+
+				// ⭐⭐ ITS PIECES ARE NOW WORK. They were part of one dresser entry when the scan ran
+				// and are eight separate things now, so nothing in the queue knows about them. Adding
+				// them here is what makes "take apart nine outfits" mean their pieces reach the
+				// Armoire rather than sit in the bags while the run reports success.
+				foreach (var piece in pending.Contents) {
+					if (this.queue.Exists(x => x.ItemId == piece.ItemId)) continue;
+					this.queue.Add(piece);
+				}
+
+				DresserLog.Step($"    {pending.Contents.Count} piece(s) added to the queue");
 				this.dissolving = null;
 				this.waited = 0;
 				this.settle = this.Pace();
@@ -524,6 +535,7 @@ internal sealed unsafe class ArmoireTransfer {
 		if (this.dissolve.Count == 0) {
 			this.state = State.Restoring;
 			this.waited = 0;
+			DresserLog.Step($"  {this.queue.Count} piece(s) to store");
 			return;
 		}
 
@@ -573,7 +585,7 @@ internal sealed unsafe class ArmoireTransfer {
 	/// API and that button are two doors onto one function.
 	/// </summary>
 	private void Dissolve(
-		MirageManager* mirage, (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces) outfit) {
+		MirageManager* mirage, (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces, List<(uint ItemId, uint CabinetRow, string Name)> Contents) outfit) {
 		var ids = mirage->PrismBoxItemIds;
 		var index = -1;
 		for (var i = 0; i < ids.Length; i++) {
@@ -629,10 +641,10 @@ internal sealed unsafe class ArmoireTransfer {
 		return used;
 	}
 
-	private readonly List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)> dissolve
+	private readonly List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces, List<(uint ItemId, uint CabinetRow, string Name)> Contents)> dissolve
 		= new();
 
-	private (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)? dissolving;
+	private (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces, List<(uint ItemId, uint CabinetRow, string Name)> Contents)? dissolving;
 	private int usedBeforeDissolve;
 
 	private void TickRestore() {

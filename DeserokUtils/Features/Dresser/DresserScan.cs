@@ -140,8 +140,8 @@ internal sealed unsafe class DresserScan {
 		/// ArmoireTransfer.Unpack. ⚠ The INDEX is a snapshot and must be re-read before use; it is
 		/// carried only to identify which outfit was meant.
 		/// </summary>
-		public List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)> Dissolvable
-			= new();
+		public List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces,
+			List<(uint ItemId, uint CabinetRow, string Name)> Contents)> Dissolvable = new();
 
 		/// <summary>
 		/// Outfits in the dresser holding nothing at all.
@@ -683,16 +683,28 @@ internal sealed unsafe class DresserScan {
 					// all eleven bits and was refused — almost certainly for asking after pieces the
 					// outfit does not have.
 					ushort mask = 0;
+
+					// ⭐⭐⭐ THE CONTENTS TRAVEL WITH THE OUTFIT. Dissolving one turns a single dresser
+					// entry into eight loose pieces, and those pieces are work that did not exist when
+					// the scan ran — so a queue built from the scan cannot contain them. The first run
+					// took nine outfits apart, stored the four pieces it already knew about, and
+					// finished, leaving fifty pieces in the bags and calling it success.
+					var contents = new List<(uint, uint, string)>();
+
 					for (var slot = 0; slot < slotItems.Length; slot++) {
 						if (slotItems[slot] == 0) continue;
 						if (!MirageManager.MemberFunctionPointers.IsSetSlotUnlocked(
 							    mirage, outfitIndex, slot)) continue;
 
 						mask |= (ushort)(1 << slot);
+
+						if (cabinet.TryGetValue(slotItems[slot], out var pieceRow))
+							contents.Add((slotItems[slot], pieceRow, ItemName(slotItems[slot])));
 					}
 
 					result.Dissolvable.Add(
-						(outfitIndex, outfitItemId, ItemName(outfitItemId), mask, filledCount));
+						(outfitIndex, outfitItemId, ItemName(outfitItemId), mask, filledCount,
+							contents));
 				}
 
 				// ⚠ An outfit with no filled slot at all. See Result.EmptyOutfits — this tool made
