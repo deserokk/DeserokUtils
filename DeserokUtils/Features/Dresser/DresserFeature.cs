@@ -228,6 +228,11 @@ internal sealed class DresserFeature {
 		Line("New outfits you could pack", r.NewOutfits.Count, r.SlotsFromNewOutfits);
 		Line("Exact duplicates", r.Duplicates.Count, r.SlotsFromDuplicates);
 
+		// ⚠ Phase two, which the tab did not mention at all — the overlay listed it and this did
+		// not, so the two halves of the same UI disagreed about how much work there was.
+		if (r.StoreLoose.Count > 0)
+			ImGui.TextUnformatted($"Loose gear to put in the dresser: {r.StoreLoose.Count}");
+
 		ImGui.Separator();
 
 		// ⭐ The one number the whole tool exists to produce.

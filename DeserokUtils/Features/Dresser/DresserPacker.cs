@@ -927,7 +927,10 @@ internal sealed unsafe class DresserPacker {
 		// ⚠ The stopping condition is a pass that packs NOTHING, not an empty queue. Some jobs can
 		// never succeed — a piece the game filed into the armoury, a set whose dialog opens wrong —
 		// and those would otherwise be retried forever.
-		var stillToDo = after.Additions.Count + after.NewOutfits.Count;
+		// ⚠⚠ StoreLoose COUNTS. Without it the multi-pass loop stops the moment no outfits are
+		// left, even with a bag full of loose gear phase two has not touched — the same one-sided
+		// question that has now produced four separate bugs tonight, asked in a fifth place.
+		var stillToDo = after.Additions.Count + after.NewOutfits.Count + after.StoreLoose.Count;
 
 		if (stillToDo > 0 && this.packedThisPass > 0 && this.pass < MaxPasses) {
 			this.pass++;
