@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text;
 
 using Dalamud.Game.Addon.Lifecycle;
@@ -120,9 +120,9 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 		this.seen = 0;
 		string shown = this.filters.Length == 0 ? "everything except known noise" : string.Join(", ", this.filters);
 		Plugin.Chat.Print(
-			$"[FcBuffs] recording {shown} for 45s. Switch a buff on ONCE, "
+			$"[FcBuffs] recording {shown} for 45s. Do the thing ONCE, "
 			+ "then run /fcbuffs record again to stop.");
-		Plugin.Log.Information($"FcBuffs recorder ARMED ({shown})");
+		SniffLog.Mark($"RECORDING ARMED ({shown})");
 	}
 
 	private void Disarm(string why) {
@@ -130,8 +130,9 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 			return;
 		this.armed = false;
 		this.Uninstall();
-		Plugin.Chat.Print($"[FcBuffs] recording stopped ({why}) -- {this.seen} event(s). See dalamud.log.");
-		Plugin.Log.Information($"FcBuffs recorder DISARMED ({why}), {this.seen} event(s)");
+		SniffLog.Mark($"RECORDING STOPPED ({why}) — {this.seen} event(s)");
+		Plugin.Chat.Print(
+			$"[FcBuffs] recording stopped ({why}) -- {this.seen} event(s), written to sniff.log.");
 	}
 
 	/// <summary>Called from the feature's tick so an armed recorder cannot outlive its window.</summary>
@@ -162,8 +163,11 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 				string name = addon->NameString;
 				if (this.Matches(name)) {
 					this.seen++;
-					Plugin.Log.Information(
-						$"FcBuffs CALLBACK: addon=\"{name}\" close={close} values=[{DescribeValues(valueCount, values)}]");
+
+					// ⚠⚠ To OUR file, not Dalamud's. See SniffLog: the rolling log ate a recording
+					// that took a person standing in a specific place to produce.
+					SniffLog.Write(
+						$"CALLBACK addon=\"{name}\" close={close} values=[{DescribeValues(valueCount, values)}]");
 				}
 			}
 		}
@@ -223,8 +227,8 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 
 		// ⭐ To the log only, never to chat. Hundreds of UI events in the chat box would bury the one
 		// line that matters -- and the log is the thing that survives to be grepped.
-		Plugin.Log.Information(
-			$"FcBuffs rec: addon=\"{args.AddonName}\" atkEventType={e.AtkEventType} eventParam={e.EventParam}");
+		SniffLog.Write(
+			$"  event addon=\"{args.AddonName}\" type={e.AtkEventType} param={e.EventParam}");
 	}
 
 	public void Dispose() {

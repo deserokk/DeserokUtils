@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 using Dalamud.Hooking;
 
@@ -143,7 +143,10 @@ internal sealed unsafe class InteractSniffer: IDisposable {
 		// ⚠ Unconditional, not Diag. Three features this week produced an empty dalamud.log on their
 		// first test because the decisions only went to a channel that is off by default. A dungeon
 		// run is a handful of interactions, not a flood.
-		Plugin.Log.Information($"Interact sniff: {line}");
+		// ⚠⚠ To sniff.log, not Dalamud's. A recording is expensive to produce — somebody has to
+		// stand in a specific place and press a specific key — and dalamud.log rotates. It ate the
+		// outfit-unpack chain between Wednesday and Friday.
+		SniffLog.Write($"INTERACT {line}");
 		Plugin.Chat.Print($"[Interact] {line}");
 	}
 
