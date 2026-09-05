@@ -459,13 +459,41 @@ internal sealed unsafe class ArmoireTransfer {
 
 		// Still waiting for the last one to actually leave.
 		if (this.dissolving is { } pending) {
-			if (Used(mirage) >= this.usedBeforeDissolve) return;
+			if (Used(mirage) < this.usedBeforeDissolve) {
+				DresserLog.Step($"  unpacked {pending.Name} (layout {this.bitLayout})");
+				this.Unpacked++;
+				this.dissolving = null;
+				this.bitLayout = 0;
+				this.waited = 0;
+				this.settle = this.Pace();
+				return;
+			}
 
-			DresserLog.Step($"  unpacked {pending.Name}");
-			this.Unpacked++;
+			// ⚠⚠⚠ IT RETURNED TRUE AND DID NOTHING, which is the third time this codebase has met
+			// that exact lie — StoreNewOutfit, StoreCabinetItem, and now this. The bool means "the
+			// call was made", never "the thing happened".
+			//
+			// ⭐⭐ So rather than reason about the byte layout a third time, TRY BOTH and let the
+			// dresser say which one worked. restoreBits is a byte*, and eleven slots admit two obvious
+			// readings: a packed bitfield across two bytes, or eleven bytes with one flag each. Every
+			// previous attempt to derive this shape from first principles has been wrong, and the
+			// experiment costs one outfit and four seconds.
+			if (++this.layoutWait < LayoutTimeout) return;
+
+			this.layoutWait = 0;
+
+			if (this.bitLayout == 0) {
+				this.bitLayout = 1;
+				DresserLog.Step($"  {pending.Name}: packed layout did nothing, trying one byte per slot");
+				this.Dissolve(mirage, pending);
+				return;
+			}
+
+			DresserLog.Step($"  {pending.Name}: neither bit layout worked");
+			this.failed.Add($"{pending.Name} (could not be unpacked)");
 			this.dissolving = null;
+			this.bitLayout = 0;
 			this.waited = 0;
-			this.settle = this.Pace();
 			return;
 		}
 
@@ -502,24 +530,74 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		var bits = stackalloc byte[2];
-		bits[0] = (byte)(next.Mask & 0xFF);
-		bits[1] = (byte)((next.Mask >> 8) & 0xFF);
+		this.bitLayout = 0;
+		this.layoutWait = 0;
+		this.dissolving = next;
+		this.Dissolve(mirage, next);
+	}
 
-		this.usedBeforeDissolve = Used(mirage);
-		DresserLog.Step(
-			$"  unpacking {next.Name} at index {index}, mask {next.Mask} ({next.Pieces} piece(s))");
+	/// <summary>
+	/// Fire the unpack with whichever byte layout we are currently trying.
+	///
+	/// ⚠ Layout 0: the mask packed across two bytes, little-endian — the shape the UI's own callback
+	/// carries as a single number (124, 56, 52).
+	/// ⚠ Layout 1: eleven bytes, one per slot, 1 where a piece should come back. A `byte*` for eleven
+	/// flags reads at least as naturally as a bitfield, and an earlier attempt at this API with all
+	/// eleven bits set was refused rather than ignored — which suggests it was being READ, just not
+	/// the way it was written.
+	/// </summary>
+	private void Dissolve(
+		MirageManager* mirage, (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces) outfit) {
+		var ids = mirage->PrismBoxItemIds;
+		var index = -1;
+		for (var i = 0; i < ids.Length; i++) {
+			if (ids[i] != outfit.SetItemId) continue;
+			index = i;
+			break;
+		}
 
-		if (!MirageManager.MemberFunctionPointers.RestorePrismBoxSetItem(mirage, (uint)index, bits)) {
-			DresserLog.Step($"  {next.Name}: the game refused to unpack it");
-			this.failed.Add($"{next.Name} (could not be unpacked)");
+		if (index < 0) {
+			DresserLog.Step($"  {outfit.Name}: no longer in the dresser");
+			this.dissolving = null;
 			return;
 		}
 
-		this.dissolving = next;
+		var bits = stackalloc byte[SetSlots];
+		for (var i = 0; i < SetSlots; i++) bits[i] = 0;
+
+		if (this.bitLayout == 0) {
+			bits[0] = (byte)(outfit.Mask & 0xFF);
+			bits[1] = (byte)((outfit.Mask >> 8) & 0xFF);
+		}
+		else {
+			for (var slot = 0; slot < SetSlots; slot++) {
+				if ((outfit.Mask & (1 << slot)) != 0) bits[slot] = 1;
+			}
+		}
+
+		this.usedBeforeDissolve = Used(mirage);
+		DresserLog.Step($"  unpacking {outfit.Name} at index {index}, mask {outfit.Mask}, "
+			+ $"layout {this.bitLayout} ({outfit.Pieces} piece(s))");
+
+		var ok = MirageManager.MemberFunctionPointers.RestorePrismBoxSetItem(
+			mirage, (uint)index, bits);
+
+		DresserLog.Trace($"  RestorePrismBoxSetItem -> {ok}");
+
 		this.waited = 0;
 		this.settle = this.Pace();
 	}
+
+	/// <summary>Eleven, matching MirageStoreSetItem's columns.</summary>
+	private const int SetSlots = 11;
+
+	/// <summary>Which reading of restoreBits is being tried. 0 = packed, 1 = one byte per slot.</summary>
+	private int bitLayout;
+
+	private int layoutWait;
+
+	/// <summary>⚠ About two seconds. Long enough for a server round trip, short enough to try again.</summary>
+	private const int LayoutTimeout = 120;
 
 	private static int Used(MirageManager* mirage) {
 		var ids = mirage->PrismBoxItemIds;
@@ -660,6 +738,19 @@ internal sealed unsafe class ArmoireTransfer {
 
 	/// <summary>Abandon whatever step stalled, and keep going with the rest.</summary>
 	private void GiveUpOnCurrent(string why) {
+		// ⚠⚠ The outfit being dissolved counts too, and leaving it out is why the first run hung
+		// silently forever instead of reporting anything: nothing cleared it, so the wait never ended
+		// and no timeout could reach past it.
+		if (this.dissolving is { } outfit) {
+			this.failed.Add($"{outfit.Name} ({why})");
+			DresserLog.Step($"  SKIPPED {outfit.Name}: {why}");
+			this.dissolving = null;
+			this.bitLayout = 0;
+			this.layoutWait = 0;
+			this.waited = 0;
+			return;
+		}
+
 		// ⚠ The in-flight restore is the thing that stalled, when there is one. Popping from the
 		// batch instead would blame a piece that arrived perfectly well.
 		if (this.inFlight is { } flying) {
