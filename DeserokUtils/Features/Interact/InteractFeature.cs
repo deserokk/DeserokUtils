@@ -384,8 +384,13 @@ internal sealed class InteractFeature: IDisposable {
 
 			seen++;
 			var go = (FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)candidate.Address;
+			// ⚠ data= is the BaseId, and it is here because a NAME is a bad way to find a
+			// furnishing: the Armoire transfer matches on the English string and simply fails on any
+			// other client. A data id is the same on every language, and this is how you read one off
+			// a thing you are standing in front of rather than guessing at it.
 			Plugin.Chat.Print($"  \"{candidate.Name}\" {candidate.ObjectKind} {distance:0.#}y "
 				+ $"{(Interactable(candidate, out string why) ? "usable" : "IGNORED: " + why)} "
+				+ $"data={candidate.DataId} "
 				+ $"view={ts->IsObjectInViewRange(go)} screen={ts->IsObjectOnScreen(go)} "
 				+ $"targetable={candidate.IsTargetable}");
 		}
