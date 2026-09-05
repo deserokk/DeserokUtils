@@ -540,15 +540,18 @@ internal sealed unsafe class DresserScan {
 					// ⚠ An outfit itself, sitting in the bags, is not a piece.
 					if (sets?.GetRowOrDefault(item->ItemId) is not null) continue;
 
-					// ⚠⚠ A HOLE THE DRESSER PASS DOES NOT HAVE. That one routes Armoire-eligible
-					// pieces away from packing entirely, because an outfit spends a prism to amortise
-					// one slot where the Armoire takes the slot to zero. This pass was added later and
-					// never got the same guard — so a piece looted into your bags would be packed into
-					// an outfit even when the Armoire would have taken it for nothing.
+					// ⚠⚠⚠ ARMOIRE-ELIGIBLE PIECES ARE STILL PACKED, and a guard that skipped them was
+					// added and removed within the hour on 2026-09-05. The reasoning was that the
+					// Armoire is the better trade — free, against an outfit's one slot — and that is
+					// true, and it is not this feature's decision to make.
 					//
-					// ⚠ Silent, and expensive in the way that is hardest to notice: it works. You get
-					// an outfit, the slot count goes down, and the better trade was never offered.
-					if (cabinet.ContainsKey(item->ItemId)) continue;
+					// deserok: *"It should not skip armoire items because there are legitimate reasons
+					// to not put things in armory, so armory is a separate optional thing."* The
+					// Armoire pass is opt-in, off by default, and needs you standing at an inn. A
+					// packer that quietly declines to pack half your loot because a DIFFERENT feature
+					// might handle it better is a packer that reports "Nothing left to pack" while the
+					// game's own window shows a screenful of packable items. Which is exactly what he
+					// was looking at when he stopped me.
 
 					loose.Add((FromBags, item->ItemId));
 					result.LooseInBags++;
