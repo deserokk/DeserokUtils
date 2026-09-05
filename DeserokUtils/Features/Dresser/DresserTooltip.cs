@@ -434,18 +434,22 @@ internal sealed unsafe class DresserTooltip {
 	/// <summary>Where the item already is, in the words somebody at a vendor needs.</summary>
 	private static (string Where, (string Name, int Have, int Total)? Set)? Owned(
 		DresserCache cache, uint itemId) {
-		if (cache.LoosePieces.Contains(itemId)) return ("in your glamour dresser", null);
+		// ⚠⚠ PLACE NAMES, NOT SENTENCES. "in your glamour dresser" ran off the right edge — the
+		// node clips silently, so the line just ends mid-word and looks finished. deserok's fix:
+		// treat these as labels. Every one now lands at or under the 44 characters the tooltip has
+		// room for, where the longest sentence version was 52.
+		if (cache.LoosePieces.Contains(itemId)) return ("Glamour Dresser", null);
 
 		foreach (var (setItemId, slot) in Sets(itemId)) {
 			if (!cache.OutfitSlots.TryGetValue(setItemId, out var filled)) continue;
 			if (!filled.Contains(slot)) continue;
 
-			return ("in an outfit",
+			return ("an outfit",
 				(ItemName(setItemId), Progress(cache, setItemId).Count, SlotCount(setItemId)));
 		}
 
 		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
-			return ("in your Armoire", null);
+			return ("Armoire", null);
 
 		// ⭐⭐⭐ THE ARMOURY CHEST, AND IT IS THE WHOLE REASON THIS PARAGRAPH EXISTS. deserok,
 		// 2026-09-04: *"looking through the armory chest is... each thing is in its own tab, there's
@@ -462,8 +466,8 @@ internal sealed unsafe class DresserTooltip {
 		// compare, with no allocation and no sheet lookup. The two draw-loop disasters in this
 		// project's history were sheet walks doing string extraction, which is a different order of
 		// cost entirely.
-		if (Worn(itemId)) return ("equipped right now", null);
-		if (InArmoury(itemId)) return ("in your armoury chest", null);
+		if (Worn(itemId)) return ("Equipped", null);
+		if (InArmoury(itemId)) return ("Armoury Chest", null);
 
 		// ⚠ THE BAGS ARE DELIBERATELY NOT SEARCHED. If a piece is in your inventory you are almost
 		// certainly looking straight at it, and "you have this in your bags" would be the same
