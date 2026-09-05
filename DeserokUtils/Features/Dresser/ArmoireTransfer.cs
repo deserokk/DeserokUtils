@@ -73,19 +73,30 @@ internal sealed unsafe class ArmoireTransfer {
 	internal enum State { Idle, Opening, Unpacking, Restoring, Storing, Done, Failed }
 
 	/// <summary>
-	/// ⚠ Kept clear of full. deserok's number: gather (free slots − 3) at a time. The margin is not
-	/// superstition — a restore that arrives with nowhere to go is refused, and a run that fills
-	/// somebody's bags to the brim leaves them worse off than when they started.
+	/// ⚠ Kept clear of full: gather (free slots − 5) at a time. The margin is not superstition — a
+	/// restore that arrives with nowhere to go is refused, and a run that fills somebody's bags to
+	/// the brim leaves them worse off than it found them.
+	///
+	/// ⭐ Five rather than three, on deserok's instruction: *"should work off of n − like 5 slots,
+	/// so it uses what is available to make transfer smoother."* The point of the margin is safety;
+	/// the point of using everything ABOVE it is throughput.
 	/// </summary>
-	private const int SlotsToLeaveFree = 3;
+	private const int SlotsToLeaveFree = 5;
 
 	/// <summary>
-	/// ⚠⚠ A CEILING ON TOP OF THE FREE-SLOT RULE. The first run restored all forty-seven pieces in
-	/// a single tick, which should have been impossible under (free - 3) and was not — and until the
-	/// log says why, an arithmetic slip must not be able to empty a dresser into somebody's bags.
-	/// A wrong batch size then costs one extra round trip instead of a mess to clean up by hand.
+	/// ⚠⚠ A SANITY BOUND, NOT A POLICY, and it used to be eight — which throttled a run with
+	/// eighty-three free slots down to eight pieces a trip. deserok: *"homie if it doesn't work with
+	/// 83 free slots it's kind of broken anyways."*
+	///
+	/// ⭐ Eight was insurance from when a batch appeared to ignore its own limit and pulled
+	/// forty-seven pieces inside twenty milliseconds. That was a BURST problem, and the burst is gone:
+	/// every restore is now issued one at a time, half a second apart. A large batch no longer means
+	/// a flood, only fewer switches between gathering and storing — which is smoother, not riskier.
+	///
+	/// ⚠ So this stays only to stop an arithmetic slip emptying a whole dresser into somebody's
+	/// bags. It should never be the binding constraint; free slots should.
 	/// </summary>
-	private const int MaxBatch = 8;
+	private const int MaxBatch = 40;
 
 	/// <summary>⚠ Ticks between one item and the next — roughly half a second at 60fps.</summary>
 	private const int PaceTicks = 30;
