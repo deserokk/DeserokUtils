@@ -116,6 +116,24 @@ internal sealed unsafe class DresserScan {
 		public HashSet<uint> ArmoireRows = new();
 
 		/// <summary>
+		/// Packed outfits where the Armoire would take EVERY piece.
+		///
+		/// ⭐⭐⭐ THE ONLY CASE WHERE UNPACKING PAYS, and deserok says it is not rare: *"every piece
+		/// of the outfits are eligible, that's kind of the thing — right now I know every vanguard set
+		/// is consuming a slot, when they're armoire capable, that's the example I know at a glance.
+		/// So there's 6 right there."*
+		///
+		/// ⚠ One eligible piece inside an outfit is worth nothing — the outfit entry still holds its
+		/// slot whether or not that piece leaves. It only pays when the whole thing can go, turning
+		/// one dresser slot into zero. Which is why this counts outfits rather than pieces: the
+		/// piece-level number would suggest work that does not exist.
+		///
+		/// ⚠ Reported only. Unpacking is recorded but unproven — see DeserokUtils.md — and this list
+		/// is what says whether proving it is worth anybody's evening.
+		/// </summary>
+		public List<(string Name, int Pieces)> FullyArmoireOutfits = new();
+
+		/// <summary>
 		/// Outfits in the dresser holding nothing at all.
 		///
 		/// ⚠⚠ THESE ARE DAMAGE, and this tool made them. A run on 2026-09-03 pressed "Store as
@@ -587,6 +605,23 @@ internal sealed unsafe class DresserScan {
 
 				result.Packed.Add(new PackedOutfit(
 					outfitIndex, outfitItemId, ItemName(outfitItemId), slots));
+
+				// ⭐ Every FILLED slot armoire-eligible means the whole entry could go. Empty slots are
+				// ignored on purpose: an outfit missing its earrings is still fully movable.
+				var filledCount = 0;
+				var allEligible = true;
+
+				for (var slot = 0; slot < slotItems.Length; slot++) {
+					if (slotItems[slot] == 0) continue;
+					if (!MirageManager.MemberFunctionPointers.IsSetSlotUnlocked(
+						    mirage, outfitIndex, slot)) continue;
+
+					filledCount++;
+					if (!cabinet.ContainsKey(slotItems[slot])) allEligible = false;
+				}
+
+				if (allEligible && filledCount > 0)
+					result.FullyArmoireOutfits.Add((ItemName(outfitItemId), filledCount));
 
 				// ⚠ An outfit with no filled slot at all. See Result.EmptyOutfits — this tool made
 				// these, and they cannot be removed by hand.

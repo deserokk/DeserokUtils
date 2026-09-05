@@ -187,6 +187,26 @@ internal sealed unsafe class DresserOverlay {
 			}
 		}
 
+		// ⭐ Counted in OUTFITS, not pieces. One eligible piece inside an outfit is worth nothing —
+		// the entry keeps its slot either way — so a piece-level number would advertise work that
+		// does not exist.
+		if (result.FullyArmoireOutfits.Count > 0) {
+			ImGui.TextDisabled(
+				$"{result.FullyArmoireOutfits.Count} packed outfit(s) the Armoire would take whole");
+
+			if (ImGui.IsItemHovered())
+				ImGui.SetTooltip(
+					"Every piece in these is Armoire-eligible, so the whole entry could go and the
+"
+					+ "slot would cost nothing. Unpacking is not automated yet.
+
+  "
+					+ string.Join("
+  ", System.Linq.Enumerable.Select(
+						System.Linq.Enumerable.Take(result.FullyArmoireOutfits, 12),
+						x => $"{x.Name} ({x.Pieces})")));
+		}
+
 		if (result.ArmoireDuplicate.Count > 0) {
 			ImGui.TextDisabled($"{result.ArmoireDuplicate.Count} piece(s) you already have in the Armoire");
 			if (ImGui.IsItemHovered())

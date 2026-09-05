@@ -51,6 +51,12 @@ internal static unsafe class DresserLog {
 		if (r.EmptyOutfits.Count > 0)
 			sb.AppendLine($"EMPTY OUTFITS ({r.EmptyOutfits.Count}): {string.Join(", ", r.EmptyOutfits)}");
 
+		if (r.FullyArmoireOutfits.Count > 0) {
+			sb.AppendLine($"OUTFITS THE ARMOIRE WOULD TAKE WHOLE ({r.FullyArmoireOutfits.Count}):");
+			foreach (var (name, pieces) in r.FullyArmoireOutfits)
+				sb.AppendLine($"  {name} ({pieces} piece(s))");
+		}
+
 		if (r.RedundantWithOutfit.Count > 0)
 			sb.AppendLine($"spare pieces their outfit already holds ({r.RedundantWithOutfit.Count}): "
 			              + string.Join(", ", r.RedundantWithOutfit));
