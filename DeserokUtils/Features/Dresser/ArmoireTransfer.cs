@@ -226,9 +226,18 @@ internal sealed unsafe class ArmoireTransfer {
 			this.queue.Add(piece);
 		}
 
-		if (this.queue.Count == 0) {
+		// ⚠⚠ THE OUTFITS ARE BUILT FIRST NOW, so this can ask about both. It used to bail here the
+		// moment the loose queue came out empty — which it always does when the only work is outfits —
+		// and returned "you are wearing the pieces", silently, before the dissolve list existed. From
+		// outside that is a button that does nothing at all.
+		this.dissolve.Clear();
+		this.dissolve.AddRange(r.Dissolvable);
+		this.Unpacked = 0;
+
+		if (this.queue.Count == 0 && this.dissolve.Count == 0) {
 			this.state = State.Done;
 			this.Status = "Nothing to move — you are wearing the pieces the Armoire would take.";
+			Plugin.Chat.Print($"Dresser: {this.Status}");
 			return;
 		}
 		// ⭐⭐⭐ OPEN IT OURSELVES RATHER THAN ASKING. This used to refuse with "open your Armoire
@@ -245,10 +254,6 @@ internal sealed unsafe class ArmoireTransfer {
 		//
 		// ⚠ Before the loose pieces, because dissolving an outfit PRODUCES loose pieces — doing it
 		// the other way round would gather a batch, store it, and only then discover more work.
-		this.dissolve.Clear();
-		this.dissolve.AddRange(r.Dissolvable);
-		this.Unpacked = 0;
-
 		this.state = UIState.Instance()->Cabinet.IsCabinetLoaded()
 			? (this.dissolve.Count > 0 ? State.Unpacking : State.Restoring)
 			: State.Opening;
@@ -261,7 +266,10 @@ internal sealed unsafe class ArmoireTransfer {
 			? "Opening your Armoire..."
 			: $"Moving {this.queue.Count} piece(s) to your Armoire...";
 
-		DresserLog.Step($"=== ARMOIRE START: {this.queue.Count} piece(s) ===");
+		// ⚠ Both counts, because a run of nothing but outfits used to log "0 piece(s)" and read as
+		// a mistake in the log before anything had gone wrong.
+		DresserLog.Step($"=== ARMOIRE START: {this.queue.Count} piece(s), "
+			+ $"{this.dissolve.Count} outfit(s) ===");
 	}
 
 	public void Stop(string why) {
