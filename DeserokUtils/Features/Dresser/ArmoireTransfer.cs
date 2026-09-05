@@ -714,6 +714,40 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
+		// ⭐⭐⭐ OUT OF THE ARMOURY FIRST. Five pieces failed a whole run with "the game did not
+		// respond in time", and they were a coat and three bracelets — which is to say ArmoryBody and
+		// ArmoryWrist. The Armoire's own window names its source as "Inventory", and a restore lands
+		// wherever the game likes: equipment goes to the matching armoury category when there is room
+		// there. So the piece arrived perfectly well, in a place the Armoire will not reach into.
+		//
+		// ⚠ The move is harmless whether or not that reading is right, which is why it is worth
+		// doing rather than proving first: a piece in your bags can be stored either way, and if the
+		// failures vanish the theory was correct.
+		if (!Locate(piece.ItemId, out var where, out var slot)) {
+			DresserLog.Step($"  {piece.Name}: not in your bags or armoury any more");
+			this.batch.RemoveAt(0);
+			this.waited = 0;
+			return;
+		}
+
+		if (IsArmoury(where)) {
+			if (!FreeBagSlot(out var destination, out var destinationSlot)) {
+				DresserLog.Step($"  {piece.Name}: in your {where} and no bag slot to move it to");
+				this.failed.Add($"{piece.Name} (no room to move it out of your armoury chest)");
+				this.batch.RemoveAt(0);
+				this.waited = 0;
+				return;
+			}
+
+			DresserLog.Step($"  moving {piece.Name} from {where} to your bags");
+			InventoryManager.Instance()->MoveItemSlot(
+				where, slot, destination, destinationSlot, true);
+
+			this.waited = 0;
+			this.settle = this.Pace();
+			return;
+		}
+
 		// ⚠ Only ask once per settle window; the confirmation above is what decides it worked.
 		this.yesno = 0;
 		UIState.Instance()->Cabinet.StoreCabinetItem(piece.CabinetRow);
@@ -814,6 +848,70 @@ internal sealed unsafe class ArmoireTransfer {
 	/// rather than gear that was already filed away. Equipped pieces are excluded before the queue is
 	/// built, which is the case that actually needed guarding.
 	/// </summary>
+	/// <summary>Where a piece is right now, bags or armoury. ⚠ False when it is neither.</summary>
+	private static bool Locate(uint itemId, out InventoryType where, out ushort slot) {
+		where = default;
+		slot = 0;
+
+		var manager = InventoryManager.Instance();
+		if (manager is null) return false;
+
+		foreach (var bag in Anywhere) {
+			var page = manager->GetInventoryContainer(bag);
+			if (page is null || !page->IsLoaded) continue;
+
+			for (var i = 0; i < page->Size; i++) {
+				var item = page->GetInventorySlot(i);
+				if (item is null || DresserCache.PureItemId(item->ItemId) != itemId) continue;
+
+				where = bag;
+				slot = (ushort)i;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/// <summary>⚠ The first empty ordinary bag slot. Never the armoury — that is what we are leaving.</summary>
+	private static bool FreeBagSlot(out InventoryType where, out ushort slot) {
+		where = default;
+		slot = 0;
+
+		var manager = InventoryManager.Instance();
+		if (manager is null) return false;
+
+		foreach (var bag in Bags) {
+			var page = manager->GetInventoryContainer(bag);
+			if (page is null || !page->IsLoaded) continue;
+
+			for (var i = 0; i < page->Size; i++) {
+				var item = page->GetInventorySlot(i);
+				if (item is not null && item->ItemId != 0) continue;
+
+				where = bag;
+				slot = (ushort)i;
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static bool IsArmoury(InventoryType type) {
+		foreach (var bag in Bags) {
+			if (bag == type) return false;
+		}
+
+		return true;
+	}
+
+	/// <summary>⚠ The four ordinary bags, which is the only place the Armoire will look.</summary>
+	private static readonly InventoryType[] Bags = {
+		InventoryType.Inventory1, InventoryType.Inventory2,
+		InventoryType.Inventory3, InventoryType.Inventory4,
+	};
+
 	private static bool InBags(uint itemId) {
 		var manager = InventoryManager.Instance();
 		if (manager is null) return false;
