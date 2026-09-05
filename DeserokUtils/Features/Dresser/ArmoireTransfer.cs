@@ -270,7 +270,7 @@ internal sealed unsafe class ArmoireTransfer {
 	/// </summary>
 	private void TickOpening() {
 		if (UIState.Instance()->Cabinet.IsCabinetLoaded()) {
-			CloseMenu();
+			CloseCabinetWindow();
 			DresserLog.Step("  armoire opened");
 			this.state = State.Restoring;
 			this.waited = 0;
@@ -377,17 +377,38 @@ internal sealed unsafe class ArmoireTransfer {
 		return true;
 	}
 
-	/// <summary>Dismiss the menu our own interaction raised, if it is still up.</summary>
-	private static void CloseMenu() {
-		var addon = Plugin.GameGui.GetAddonByName("SelectString", 1);
-		if (addon.Address == nint.Zero || !addon.IsVisible) return;
+	/// <summary>
+	/// Put back what our own interaction opened.
+	///
+	/// ⭐⭐⭐ THE WINDOW IS CALLED "Cabinet", AND IT CLOSES ON [-1]. Both facts were unknowns I had
+	/// written into a comment as unavoidable — deserok's answer: *"we shouldn't have unknowns, we
+	/// have sniffers and probes, you shouldn't have a situation where you can't identify a window.
+	/// Tell me what to do to close all unknowns for you."* One scripted recording, every answer:
+	/// <code>
+	///   OPEN  SelectString                        the interact raises the menu
+	///   CALLBACK SelectString [Int 0]             "Store an item"
+	///   OPEN  Cabinet                             the store window, and what loads the contents
+	///   CALLBACK Cabinet [Int -1]                 the X button
+	///   CLOSE Cabinet
+	/// </code>
+	///
+	/// ⚠ We only ever wanted the CONTENTS loaded, not the window — deserok again: *"we don't need
+	/// to replicate 'put things in it with the window', what we're doing is ensuring the armoire is
+	/// always loaded before attempting."* So this opens it, takes the loading as the prize, and shuts
+	/// it again.
+	/// </summary>
+	private static void CloseCabinetWindow() {
+		foreach (var name in new[] { "Cabinet", "SelectString" }) {
+			var addon = Plugin.GameGui.GetAddonByName(name, 1);
+			if (addon.Address == nint.Zero || !addon.IsVisible) continue;
 
-		var unit = (AtkUnitBase*)addon.Address;
-		var values = stackalloc AtkValue[1];
-		values[0].Type = AtkValueType.Int;
-		values[0].Int = -1;
+			var unit = (AtkUnitBase*)addon.Address;
+			var values = stackalloc AtkValue[1];
+			values[0].Type = AtkValueType.Int;
+			values[0].Int = -1;
 
-		unit->FireCallback(1, values, true);
+			unit->FireCallback(1, values, true);
+		}
 	}
 
 	private void TickRestore() {
