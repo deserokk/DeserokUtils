@@ -168,7 +168,12 @@ internal sealed unsafe class DresserOverlay {
 		// how a feature ends up discovered by accident a month later.
 		//
 		// ⚠ Only when it has been opted into. See Configuration.DresserArmoire.
-		if (Plugin.Config.DresserArmoire && result.ArmoireTransfer.Count > 0) {
+		// ⚠⚠ OUTFITS COUNT AS WORK HERE TOO. This asked only about loose pieces, so a dresser with
+		// nine dissolvable outfits and nothing loose showed the finding — "9 packed outfits the
+		// Armoire would take whole" — and then no button to act on it. The tab was fixed an hour
+		// earlier and this was not, which is the fourth time tonight one of a pair got a fix.
+		if (Plugin.Config.DresserArmoire
+		    && (result.ArmoireTransfer.Count > 0 || result.Dissolvable.Count > 0)) {
 			var moving = this.feature.Armoire;
 
 			if (moving.Running) {
@@ -176,8 +181,17 @@ internal sealed unsafe class DresserOverlay {
 				ImGui.SameLine();
 				if (ImGui.SmallButton("Stop##armoire")) moving.Stop("you stopped it");
 			}
-			else if (Accent.Button("Move them to the Armoire", Accent.Amber)) {
-				moving.Start(result);
+			else {
+				// ⭐ Say what it will do. "Move them" is vague when "them" is nine outfits that are
+				// about to be taken apart — that is a bigger thing than moving loose pieces and should
+				// not be discovered afterwards.
+				var label = result.Dissolvable.Count > 0 && result.ArmoireTransfer.Count > 0
+					? $"Move {result.ArmoireTransfer.Count} piece(s) and {result.Dissolvable.Count} outfit(s) to the Armoire"
+					: result.Dissolvable.Count > 0
+						? $"Take apart {result.Dissolvable.Count} outfit(s) into the Armoire"
+						: $"Move {result.ArmoireTransfer.Count} piece(s) to the Armoire";
+
+				if (Accent.Button(label, Accent.Amber)) moving.Start(result);
 			}
 
 			foreach (var why in moving.Failed) {
