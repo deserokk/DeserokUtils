@@ -582,8 +582,12 @@ internal sealed unsafe class ArmoireTransfer {
 
 	private int layoutWait;
 
-	/// <summary>⚠ About two seconds. Long enough for a server round trip, short enough to try again.</summary>
-	private const int DissolveTimeout = 120;
+	/// <summary>
+	/// ⚠ Five seconds. Two was not enough: a nine-piece outfit comes apart into nine separate
+	/// arrivals, and calling that a failure while the game is still working produced a "could not be
+	/// unpacked" for a set that had in fact come apart perfectly well.
+	/// </summary>
+	private const int DissolveTimeout = 300;
 
 	private static int Used(MirageManager* mirage) {
 		var ids = mirage->PrismBoxItemIds;
@@ -617,13 +621,29 @@ internal sealed unsafe class ArmoireTransfer {
 		var free = DresserPacker.FreeBagSlots();
 		var room = Math.Min(Math.Max(0, free - SlotsToLeaveFree), MaxBatch);
 
-		// Gathered as much as this trip can carry, or there is nothing left to gather.
-		if (this.batch.Count >= room || this.queue.Count == 0) {
-			if (this.batch.Count == 0) { this.Finish(); return; }
+		// ⚠⚠⚠ THREE DIFFERENT ENDINGS, AND THEY USED TO BE ONE. "batch.Count >= room" is true
+		// when the batch is full AND when room is zero with an empty batch — so a run with full bags
+		// finished instantly and announced "Nothing was moved to your Armoire" while thirty-five
+		// pieces sat in the queue. deserok saw it stop on an outfit and reasonably concluded the
+		// outfit was the problem; the outfit was a coincidence.
+		if (this.batch.Count == 0 && this.queue.Count == 0) {
+			this.Finish();
+			return;
+		}
 
+		// Carrying as much as this trip can hold, or nothing more to gather — go and store it.
+		if (this.batch.Count > 0 && (this.batch.Count >= room || this.queue.Count == 0)) {
 			DresserLog.Step($"  storing {this.batch.Count} piece(s)");
 			this.state = State.Storing;
 			this.waited = 0;
+			return;
+		}
+
+		// ⚠ Nothing gathered and nowhere to put anything. Storing frees bag slots, so an empty batch
+		// means nothing is coming to rescue this — it is a stop, and it says so rather than claiming
+		// there was nothing to do.
+		if (room < 1) {
+			this.Stop($"your bags are too full to carry any more; {this.Stored} moved so far");
 			return;
 		}
 
