@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
@@ -46,14 +47,14 @@ namespace DeserokUtils.Features.Dresser;
 /// IsCabinetLoaded describe whether the server has sent the contents, not whether you are looking at
 /// them — so opening each once should let the rest run as plain API calls with nothing on screen.
 ///
-/// ⚠⚠ UNPROVEN, and it is the thing to watch on the first run. If StoreCabinetItem needs the
-/// Armoire window actually open, the symptom is exact and readable: the restore lands, the store
-/// fires, and IsItemInCabinet never turns true. The log says which step stalled, so the answer comes
-/// out of one attempt rather than out of reasoning.
+/// ⭐⭐ PROVEN 2026-09-05, and better than the bet: it stored successfully with the GLAMOUR
+/// DRESSER window open and the Armoire shut. So the cabinet does not need to be on screen at all —
+/// only to have been opened once, so the server has sent its contents. No window driving, no
+/// interacting with furniture, no walking.
 ///
-/// ⭐ And the fallback is already built elsewhere: the Interact feature can operate a furnishing
-/// from a standing position, which is exactly what "turn around and open the Armoire" is. Worth
-/// reaching for only once the simple version is proven not to work.
+/// ⭐ Which means the Interact fallback stays unbuilt. It was ready — both furnishings are in
+/// range from the ordinary standing spot, and interacting raises a SelectString we already know how
+/// to answer — and none of it was needed.
 ///
 /// ## ⭐ Loose, not packed
 ///
@@ -69,7 +70,7 @@ namespace DeserokUtils.Features.Dresser;
 /// to be told by the game that it happened.
 /// </summary>
 internal sealed unsafe class ArmoireTransfer {
-	internal enum State { Idle, Restoring, Storing, Done, Failed }
+	internal enum State { Idle, Opening, Restoring, Storing, Done, Failed }
 
 	/// <summary>
 	/// ⚠ Kept clear of full. deserok's number: gather (free slots − 3) at a time. The margin is not
@@ -119,7 +120,7 @@ internal sealed unsafe class ArmoireTransfer {
 	public string Status { get; private set; } = string.Empty;
 	public int Stored { get; private set; }
 	public IReadOnlyList<string> Failed => this.failed;
-	public bool Running => this.state is State.Restoring or State.Storing;
+	public bool Running => this.state is State.Opening or State.Restoring or State.Storing;
 
 	/// <summary>
 	/// Begin, or explain why not.
@@ -143,10 +144,6 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		if (!UIState.Instance()->Cabinet.IsCabinetLoaded()) {
-			this.Fail("Open your Armoire once first, then try again.");
-			return;
-		}
 
 		if (r.ArmoireTransfer.Count == 0) {
 			this.state = State.Done;
@@ -184,10 +181,21 @@ internal sealed unsafe class ArmoireTransfer {
 			this.Status = "Nothing to move — you are wearing the pieces the Armoire would take.";
 			return;
 		}
-		this.state = State.Restoring;
+		// ⭐⭐⭐ OPEN IT OURSELVES RATHER THAN ASKING. This used to refuse with "open your Armoire
+		// once first" — and deserok cut that down for the right reason: *"we design for the idiot, and
+		// 'open armoire first' is a missable step that will read as 'this is broken' when it doesn't."*
+		//
+		// He is right, and it is worse than an inconvenience. A prerequisite the player cannot see,
+		// whose failure looks identical to a bug, is a bug. The plugin knows the cabinet is not loaded;
+		// it can go and load it.
+		this.state = UIState.Instance()->Cabinet.IsCabinetLoaded() ? State.Restoring : State.Opening;
 		this.settle = 0;
 		this.waited = 0;
-		this.Status = $"Moving {this.queue.Count} piece(s) to your Armoire...";
+		this.opens = 0;
+
+		this.Status = this.state == State.Opening
+			? "Opening your Armoire..."
+			: $"Moving {this.queue.Count} piece(s) to your Armoire...";
 
 		DresserLog.Step($"=== ARMOIRE START: {this.queue.Count} piece(s) ===");
 	}
@@ -224,8 +232,11 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
-		if (this.state == State.Restoring) this.TickRestore();
-		else this.TickStore();
+		switch (this.state) {
+			case State.Opening: this.TickOpening(); break;
+			case State.Restoring: this.TickRestore(); break;
+			default: this.TickStore(); break;
+		}
 	}
 
 	/// <summary>
@@ -234,6 +245,95 @@ internal sealed unsafe class ArmoireTransfer {
 	/// ⭐ A batch rather than one at a time because each round trip is a restore AND a store, and
 	/// deserok's rule sizes it by what is actually free rather than by a constant somebody guessed.
 	/// </summary>
+	/// <summary>
+	/// Touch the Armoire so the server sends its contents.
+	///
+	/// ⭐⭐ Only ever needed once per visit, and only when the player has not already opened it. The
+	/// contents outlive the window — proven 2026-09-05, when a whole transfer ran with the Armoire
+	/// shut and the glamour dresser open — so this is a doorbell, not a door held open.
+	///
+	/// ⚠⚠ THE OBJECT IS FOUND BY NAME, which is a known weakness: on a non-English client this
+	/// will not match and the feature falls back to the old behaviour of asking. Worth fixing with a
+	/// data id once somebody has one, and not worth guessing at now — a wrong id interacts with some
+	/// other piece of furniture, which is a far worse failure than not finding it.
+	///
+	/// ⚠ Interaction only. It does NOT drive the "Store an item" menu that follows, because the
+	/// contents load without it — and a menu we opened and left is rude, so anything still on screen
+	/// gets dismissed once the cabinet is loaded.
+	/// </summary>
+	private void TickOpening() {
+		if (UIState.Instance()->Cabinet.IsCabinetLoaded()) {
+			CloseMenu();
+			DresserLog.Step("  armoire opened");
+			this.state = State.Restoring;
+			this.waited = 0;
+			this.Status = $"Moving {this.queue.Count} piece(s) to your Armoire...";
+			return;
+		}
+
+		if (this.opens >= MaxOpenAttempts) {
+			this.Fail("Could not reach your Armoire — stand next to it and try again.");
+			return;
+		}
+
+		if (FindArmoire() is not { } armoire) {
+			this.Fail("No Armoire nearby — stand next to one and try again.");
+			return;
+		}
+
+		this.opens++;
+		DresserLog.Step($"  interacting with the Armoire (attempt {this.opens})");
+
+		TargetSystem.Instance()->InteractWithObject(
+			(FFXIVClientStructs.FFXIV.Client.Game.Object.GameObject*)armoire.Address, true);
+
+		this.settle = Settle;
+	}
+
+	/// <summary>
+	/// The nearest Armoire we could operate. ⚠ Null when there is none in reach.
+	///
+	/// ⭐ The same three gates the Interact key uses, and for the same reasons: the kind, the game's
+	/// own targetable verdict, and a name. Copied in shape rather than called into, because that
+	/// feature is about the key somebody pressed and this is not.
+	/// </summary>
+	private static Dalamud.Game.ClientState.Objects.Types.IGameObject? FindArmoire() {
+		var player = Plugin.Objects.LocalPlayer;
+		if (player is null) return null;
+
+		foreach (var obj in Plugin.Objects) {
+			if (obj is null) continue;
+			if (obj.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj) continue;
+			if (!obj.IsTargetable) continue;
+			if (!obj.Name.TextValue.Equals(ArmoireName, StringComparison.OrdinalIgnoreCase)) continue;
+
+			return obj;
+		}
+
+		return null;
+	}
+
+	/// <summary>⚠ English only. See the note on TickOpening.</summary>
+	private const string ArmoireName = "Armoire";
+
+	/// <summary>⚠ A few tries, then say so. Interacting forever at furniture is not a plan.</summary>
+	private const int MaxOpenAttempts = 3;
+
+	private int opens;
+
+	/// <summary>Dismiss the menu our own interaction raised, if it is still up.</summary>
+	private static void CloseMenu() {
+		var addon = Plugin.GameGui.GetAddonByName("SelectString", 1);
+		if (addon.Address == nint.Zero || !addon.IsVisible) return;
+
+		var unit = (AtkUnitBase*)addon.Address;
+		var values = stackalloc AtkValue[1];
+		values[0].Type = AtkValueType.Int;
+		values[0].Int = -1;
+
+		unit->FireCallback(1, values, true);
+	}
+
 	private void TickRestore() {
 		// ⚠ One in flight at a time. See Pace().
 		if (this.inFlight is { } flying) {

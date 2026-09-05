@@ -253,8 +253,8 @@ internal sealed class DresserFeature {
 
 				if (ImGui.IsItemHovered())
 					ImGui.SetTooltip(
-						"Open your glamour dresser once and your Armoire once, so the game sends\n"
-						+ "the contents of each. Then this can run with neither window open.");
+						"Stand near your Armoire and press this. It opens the Armoire for you\n"
+						+ "if it needs to, then moves the pieces across a second or so apart.");
 			}
 
 			if (this.armoire.Current is ArmoireTransfer.State.Done or ArmoireTransfer.State.Failed
