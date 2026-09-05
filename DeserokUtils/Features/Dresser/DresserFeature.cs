@@ -29,13 +29,15 @@ namespace DeserokUtils.Features.Dresser;
 /// know whether this recovers twelve slots or eighty : that decides whether they bother.
 /// </summary>
 internal sealed class DresserFeature {
+	/// <summary>⚠ A literal newline. Escaping one through the tooling has broken this file twice.</summary>
+	private const string Nl = "\n";
+
 	public string TabTitle => "Dresser";
 
 	public string Summary => "Find outfits you could pack away, and duplicates you did not know about.";
 
 	private readonly DresserScan scan = new();
 	private DresserScan.Result? last;
-	private bool showDetail;
 	private string? logPath;
 	private readonly DresserPacker packer = new();
 
@@ -149,21 +151,70 @@ internal sealed class DresserFeature {
 			Plugin.Chat.Print($"Dresser: details written to {path}");
 	}
 
+	/// <summary>
+	/// Settings only. The Dresser is operated from the button on the glamour dresser itself.
+	///
+	/// ⭐⭐⭐ deserok, 2026-09-05: *"the tab should not be operable at all, they kept running
+	/// through the tab and the desired use is from the button we place in the glam chest, so we should
+	/// unwire that button and leave it to configuration."*
+	///
+	/// He is right on both counts. **You cannot pack from here** — every action needs the dresser
+	/// window open, so a Pack button in a plugin window is an invitation to press something that will
+	/// refuse. And a scan taken here describes a dresser you are not looking at.
+	///
+	/// ⭐⭐ It also settles a bug that produced five separate reports in one night. The tab and the
+	/// dresser overlay drew the same findings from two bodies of code, and every change had to be made
+	/// twice — the loose-piece count, the Armoire button's condition, the skip reasons. Each time I
+	/// fixed one and heard about the other. Deleting one of the two is a better fix than remembering
+	/// harder.
+	///
+	/// ⚠ What stays: the switches. A setting belongs where settings live, and the overlay is a strip
+	/// of buttons on somebody's furniture — not the place for checkboxes they set once.
+	/// </summary>
 	public void DrawTab() {
 		ImGui.TextWrapped(this.Summary);
 		ImGui.Spacing();
 
-		// ⭐⭐ THE TOOLTIP IS THE PART MOST PEOPLE WILL EVER USE, so it is settled here rather than
-		// buried: it works with no scan, no button and no reading, which is the participant case.
-		//
-		// ⚠ On by default, and a switch all the same. "Install it and it works" is the goal, but a
-		// feature that writes on every item tooltip in the game and cannot be turned off is somebody
-		// else's plugin fighting yours with no way to stop it.
+		ImGui.TextDisabled("Open your glamour dresser — the buttons are on it.");
+
+		if (ImGui.IsItemHovered())
+			ImGui.SetTooltip(
+				"Scanning and packing both need the dresser window open, so they live there" + Nl
+				+ "rather than here. This tab is for the switches.");
+
+		ImGui.Spacing();
+		ImGui.Separator();
+		ImGui.Spacing();
+
 		var tooltip = Plugin.Config.DresserTooltip;
 		if (ImGui.Checkbox("Note what you own on item tooltips", ref tooltip)) {
 			Plugin.Config.DresserTooltip = tooltip;
 			Plugin.Config.Save();
 		}
+
+		if (ImGui.IsItemHovered()) {
+			ImGui.SetTooltip(
+				"Adds a line to the game's own item tooltips, anywhere they appear:" + Nl
+				+ "a vendor, the market board, your bags, a Need/Greed roll." + Nl + Nl
+				+ "    ✓ You have this appearance — Armoury Chest" + Nl
+				+ "    ! You need this for an outfit" + Nl
+				+ "    x You do not have this appearance" + Nl + Nl
+				+ "The dresser half is remembered from your last scan, because the game" + Nl
+				+ "only sends its contents while you stand at one. Your armoury and what" + Nl
+				+ "you are wearing are read live.");
+		}
+
+		var skipDyed = Plugin.Config.DresserSkipDyed;
+		if (ImGui.Checkbox("Leave dyed pieces alone", ref skipDyed)) {
+			Plugin.Config.DresserSkipDyed = skipDyed;
+			Plugin.Config.Save();
+		}
+
+		if (ImGui.IsItemHovered())
+			ImGui.SetTooltip(
+				"Packing an item into an outfit destroys its dye." + Nl + Nl
+				+ "Most people do not mind. Tick this if you would rather deal with" + Nl
+				+ "the dyed ones yourself.");
 
 		var toArmoire = Plugin.Config.DresserArmoire;
 		if (ImGui.Checkbox("Offer to move pieces into your Armoire", ref toArmoire)) {
@@ -171,241 +222,16 @@ internal sealed class DresserFeature {
 			Plugin.Config.Save();
 		}
 
-		if (ImGui.IsItemHovered()) {
+		if (ImGui.IsItemHovered())
 			ImGui.SetTooltip(
-				"The Armoire stores these for free, where an outfit still costs a slot.\n"
-				+ "This adds a button that takes them out of the dresser and puts them in.\n\n"
-				+ "Stand at an inn room or house where both are within reach, and open\n"
-				+ "each of them once so the game sends their contents.");
-		}
-
-		if (ImGui.IsItemHovered()) {
-			ImGui.SetTooltip(
-				"Adds a line to the game's own item tooltips, anywhere they appear:\n"
-				+ "a vendor, the market board, your bags, a Need/Greed roll.\n\n"
-				+ "    ✓ You have this appearance — in your armoury chest\n"
-				+ "    ! You need this for an outfit\n"
-				+ "    x You do not have this appearance\n\n"
-				+ "The dresser half is remembered from your last scan, because the game\n"
-				+ "only sends its contents while you stand at one. Your armoury and what\n"
-				+ "you are wearing are read live.");
-		}
+				"The Armoire stores gear for free, where an outfit still costs a slot." + Nl
+				+ "Adds a second button that takes those pieces out of the dresser — and" + Nl
+				+ "takes apart outfits it would accept whole — and puts them in." + Nl + Nl
+				+ "Stand near your Armoire and it will open it for you." + Nl + Nl
+				+ "Off by default: it moves your things without you watching each one.");
 
 		ImGui.Spacing();
-
-		if (Accent.Button("Scan my dresser", Accent.Blue)) this.Run(quiet: true);
-
-		ImGui.SameLine();
-		ImGui.TextDisabled("(or /dsu-dresser)");
-
-		if (this.logPath is { } path) {
-			ImGui.SameLine();
-			if (ImGui.SmallButton("Copy log path")) ImGui.SetClipboardText(path);
-			if (ImGui.IsItemHovered()) ImGui.SetTooltip(path);
-		}
-
-		if (this.last is not { } r) {
-			ImGui.Spacing();
-			ImGui.TextDisabled("Nothing scanned yet.");
-			return;
-		}
-
-		ImGui.Spacing();
-		ImGui.Separator();
-		ImGui.Spacing();
-
-		if (r.Problem is { } problem) {
-			ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
-			ImGui.TextWrapped(problem);
-			ImGui.PopStyleColor();
-			return;
-		}
-
-		ImGui.Text($"{r.Used} of {r.Capacity} slots used");
-		ImGui.Spacing();
-
-		Line("Pieces that fit outfits you already have", r.Additions.Count, r.SlotsFromAdditions);
-		Line("New outfits you could pack", r.NewOutfits.Count, r.SlotsFromNewOutfits);
-		Line("Exact duplicates", r.Duplicates.Count, r.SlotsFromDuplicates);
-
-		// ⚠ Phase two, which the tab did not mention at all — the overlay listed it and this did
-		// not, so the two halves of the same UI disagreed about how much work there was.
-		if (r.StoreLoose.Count > 0)
-			ImGui.TextUnformatted($"Loose gear to put in the dresser: {r.StoreLoose.Count}");
-
-		ImGui.Separator();
-
-		// ⭐ The one number the whole tool exists to produce.
-		ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(0.62f, 0.86f, 0.68f, 1f));
-		ImGui.Text($"Recoverable: {r.SlotsRecoverable} slot(s)");
-		ImGui.PopStyleColor();
-
-		if (r.SlotsRecoverable == 0) {
-			ImGui.TextDisabled("Your dresser is already as packed as it can be.");
-			return;
-		}
-
-		// ⭐⭐ ALSO HERE, not only on the dresser overlay. The overlay is drawn from the glamour
-		// dresser window — and this is the one feature you must CLOSE that window to finish, because
-		// the Armoire is separate furniture a yard away. A button that vanishes at the moment you need
-		// it is not a button.
-		if (Plugin.Config.DresserArmoire
-		    && (r.ArmoireTransfer.Count > 0 || r.Dissolvable.Count > 0)) {
-			ImGui.Spacing();
-
-			if (this.armoire.Running) {
-				ImGui.TextColored(new System.Numerics.Vector4(0.62f, 0.86f, 0.68f, 1f), this.armoire.Status);
-				ImGui.SameLine();
-				if (ImGui.SmallButton("Stop##armoiretab")) this.armoire.Stop("you stopped it");
-			}
-			else {
-				// ⭐ One button, one sentence, and it says what will actually happen — taking outfits
-				// apart is a bigger thing than moving loose pieces and should not be a surprise.
-				var label = r.Dissolvable.Count > 0
-					? $"Move {r.ArmoireTransfer.Count} piece(s) and {r.Dissolvable.Count} outfit(s) to the Armoire"
-					: $"Move {r.ArmoireTransfer.Count} piece(s) to the Armoire";
-
-				if (Accent.Button(label, Accent.Amber)) this.armoire.Start(r);
-
-				if (ImGui.IsItemHovered())
-					ImGui.SetTooltip(
-						"Stand near your Armoire and press this. It opens the Armoire for you\n"
-						+ "if it needs to, then moves the pieces across a second or so apart.");
-			}
-
-			if (this.armoire.Current is ArmoireTransfer.State.Done or ArmoireTransfer.State.Failed
-			    && this.armoire.Status.Length > 0)
-				ImGui.TextDisabled(this.armoire.Status);
-
-			foreach (var why in this.armoire.Failed) {
-				ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
-				ImGui.TextWrapped($"• {why}");
-				ImGui.PopStyleColor();
-			}
-		}
-
-		ImGui.Spacing();
-		ImGui.TextDisabled($"Would cost about {r.PrismsNeeded} glamour prism(s)");
-		ImGui.TextDisabled($"Needs {r.FreeSlotsNeeded} free inventory slot(s) at once");
-
-		// ⚠ Only ever the two dyes worth stopping for. Every other one is cheap, and warning about
-		// all of them would train people to ignore the warning.
-		foreach (var (item, dye) in r.ExpensiveDyes.Distinct()) {
-			ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
-			ImGui.TextWrapped($"Packing would destroy the {dye} on {item}.");
-			ImGui.PopStyleColor();
-		}
-
-		ImGui.Spacing();
-
-		// ── Packing ───────────────────────────────────────────────────────
-
-		if (!DresserPacker.Enabled) {
-			ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
-			ImGui.TextWrapped("Packing is turned off.");
-			ImGui.PopStyleColor();
-			ImGui.TextWrapped(
-				"It could build an outfit for the wrong set, which left duplicates and a few "
-				+ "empty outfits behind. The scan above is read-only and unaffected — it will "
-				+ "still tell you what is worth packing by hand.");
-			ImGui.TextDisabled("Empty outfits are not lost slots: put any piece of that set in "
-			                   + "and the entry works again.");
-		}
-		else if (this.packer.Running) {
-			ImGui.TextColored(new System.Numerics.Vector4(0.62f, 0.86f, 0.68f, 1f), this.packer.Status);
-			if (ImGui.Button("Stop")) this.packer.Stop("you stopped it");
-		}
-		else {
-			if (Accent.Button("Pack them for me", Accent.Amber)) this.packer.Start(r);
-			if (ImGui.IsItemHovered())
-				ImGui.SetTooltip(
-					"Restores each piece and stores it back as an outfit.\n\n"
-					+ "Takes a few minutes and needs the glamour dresser window open the\n"
-					+ "whole time — it stops if you close it. Everything it does is undone\n"
-					+ "by right-clicking an outfit and choosing Restore Item.");
-
-			// ⚠ Named, not counted. "2 outfits could not be packed" tells somebody there is a
-			// problem and nothing about which one; the whole value is the name, because every reason
-			// here is something they can go and fix.
-			foreach (var why in this.packer.Skipped) {
-				ImGui.PushStyleColor(ImGuiCol.Text, new System.Numerics.Vector4(1f, 0.75f, 0.35f, 1f));
-				ImGui.TextWrapped($"• {why}");
-				ImGui.PopStyleColor();
-			}
-
-			if (this.packer.Verified is { } done) {
-				ImGui.SameLine();
-				ImGui.TextDisabled(done);
-			}
-		}
-
-		ImGui.Spacing();
-		ImGui.Checkbox("Show me what it found", ref this.showDetail);
-
-		if (!this.showDetail) return;
-
-		ImGui.Spacing();
-
-		if (r.Additions.Count > 0) {
-			ImGui.TextDisabled("Fits an outfit you already have");
-			foreach (var a in r.Additions) {
-				ImGui.BulletText($"{a.OutfitName} — add {a.Pieces.Count}");
-				foreach (var p in a.Pieces) {
-					ImGui.Indent(18f);
-					ImGui.TextDisabled($"{DresserScan.SlotNames[p.Slot]}: {p.Name}");
-					ImGui.Unindent(18f);
-				}
-			}
-			ImGui.Spacing();
-		}
-
-		if (r.NewOutfits.Count > 0) {
-			ImGui.TextDisabled("Could become a new outfit");
-			foreach (var o in r.NewOutfits) {
-				ImGui.BulletText($"{o.SetName} — {o.Pieces.Count} piece(s), saves {o.Pieces.Count - 1}");
-				foreach (var p in o.Pieces) {
-					ImGui.Indent(18f);
-					ImGui.TextDisabled($"{DresserScan.SlotNames[p.Slot]}: {p.Name}");
-					ImGui.Unindent(18f);
-				}
-			}
-			ImGui.Spacing();
-		}
-
-		if (r.Duplicates.Count > 0) {
-			ImGui.TextDisabled("You own more than one of these");
-			foreach (var d in r.Duplicates)
-				ImGui.BulletText($"{d.Name} × {d.Indices.Count}");
-			ImGui.Spacing();
-		}
-
-		// ⭐ What your existing outfits are short of, asked for directly — and the check on
-		// whether IsSetSlotUnlocked means what this code assumes it means.
-		if (r.Packed.Count > 0) {
-			ImGui.TextDisabled("Outfits you already have, and what they are missing");
-			foreach (var o in r.Packed) {
-				var have = o.Slots.Count(x => x.Filled);
-				ImGui.BulletText($"{o.Name} — {have} of {o.Slots.Count}");
-
-				foreach (var (_, item, filled) in o.Slots) {
-					ImGui.Indent(18f);
-					if (filled) ImGui.TextDisabled($"have  {item}");
-					else ImGui.TextColored(new System.Numerics.Vector4(0.75f, 0.7f, 0.55f, 1f),
-						$"need  {item}");
-					ImGui.Unindent(18f);
-				}
-			}
-		}
-	}
-
-	private static void Line(string label, int count, int slots) {
-		if (count == 0) {
-			ImGui.TextDisabled($"{label}: none");
-			return;
-		}
-
-		ImGui.Text($"{label}: {count}");
-		ImGui.SameLine();
-		ImGui.TextDisabled($"→ {slots} slot(s)");
+		ImGui.TextDisabled("Everything here is undone by right-clicking an outfit and");
+		ImGui.TextDisabled("choosing Restore Item, or by withdrawing from the Armoire.");
 	}
 }
