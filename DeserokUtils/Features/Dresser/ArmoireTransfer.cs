@@ -142,6 +142,20 @@ internal sealed unsafe class ArmoireTransfer {
 	private int waited;
 	private int yesno;
 
+	/// <summary>
+	/// Hands a fresh scan back to whoever owns this transfer.
+	///
+	/// ⚠⚠⚠ THE THIRD TIME TONIGHT A FIX LANDED IN ONE FILE AND NOT ITS TWIN. The packer got
+	/// exactly this at 19:22, for exactly this reason, and this file did not. A run here dissolves
+	/// outfits and moves dozens of pieces — after it, every count the Dresser tab is showing is
+	/// wrong, and pressing Pack works from a scan taken before any of it happened.
+	///
+	/// ⚠ That is not cosmetic. deserok pressed Pack after a transfer and it built a second
+	/// Boulevardier's Attire beside the one that already existed, because the stale queue still
+	/// believed there was none.
+	/// </summary>
+	internal Action<DresserScan.Result>? Rescanned;
+
 	public State Current => this.state;
 	public string Status { get; private set; } = string.Empty;
 	public int Stored { get; private set; }
@@ -831,6 +845,10 @@ internal sealed unsafe class ArmoireTransfer {
 
 	private void Finish() {
 		this.state = State.Done;
+
+		// ⚠ Before the report, so the tab is correct even if the message below is not.
+		var after = new DresserScan().Scan();
+		if (after.Loaded && after.Problem is null) this.Rescanned?.Invoke(after);
 
 		// ⚠⚠ LEAD WITH WHAT HAPPENED. This used to open "Nothing was moved to your Armoire" and
 		// then add "11 outfit(s) taken apart", which contradicts itself in the space of one sentence

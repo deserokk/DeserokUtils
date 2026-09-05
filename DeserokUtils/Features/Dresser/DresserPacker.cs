@@ -599,6 +599,25 @@ internal sealed unsafe class DresserPacker {
 	private void TickStore(MirageManager* mirage) {
 		var job = this.queue[this.jobIndex];
 
+		// ⚠⚠⚠ DOES THIS OUTFIT ALREADY EXIST, RIGHT NOW? The scan answers that when it runs, and
+		// a queue is a photograph of an answer. Anything that changes the dresser between the scan
+		// and this moment — an Armoire transfer, a previous job, the player — can make a "new outfit"
+		// job into a duplicate, and the packer would build it without hesitating.
+		//
+		// ⚠ That is not hypothetical. 2026-09-05: a Pack pressed after an Armoire transfer built a
+		// second Boulevardier's Attire beside the one already there, because the queue still believed
+		// there was none. The transfer now hands back a fresh scan, which fixes the cause — this
+		// checks the fact instead of trusting the paperwork, because there will be another cause.
+		if (job.ExistingIndex is null) {
+			var ids = mirage->PrismBoxItemIds;
+			for (var i = 0; i < ids.Length; i++) {
+				if (ids[i] != job.SetItemId) continue;
+
+				this.SkipJob($"{job.Name} already exists in your dresser");
+				return;
+			}
+		}
+
 		var sets = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
 		if (sets?.GetRowOrDefault(job.SetItemId) is not { } row) {
 			this.SkipJob($"lost the definition of {job.Name}");

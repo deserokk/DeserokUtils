@@ -46,10 +46,15 @@ internal sealed class DresserFeature {
 	/// and this tab is what would otherwise keep showing the scan from before the run.
 	/// </summary>
 	public DresserFeature() {
-		this.packer.Rescanned = fresh => {
-			this.last = fresh;
-			DresserCache.Save(fresh);
-		};
+		// ⚠ BOTH of them. Either one changes the dresser enough to invalidate every number on the
+		// tab, and a button working from a stale scan is how a duplicate outfit gets built.
+		this.packer.Rescanned = this.Refresh;
+		this.armoire.Rescanned = this.Refresh;
+	}
+
+	private void Refresh(DresserScan.Result fresh) {
+		this.last = fresh;
+		DresserCache.Save(fresh);
 	}
 
 	/// <summary>For the overlay attached to the dresser window.</summary>
