@@ -252,10 +252,11 @@ internal sealed unsafe class ArmoireTransfer {
 	/// contents outlive the window — proven 2026-09-05, when a whole transfer ran with the Armoire
 	/// shut and the glamour dresser open — so this is a doorbell, not a door held open.
 	///
-	/// ⚠⚠ THE OBJECT IS FOUND BY NAME, which is a known weakness: on a non-English client this
-	/// will not match and the feature falls back to the old behaviour of asking. Worth fixing with a
-	/// data id once somebody has one, and not worth guessing at now — a wrong id interacts with some
-	/// other piece of furniture, which is a far worse failure than not finding it.
+	/// ⭐⭐ FOUND BY DATA ID, 2005630, read off the real furnishing rather than guessed. This matched
+	/// on the English NAME for about ten minutes, which would have failed silently on any other
+	/// client — deserok's answer to that was not to accept it: *"we don't have to make guesses, we
+	/// know what we need right? lets take our time, build sniffers and see if we can sniff it."*
+	/// One interact with the sniffer armed produced it. A data id is the same in every language.
 	///
 	/// ⚠ Interaction only. It does NOT drive the "Store an item" menu that follows, because the
 	/// contents load without it — and a menu we opened and left is rude, so anything still on screen
@@ -305,7 +306,7 @@ internal sealed unsafe class ArmoireTransfer {
 			if (obj is null) continue;
 			if (obj.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.EventObj) continue;
 			if (!obj.IsTargetable) continue;
-			if (!obj.Name.TextValue.Equals(ArmoireName, StringComparison.OrdinalIgnoreCase)) continue;
+			if (obj.BaseId != ArmoireDataId) continue;
 
 			return obj;
 		}
@@ -313,8 +314,15 @@ internal sealed unsafe class ArmoireTransfer {
 		return null;
 	}
 
-	/// <summary>⚠ English only. See the note on TickOpening.</summary>
-	private const string ArmoireName = "Armoire";
+	/// <summary>
+	/// The Armoire furnishing.
+	///
+	/// ⭐ Measured 2026-09-05 by interacting with one while the sniffer was armed:
+	/// <c>InteractWithObject("Armoire" kind=EventObj dataId=2005630)</c>. The Glamour Dresser, from
+	/// the same recording, is 2009439 — noted because the next thing that wants a furnishing will
+	/// want that one.
+	/// </summary>
+	private const uint ArmoireDataId = 2005630;
 
 	/// <summary>⚠ A few tries, then say so. Interacting forever at furniture is not a plan.</summary>
 	private const int MaxOpenAttempts = 3;

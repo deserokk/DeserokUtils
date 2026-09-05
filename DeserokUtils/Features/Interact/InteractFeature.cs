@@ -390,7 +390,7 @@ internal sealed class InteractFeature: IDisposable {
 			// a thing you are standing in front of rather than guessing at it.
 			Plugin.Chat.Print($"  \"{candidate.Name}\" {candidate.ObjectKind} {distance:0.#}y "
 				+ $"{(Interactable(candidate, out string why) ? "usable" : "IGNORED: " + why)} "
-				+ $"data={candidate.DataId} "
+				+ $"data={candidate.BaseId} "
 				+ $"view={ts->IsObjectInViewRange(go)} screen={ts->IsObjectOnScreen(go)} "
 				+ $"targetable={candidate.IsTargetable}");
 		}
