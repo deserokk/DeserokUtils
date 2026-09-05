@@ -39,6 +39,8 @@ internal sealed class DresserFeature {
 	private string? logPath;
 	private readonly DresserPacker packer = new();
 
+	private readonly ArmoireTransfer armoire = new();
+
 	/// <summary>
 	/// ⚠ Wired here rather than inside the packer: the packer re-reads the dresser when it finishes,
 	/// and this tab is what would otherwise keep showing the scan from before the run.
@@ -53,9 +55,14 @@ internal sealed class DresserFeature {
 	/// <summary>For the overlay attached to the dresser window.</summary>
 	internal DresserPacker Packer => this.packer;
 
+	internal ArmoireTransfer Armoire => this.armoire;
+
 	internal DresserScan.Result? Last => this.last;
 
-	public void Tick() => this.packer.Tick();
+	public void Tick() {
+		this.packer.Tick();
+		this.armoire.Tick();
+	}
 
 	/// <summary>
 	/// Keep the cached snapshot honest, without anybody having to remember to scan.
@@ -151,6 +158,20 @@ internal sealed class DresserFeature {
 		if (ImGui.Checkbox("Note what you own on item tooltips", ref tooltip)) {
 			Plugin.Config.DresserTooltip = tooltip;
 			Plugin.Config.Save();
+		}
+
+		var toArmoire = Plugin.Config.DresserArmoire;
+		if (ImGui.Checkbox("Offer to move pieces into your Armoire", ref toArmoire)) {
+			Plugin.Config.DresserArmoire = toArmoire;
+			Plugin.Config.Save();
+		}
+
+		if (ImGui.IsItemHovered()) {
+			ImGui.SetTooltip(
+				"The Armoire stores these for free, where an outfit still costs a slot.\n"
+				+ "This adds a button that takes them out of the dresser and puts them in.\n\n"
+				+ "Stand at an inn room or house where both are within reach, and open\n"
+				+ "each of them once so the game sends their contents.");
 		}
 
 		if (ImGui.IsItemHovered()) {

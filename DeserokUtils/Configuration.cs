@@ -171,6 +171,18 @@ public sealed class Configuration: IPluginConfiguration {
 	/// </summary>
 	public bool DresserTooltip { get; set; } = true;
 
+	/// <summary>
+	/// Offer to move dresser pieces the Armoire would take into the Armoire.
+	///
+	/// ⚠⚠ OFF, and deserok asked for it that way. It is the best trade the dresser offers — the
+	/// Armoire stores for free where an outfit still costs a slot — but it moves your things without
+	/// you watching each one, and that is a thing to opt into rather than discover.
+	///
+	/// ⭐ Reversible, like everything else here: an Armoire item withdraws on demand. The line is
+	/// discarding, which nothing in this plugin does.
+	/// </summary>
+	public bool DresserArmoire { get; set; } = false;
+
 	// ── FateWatch ────────────────────────────────────────────────────────────────────────────
 
 	public bool FateWatchEnabled { get; set; } = true;

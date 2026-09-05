@@ -163,6 +163,30 @@ internal sealed unsafe class DresserOverlay {
 					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.RedundantWithOutfit, 12)));
 		}
 
+		// ⭐⭐ THE BUTTON SITS WITH THE FINDING, not in a settings pane somewhere else. The count
+		// above is the reason to press it, and separating a number from the thing that acts on it is
+		// how a feature ends up discovered by accident a month later.
+		//
+		// ⚠ Only when it has been opted into. See Configuration.DresserArmoire.
+		if (Plugin.Config.DresserArmoire && result.ArmoireTransfer.Count > 0) {
+			var moving = this.feature.Armoire;
+
+			if (moving.Running) {
+				ImGui.TextColored(new Vector4(0.62f, 0.86f, 0.68f, 1f), moving.Status);
+				ImGui.SameLine();
+				if (ImGui.SmallButton("Stop##armoire")) moving.Stop("you stopped it");
+			}
+			else if (Accent.Button("Move them to the Armoire", Accent.Amber)) {
+				moving.Start(result);
+			}
+
+			foreach (var why in moving.Failed) {
+				ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
+				ImGui.TextWrapped($"• {why}");
+				ImGui.PopStyleColor();
+			}
+		}
+
 		if (result.ArmoireDuplicate.Count > 0) {
 			ImGui.TextDisabled($"{result.ArmoireDuplicate.Count} piece(s) you already have in the Armoire");
 			if (ImGui.IsItemHovered())

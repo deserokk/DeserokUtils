@@ -167,6 +167,15 @@ internal sealed unsafe class DresserScan {
 		public List<string> ArmoireEligible = new();
 
 		/// <summary>
+		/// The same pieces, with what a transfer needs: what it is, and which cabinet row takes it.
+		///
+		/// ⚠ The dresser index is deliberately NOT carried. It is read fresh at the moment of the
+		/// restore instead — an index read now and used later is the exact staleness that cost the
+		/// packer two days, because removing an entry can shift everything after it.
+		/// </summary>
+		public List<(uint ItemId, uint CabinetRow, string Name)> ArmoireTransfer = new();
+
+		/// <summary>
 		/// Pieces already sitting in the Armoire, of which the dresser holds another copy.
 		///
 		/// ⚠ Different advice: there is nothing to store, the copy is simply surplus. Worth naming
@@ -440,7 +449,10 @@ internal sealed unsafe class DresserScan {
 				if (UIState.Instance()->Cabinet.IsItemInCabinet(cabinetRow))
 					result.ArmoireDuplicate.Add(ItemName(itemId));
 				else
+				{
 					result.ArmoireEligible.Add(ItemName(itemId));
+					result.ArmoireTransfer.Add((itemId, cabinetRow, ItemName(itemId)));
+				}
 			}
 			else {
 				result.LoosePieceIds.Add(itemId);
