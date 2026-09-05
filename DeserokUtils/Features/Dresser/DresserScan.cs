@@ -530,6 +530,16 @@ internal sealed unsafe class DresserScan {
 					// ⚠ An outfit itself, sitting in the bags, is not a piece.
 					if (sets?.GetRowOrDefault(item->ItemId) is not null) continue;
 
+					// ⚠⚠ A HOLE THE DRESSER PASS DOES NOT HAVE. That one routes Armoire-eligible
+					// pieces away from packing entirely, because an outfit spends a prism to amortise
+					// one slot where the Armoire takes the slot to zero. This pass was added later and
+					// never got the same guard — so a piece looted into your bags would be packed into
+					// an outfit even when the Armoire would have taken it for nothing.
+					//
+					// ⚠ Silent, and expensive in the way that is hardest to notice: it works. You get
+					// an outfit, the slot count goes down, and the better trade was never offered.
+					if (cabinet.ContainsKey(item->ItemId)) continue;
+
 					loose.Add((FromBags, item->ItemId));
 					result.LooseInBags++;
 				}
