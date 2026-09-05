@@ -817,6 +817,18 @@ internal sealed unsafe class DresserScan {
 			}
 		}
 
+		// ⚠⚠ AND THE ARMOIRE, which this did not ask about and badly needed to. An appearance held
+		// in the Armoire is owned and costs nothing, so storing another copy in the dresser spends a
+		// slot on something you already have — the exact waste this whole feature exists to undo.
+		//
+		// ⚠ It matters most immediately after an Armoire run: sixty pieces move out of the dresser,
+		// the dresser no longer holds them, and phase two would file the next looted copy straight
+		// back in. The ownership tooltip has always counted the Armoire; this pass did not, so the
+		// two halves of the plugin disagreed about what "you have this" means.
+		foreach (var (itemId, cabinetRow) in cabinet) {
+			if (result.ArmoireRows.Contains(cabinetRow)) owned.Add(itemId);
+		}
+
 		// ⚠ And whatever phase one is about to pack, which is not in the dresser yet but will be.
 		foreach (var a in result.Additions) {
 			foreach (var piece in a.Pieces) owned.Add(piece.ItemId);
