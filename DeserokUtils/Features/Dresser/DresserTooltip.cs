@@ -422,6 +422,11 @@ internal sealed unsafe class DresserTooltip {
 	/// of…" reads as a name and "Prestige High Allagan Attire of Heal…" reads as a bug.
 	/// </summary>
 	private static string Fit(string name) {
+		// ⚠⚠ A CHARACTER COUNT IS A PROXY, NOT A MEASUREMENT. The game's font is proportional, so
+		// forty-four narrow letters and forty-four wide ones are different widths, and this cannot be
+		// tightened by arithmetic. deserok, seeing the longest line land with a little room left:
+		// *"looks cozy, don't want to push for more since kerning and all that."* That margin is the
+		// whole reason the number works — spending it would trade a reliable fit for a prettier one.
 		const int max = 44;
 		if (name.Length <= max) return name;
 
