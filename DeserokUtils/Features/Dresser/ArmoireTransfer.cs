@@ -192,6 +192,7 @@ internal sealed unsafe class ArmoireTransfer {
 		this.settle = 0;
 		this.waited = 0;
 		this.opens = 0;
+		this.menuAnswers = 0;
 
 		this.Status = this.state == State.Opening
 			? "Opening your Armoire..."
@@ -272,6 +273,21 @@ internal sealed unsafe class ArmoireTransfer {
 			return;
 		}
 
+		// ⭐⭐⭐ THE MENU IS NOT ENOUGH. Interacting raises "Store an item / Remove an item /
+		// Nothing" and the server sends nothing until one is chosen — measured 2026-09-05, where the
+		// interact turned him to face the Armoire, the menu appeared, and IsCabinetLoaded stayed
+		// false. deserok: *"we forgot to press 'store item'."*
+		//
+		// ⚠ Entry 0, "Store an item", chosen because it matches what we are here to do. Answering a
+		// menu we raised ourselves is a different thing from answering one that merely happens to be
+		// open, which is why this is bounded and only ever runs inside Opening.
+		if (this.menuAnswers < MaxOpenAttempts && FireMenuEntry(0)) {
+			this.menuAnswers++;
+			DresserLog.Step($"  chose 'Store an item' (attempt {this.menuAnswers})");
+			this.settle = Settle;
+			return;
+		}
+
 		if (this.opens >= MaxOpenAttempts) {
 			this.Fail("Could not reach your Armoire — stand next to it and try again.");
 			return;
@@ -281,6 +297,10 @@ internal sealed unsafe class ArmoireTransfer {
 			this.Fail("No Armoire nearby — stand next to one and try again.");
 			return;
 		}
+
+		// ⚠ Once, and only when we are about to try again — a stall should name its own cause
+		// rather than needing to be described afterwards.
+		if (this.opens == 1) DresserProbe.Visible("while opening the Armoire");
 
 		this.opens++;
 		DresserLog.Step($"  interacting with the Armoire (attempt {this.opens})");
@@ -328,6 +348,23 @@ internal sealed unsafe class ArmoireTransfer {
 	private const int MaxOpenAttempts = 3;
 
 	private int opens;
+
+	/// <summary>How many times the Armoire's own menu has been answered this run.</summary>
+	private int menuAnswers;
+
+	/// <summary>Choose an entry of the Armoire's menu. ⚠ Only ever called from Opening.</summary>
+	private static bool FireMenuEntry(int index) {
+		var addon = Plugin.GameGui.GetAddonByName("SelectString", 1);
+		if (addon.Address == nint.Zero || !addon.IsVisible) return false;
+
+		var unit = (AtkUnitBase*)addon.Address;
+		var values = stackalloc AtkValue[1];
+		values[0].Type = AtkValueType.Int;
+		values[0].Int = index;
+
+		unit->FireCallback(1, values, true);
+		return true;
+	}
 
 	/// <summary>Dismiss the menu our own interaction raised, if it is still up.</summary>
 	private static void CloseMenu() {

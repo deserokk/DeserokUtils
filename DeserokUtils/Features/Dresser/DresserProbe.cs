@@ -89,6 +89,23 @@ internal static unsafe class DresserProbe {
 		}
 	}
 
+	/// <summary>Every addon on screen right now, for a stall that needs to name its own cause.</summary>
+	public static void Visible(string why) {
+		DresserLog.Step($"  visible {why}:");
+
+		var stage = FFXIVClientStructs.FFXIV.Component.GUI.AtkStage.Instance();
+		if (stage is null || stage->RaptureAtkUnitManager is null) return;
+
+		var units = &stage->RaptureAtkUnitManager->AtkUnitManager.AllLoadedUnitsList;
+		for (var i = 0; i < units->Count; i++) {
+			var unit = units->Entries[i].Value;
+			if (unit is null || !unit->IsVisible) continue;
+
+			var name = unit->NameString;
+			if (!string.IsNullOrEmpty(name)) DresserLog.Step($"        {name}");
+		}
+	}
+
 	public static void ArmTooltipDump() {
 		if (armedForTooltip) return;
 
