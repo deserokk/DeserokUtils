@@ -26,10 +26,10 @@ namespace DeserokUtils.Features.FcBuffs;
 /// </summary>
 internal sealed unsafe class FcActionRecorder: IDisposable {
 	/// <summary>Stops on its own. An armed recorder logging every UI event is not a thing to leave running.</summary>
-	private static readonly TimeSpan Expiry = TimeSpan.FromSeconds(45);
+	private static readonly TimeSpan Expiry = TimeSpan.FromSeconds(180);
 
 	/// <summary>⚠ A hard cap, because mouse-over alone produces events faster than anyone can read.</summary>
-	private const int MaxEntries = 500;
+	private const int MaxEntries = 2000;
 
 	/// <summary>
 	/// Addons that are NEVER logged. Everything else is.
@@ -85,6 +85,16 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 			return;
 
 		Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreReceiveEvent, this.OnReceiveEvent);
+
+		// ⭐⭐⭐ EVERY WINDOW THAT OPENS AND CLOSES, BY NAME. Added 2026-09-05 after I wrote
+		// "firing an unknown close callback at a window I have not identified" into a comment as
+		// though it were a fact of life. deserok: *"we shouldn't have unknowns, we have sniffers and
+		// probes, you shouldn't have a situation where you can't identify a window."*
+		//
+		// He is right. Callbacks tell you what somebody PRESSED; they say nothing about a window that
+		// merely appeared, so any window nobody clicks stays anonymous. Two lines fix that for good.
+		Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, this.OnAddonOpen);
+		Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, this.OnAddonClose);
 		this.callbackHook ??= Plugin.Interop.HookFromAddress<FireCallbackDelegate>(
 			AtkUnitBase.Addresses.FireCallback.Value, this.FireCallbackDetour);
 		this.callbackHook.Enable();
@@ -96,6 +106,8 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 			return;
 
 		Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreReceiveEvent, this.OnReceiveEvent);
+		Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, this.OnAddonOpen);
+		Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, this.OnAddonClose);
 		this.callbackHook?.Disable();
 		this.installed = false;
 	}
@@ -120,7 +132,7 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 		this.seen = 0;
 		string shown = this.filters.Length == 0 ? "everything except known noise" : string.Join(", ", this.filters);
 		Plugin.Chat.Print(
-			$"[FcBuffs] recording {shown} for 45s. Do the thing ONCE, "
+			$"[FcBuffs] recording {shown} for 3 minutes. Do the sequence ONCE, "
 			+ "then run /fcbuffs record again to stop.");
 		SniffLog.Mark($"RECORDING ARMED ({shown})");
 	}
@@ -209,6 +221,18 @@ internal sealed unsafe class FcActionRecorder: IDisposable {
 			}
 		}
 		return sb.ToString();
+	}
+
+	private void OnAddonOpen(AddonEvent type, AddonArgs args) {
+		if (!this.armed || !this.Matches(args.AddonName)) return;
+
+		SniffLog.Write($"OPEN  {args.AddonName}");
+	}
+
+	private void OnAddonClose(AddonEvent type, AddonArgs args) {
+		if (!this.armed || !this.Matches(args.AddonName)) return;
+
+		SniffLog.Write($"CLOSE {args.AddonName}");
 	}
 
 	private void OnReceiveEvent(AddonEvent type, AddonArgs args) {
