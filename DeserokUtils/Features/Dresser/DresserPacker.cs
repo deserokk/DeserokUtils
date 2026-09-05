@@ -482,6 +482,23 @@ internal sealed unsafe class DresserPacker {
 				return;
 			}
 
+			// ⚠⚠⚠ THE SAME BUG AS ABOVE, IN A PHASE THAT DID NOT EXIST WHEN IT WAS FIXED. There is
+			// no JOB in phase two — there are loose pieces — so SkipJob logs "SKIPPED ?" and walks
+			// jobIndex past the end of the queue, which sends it straight back here. Seven times in
+			// forty seconds, with the status stuck on "Pulling out duplicates...".
+			//
+			// ⭐ Abandon the piece, keep the rest. One stubborn item must not cost the other thirty,
+			// which is the same rule the outfit jobs get.
+			if (this.state == State.Loose) {
+				var name = this.storingLoose?.Name ?? "a loose piece";
+				DresserLog.Step($"  SKIPPED {name}: the game did not respond in time");
+				this.skipped.Add($"{name} (the game did not respond in time)");
+				this.storingLoose = null;
+				this.looseYesno = 0;
+				this.waited = 0;
+				return;
+			}
+
 			this.SkipJob("the game did not respond in time");
 			return;
 		}
@@ -755,6 +772,13 @@ internal sealed unsafe class DresserPacker {
 		if (this.storingLoose is { } sent) {
 			if (FindInBags(sent.ItemId, out _, out _)) {
 				// ⚠ The prompt is part of the store, not an interruption to it.
+				// ⚠⚠ READ IT BEFORE ANSWERING IT, under Verbose. Phase two fires [14, row, 0] with no
+				// check on what is actually on that row — if the row is wrong it stores a DIFFERENT
+				// item and says nothing, which is the ghost-outfit lesson in a new place. The
+				// confirmation names the item, so the log will say which one we were really agreeing
+				// to the next time a piece fails to leave the bags.
+				if (this.looseYesno == 0) DresserProbe.Text("SelectYesno");
+
 				if (this.looseYesno < MaxYesno && TryFire("SelectYesno", 0)) {
 					this.looseYesno++;
 					DresserLog.Trace($"  fired: SelectYesno [0] (store {sent.Name})");
@@ -1392,7 +1416,17 @@ internal sealed unsafe class DresserPacker {
 	/// the honest thing is to say what is where rather than to shuffle things further.
 	/// </summary>
 	private void SkipJob(string why) {
-		var name = this.jobIndex < this.queue.Count ? this.queue[this.jobIndex].Name : "?";
+		// ⚠⚠ A guard, not a fix. Every "SKIPPED ?" in the log is this being called from a phase
+		// that has no job — twice now, once for duplicates and once for loose pieces — and each time
+		// it silently walked jobIndex past the end and looped. If it ever happens again, this says so
+		// instead of spinning.
+		if (this.jobIndex >= this.queue.Count) {
+			DresserLog.Step($"  BUG: SkipJob with no job to skip ({why}) in state {this.state}");
+			this.waited = 0;
+			return;
+		}
+
+		var name = this.queue[this.jobIndex].Name;
 
 		DresserLog.Step($"SKIPPED {name}: {why}");
 		this.skipped.Add($"{name} ({why})");
