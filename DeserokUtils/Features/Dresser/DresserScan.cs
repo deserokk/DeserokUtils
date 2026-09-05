@@ -258,13 +258,29 @@ internal sealed unsafe class DresserScan {
 			=> this.Additions.Sum(a => a.Pieces.Count) + this.NewOutfits.Sum(o => o.Pieces.Count);
 
 		/// <summary>
-		/// ⚠ The packing half restores a whole set into the bags before storing it, so the free
-		/// space needed is the LARGEST single job, not the total.
+		/// ⚠ The packing half restores a set into the bags before storing it, so the space needed is
+		/// the LARGEST single job, not the total.
+		///
+		/// ⚠⚠ AND ONLY THE PIECES THAT MUST BE RESTORED. This counted every piece of the job,
+		/// including ones already sitting in your bags — so a nine-piece outfit you already held
+		/// completely demanded nine free slots to put pieces where they already were. deserok:
+		/// *"I need 8 bag slots to make an outfit when I have the entire outfit in my inventory? The
+		/// reason we need the bag slot buffer is when we're removing an outfit from the dresser, they
+		/// need somewhere to land... but they're already here."*
+		///
+		/// ⭐ FromBags is uint.MaxValue — a piece already in the bags needs no landing space, so it
+		/// does not count toward the requirement.
 		/// </summary>
 		public int FreeSlotsNeeded {
 			get {
-				var a = this.Additions.Count == 0 ? 0 : this.Additions.Max(x => x.Pieces.Count);
-				var n = this.NewOutfits.Count == 0 ? 0 : this.NewOutfits.Max(x => x.Pieces.Count);
+				var a = this.Additions.Count == 0
+					? 0
+					: this.Additions.Max(x => x.Pieces.Count(p => p.Index != uint.MaxValue));
+
+				var n = this.NewOutfits.Count == 0
+					? 0
+					: this.NewOutfits.Max(x => x.Pieces.Count(p => p.Index != uint.MaxValue));
+
 				return Math.Max(a, n);
 			}
 		}

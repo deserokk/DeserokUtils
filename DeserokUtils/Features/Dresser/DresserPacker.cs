@@ -383,7 +383,10 @@ internal sealed unsafe class DresserPacker {
 		// bags full of loose gear the player now has to sort out by hand; refusing leaves everything
 		// exactly as it was. deserok, 2026-09-03, after the first run choked: check the largest job
 		// up front and simply do not begin.
-		var needed = this.queue.Count == 0 ? 0 : this.queue.Max(j => j.ItemIds.Count);
+		// ⚠⚠ FromDresser, not ItemIds.Count. Only pieces that have to be TAKEN OUT of the dresser
+		// need somewhere to land; ones already in the bags are already landed. Counting all of them
+		// made a nine-piece outfit you already hold demand nine free slots to move nothing.
+		var needed = this.queue.Count == 0 ? 0 : this.queue.Max(j => j.FromDresser);
 		var free = FreeBagSlots();
 
 		if (needed > free) {
@@ -1592,7 +1595,8 @@ internal sealed unsafe class DresserPacker {
 		var job = this.queue[this.jobIndex];
 		var free = FreeBagSlots();
 
-		if (free >= job.ItemIds.Count) {
+		// ⚠ The same correction as the gate: wait only for the space a restore actually needs.
+		if (free >= job.FromDresser) {
 			DresserLog.Step($"job {this.jobIndex + 1}/{this.queue.Count}: {job.Name} "
 			                + $"({job.ItemIds.Count} piece(s), {free} free slot(s))");
 
@@ -1606,7 +1610,7 @@ internal sealed unsafe class DresserPacker {
 			return;
 		}
 
-		this.Status = $"Waiting for {job.ItemIds.Count - free} more free bag slot(s)...";
+		this.Status = $"Waiting for {job.FromDresser - free} more free bag slot(s)...";
 	}
 
 	/// <summary>Every addon the game currently has on screen, for the diagnostic above.</summary>
