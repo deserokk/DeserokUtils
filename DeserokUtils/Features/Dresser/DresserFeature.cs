@@ -239,7 +239,8 @@ internal sealed class DresserFeature {
 		// dresser window — and this is the one feature you must CLOSE that window to finish, because
 		// the Armoire is separate furniture a yard away. A button that vanishes at the moment you need
 		// it is not a button.
-		if (Plugin.Config.DresserArmoire && r.ArmoireTransfer.Count > 0) {
+		if (Plugin.Config.DresserArmoire
+		    && (r.ArmoireTransfer.Count > 0 || r.Dissolvable.Count > 0)) {
 			ImGui.Spacing();
 
 			if (this.armoire.Running) {
@@ -248,8 +249,13 @@ internal sealed class DresserFeature {
 				if (ImGui.SmallButton("Stop##armoiretab")) this.armoire.Stop("you stopped it");
 			}
 			else {
-				if (Accent.Button($"Move {r.ArmoireTransfer.Count} piece(s) to the Armoire", Accent.Amber))
-					this.armoire.Start(r);
+				// ⭐ One button, one sentence, and it says what will actually happen — taking outfits
+				// apart is a bigger thing than moving loose pieces and should not be a surprise.
+				var label = r.Dissolvable.Count > 0
+					? $"Move {r.ArmoireTransfer.Count} piece(s) and {r.Dissolvable.Count} outfit(s) to the Armoire"
+					: $"Move {r.ArmoireTransfer.Count} piece(s) to the Armoire";
+
+				if (Accent.Button(label, Accent.Amber)) this.armoire.Start(r);
 
 				if (ImGui.IsItemHovered())
 					ImGui.SetTooltip(

@@ -70,7 +70,7 @@ namespace DeserokUtils.Features.Dresser;
 /// to be told by the game that it happened.
 /// </summary>
 internal sealed unsafe class ArmoireTransfer {
-	internal enum State { Idle, Opening, Restoring, Storing, Done, Failed }
+	internal enum State { Idle, Opening, Unpacking, Restoring, Storing, Done, Failed }
 
 	/// <summary>
 	/// ⚠ Kept clear of full. deserok's number: gather (free slots − 3) at a time. The margin is not
@@ -125,7 +125,11 @@ internal sealed unsafe class ArmoireTransfer {
 	public string Status { get; private set; } = string.Empty;
 	public int Stored { get; private set; }
 	public IReadOnlyList<string> Failed => this.failed;
-	public bool Running => this.state is State.Opening or State.Restoring or State.Storing;
+	public bool Running
+		=> this.state is State.Opening or State.Unpacking or State.Restoring or State.Storing;
+
+	/// <summary>Outfits dissolved this run, for the report.</summary>
+	public int Unpacked { get; private set; }
 
 	/// <summary>
 	/// Begin, or explain why not.
@@ -140,6 +144,7 @@ internal sealed unsafe class ArmoireTransfer {
 		this.batch.Clear();
 		this.failed.Clear();
 		this.inFlight = null;
+		this.dissolving = null;
 		this.Stored = 0;
 		this.yesno = 0;
 
@@ -193,7 +198,20 @@ internal sealed unsafe class ArmoireTransfer {
 		// He is right, and it is worse than an inconvenience. A prerequisite the player cannot see,
 		// whose failure looks identical to a bug, is a bug. The plugin knows the cabinet is not loaded;
 		// it can go and load it.
-		this.state = UIState.Instance()->Cabinet.IsCabinetLoaded() ? State.Restoring : State.Opening;
+		// ⭐⭐⭐ OUTFITS FIRST, and they are why this exists at all. deserok, seeing the count:
+		// *"being able to unpack is kind of needed.. badly, because hell the scan told me there's 20
+		// packed outfits that can be stored."* Twenty entries whose every piece the Armoire takes for
+		// free is twenty dresser slots paying rent for nothing.
+		//
+		// ⚠ Before the loose pieces, because dissolving an outfit PRODUCES loose pieces — doing it
+		// the other way round would gather a batch, store it, and only then discover more work.
+		this.dissolve.Clear();
+		this.dissolve.AddRange(r.Dissolvable);
+		this.Unpacked = 0;
+
+		this.state = UIState.Instance()->Cabinet.IsCabinetLoaded()
+			? (this.dissolve.Count > 0 ? State.Unpacking : State.Restoring)
+			: State.Opening;
 		this.settle = 0;
 		this.waited = 0;
 		this.opens = 0;
@@ -240,6 +258,7 @@ internal sealed unsafe class ArmoireTransfer {
 
 		switch (this.state) {
 			case State.Opening: this.TickOpening(); break;
+			case State.Unpacking: this.TickUnpack(); break;
 			case State.Restoring: this.TickRestore(); break;
 			default: this.TickStore(); break;
 		}
@@ -272,7 +291,7 @@ internal sealed unsafe class ArmoireTransfer {
 		if (UIState.Instance()->Cabinet.IsCabinetLoaded()) {
 			CloseCabinetWindow();
 			DresserLog.Step("  armoire opened");
-			this.state = State.Restoring;
+			this.state = this.dissolve.Count > 0 ? State.Unpacking : State.Restoring;
 			this.waited = 0;
 			this.Status = $"Moving {this.queue.Count} piece(s) to your Armoire...";
 			return;
@@ -411,6 +430,113 @@ internal sealed unsafe class ArmoireTransfer {
 		}
 	}
 
+	/// <summary>
+	/// Take a whole outfit apart, so its pieces can go to the Armoire.
+	///
+	/// ⭐⭐⭐ THE DIRECT API, NOT THE MENU. <c>RestorePrismBoxSetItem(index, restoreBits)</c> does
+	/// what the right-click "Restore Item" flow does, without the context menu — which matters
+	/// because that menu's Restore entry was index 2 on one outfit and index 3 on another, and
+	/// hard-coding a moving index is precisely the mistake that made ghost outfits in the packer.
+	///
+	/// ⭐⭐ The bits are the FILLED slots and nothing more. Recorded from deserok unpacking two by
+	/// hand: 124 for a five-piece, 56 for a three-piece, each exactly that outfit's slots. An earlier
+	/// attempt at this API passed all eleven bits and was refused, which now reads as the game
+	/// declining to hand back pieces the outfit never had.
+	///
+	/// ⚠ Two bytes, little-endian, because eleven slots do not fit in one. ⚠ UNPROVEN in that
+	/// order — if it refuses, the byte layout is the first thing to doubt, and the log says which
+	/// outfit and which mask so a second guess is cheap.
+	///
+	/// ⭐ Verified by counting, not by the return value: an outfit that dissolves takes its dresser
+	/// entry with it, so the used count must fall by exactly one. Nothing here trusts a bool.
+	/// </summary>
+	private void TickUnpack() {
+		var mirage = MirageManager.Instance();
+		if (mirage is null || !mirage->PrismBoxLoaded) {
+			this.Stop("lost sight of the dresser contents");
+			return;
+		}
+
+		// Still waiting for the last one to actually leave.
+		if (this.dissolving is { } pending) {
+			if (Used(mirage) >= this.usedBeforeDissolve) return;
+
+			DresserLog.Step($"  unpacked {pending.Name}");
+			this.Unpacked++;
+			this.dissolving = null;
+			this.waited = 0;
+			this.settle = this.Pace();
+			return;
+		}
+
+		if (this.dissolve.Count == 0) {
+			this.state = State.Restoring;
+			this.waited = 0;
+			return;
+		}
+
+		// ⚠⚠ An outfit comes apart all at once, so the bags need room for ALL of it. Half an
+		// outfit in the bags and half refused would be a mess with no obvious owner.
+		var next = this.dissolve[0];
+		if (DresserPacker.FreeBagSlots() < next.Pieces + SlotsToLeaveFree) {
+			DresserLog.Step($"  {next.Name} needs {next.Pieces} slots; storing what we have first");
+			this.state = State.Restoring;
+			this.waited = 0;
+			return;
+		}
+
+		this.dissolve.RemoveAt(0);
+
+		// ⚠ The index is re-read here. Dissolving an outfit removes an entry, which moves every
+		// entry after it — the scan's index is a name, not an address.
+		var ids = mirage->PrismBoxItemIds;
+		var index = -1;
+		for (var i = 0; i < ids.Length; i++) {
+			if (ids[i] != next.SetItemId) continue;
+			index = i;
+			break;
+		}
+
+		if (index < 0) {
+			DresserLog.Step($"  {next.Name}: no longer in the dresser, skipping");
+			return;
+		}
+
+		var bits = stackalloc byte[2];
+		bits[0] = (byte)(next.Mask & 0xFF);
+		bits[1] = (byte)((next.Mask >> 8) & 0xFF);
+
+		this.usedBeforeDissolve = Used(mirage);
+		DresserLog.Step(
+			$"  unpacking {next.Name} at index {index}, mask {next.Mask} ({next.Pieces} piece(s))");
+
+		if (!MirageManager.MemberFunctionPointers.RestorePrismBoxSetItem(mirage, (uint)index, bits)) {
+			DresserLog.Step($"  {next.Name}: the game refused to unpack it");
+			this.failed.Add($"{next.Name} (could not be unpacked)");
+			return;
+		}
+
+		this.dissolving = next;
+		this.waited = 0;
+		this.settle = this.Pace();
+	}
+
+	private static int Used(MirageManager* mirage) {
+		var ids = mirage->PrismBoxItemIds;
+		var used = 0;
+		for (var i = 0; i < ids.Length; i++) {
+			if (ids[i] != 0) used++;
+		}
+
+		return used;
+	}
+
+	private readonly List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)> dissolve
+		= new();
+
+	private (uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)? dissolving;
+	private int usedBeforeDissolve;
+
 	private void TickRestore() {
 		// ⚠ One in flight at a time. See Pace().
 		if (this.inFlight is { } flying) {
@@ -504,7 +630,9 @@ internal sealed unsafe class ArmoireTransfer {
 	/// </summary>
 	private void TickStore() {
 		if (this.batch.Count == 0) {
-			this.state = State.Restoring;
+			// ⚠ Back to the outfits if any are left — one may have been deferred for bag space that
+			// this batch has just freed.
+			this.state = this.dissolve.Count > 0 ? State.Unpacking : State.Restoring;
 			this.waited = 0;
 			return;
 		}
@@ -564,6 +692,9 @@ internal sealed unsafe class ArmoireTransfer {
 		this.Status = this.Stored == 0
 			? "Nothing was moved to your Armoire."
 			: $"Moved {this.Stored} piece(s) to your Armoire — {this.Stored} dresser slot(s) freed.";
+
+		if (this.Unpacked > 0)
+			this.Status += $" {this.Unpacked} outfit(s) taken apart.";
 
 		if (this.failed.Count > 0) this.Status += $" {this.failed.Count} could not be moved.";
 

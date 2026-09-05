@@ -134,6 +134,16 @@ internal sealed unsafe class DresserScan {
 		public List<(string Name, int Pieces)> FullyArmoireOutfits = new();
 
 		/// <summary>
+		/// The same outfits, with what dissolving one needs: where it sits and which slots to take.
+		///
+		/// ⭐ Mask, not a slot list, because that is the shape the game wants — see
+		/// ArmoireTransfer.Unpack. ⚠ The INDEX is a snapshot and must be re-read before use; it is
+		/// carried only to identify which outfit was meant.
+		/// </summary>
+		public List<(uint Index, uint SetItemId, string Name, ushort Mask, int Pieces)> Dissolvable
+			= new();
+
+		/// <summary>
 		/// Outfits in the dresser holding nothing at all.
 		///
 		/// ⚠⚠ THESE ARE DAMAGE, and this tool made them. A run on 2026-09-03 pressed "Store as
@@ -630,8 +640,26 @@ internal sealed unsafe class DresserScan {
 					if (!cabinet.ContainsKey(slotItems[slot])) allEligible = false;
 				}
 
-				if (allEligible && filledCount > 0)
+				if (allEligible && filledCount > 0) {
 					result.FullyArmoireOutfits.Add((ItemName(outfitItemId), filledCount));
+
+					// ⭐⭐ The mask is the FILLED slots and nothing else. Recorded from deserok
+					// unpacking two outfits by hand: 124 for a five-piece and 56 for a three-piece,
+					// both exactly the slots those outfits held. An earlier attempt at this API passed
+					// all eleven bits and was refused — almost certainly for asking after pieces the
+					// outfit does not have.
+					ushort mask = 0;
+					for (var slot = 0; slot < slotItems.Length; slot++) {
+						if (slotItems[slot] == 0) continue;
+						if (!MirageManager.MemberFunctionPointers.IsSetSlotUnlocked(
+							    mirage, outfitIndex, slot)) continue;
+
+						mask |= (ushort)(1 << slot);
+					}
+
+					result.Dissolvable.Add(
+						(outfitIndex, outfitItemId, ItemName(outfitItemId), mask, filledCount));
+				}
 
 				// ⚠ An outfit with no filled slot at all. See Result.EmptyOutfits — this tool made
 				// these, and they cannot be removed by hand.
