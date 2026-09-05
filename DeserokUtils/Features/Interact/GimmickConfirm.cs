@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -119,10 +119,11 @@ internal sealed class GimmickConfirm: IDisposable {
 		if (!Plugin.Config.InteractAnswerGimmicks)
 			return;
 
-		if (DateTime.UtcNow > this.armedUntil) {
-			Plugin.Diag("Interact: a yes/no box opened, but not from this key -- leaving it alone.");
-			return;
-		}
+		// ⚠ Silent. This used to announce every yes/no box in the game that we did not raise, which
+		// is nearly all of them — deserok's chat collapsed one to "(2x)" and another to "(79x)" while
+		// the lines that mattered scrolled past. A diagnostic that fires when NOTHING happened is the
+		// least useful thing a log can hold, and it drowns the ones that fire when something did.
+		if (DateTime.UtcNow > this.armedUntil) return;
 
 		this.pendingSince = DateTime.UtcNow;
 	}

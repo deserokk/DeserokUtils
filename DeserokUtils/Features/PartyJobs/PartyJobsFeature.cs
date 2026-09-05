@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
 
@@ -106,10 +106,9 @@ internal sealed class PartyJobsFeature: IDisposable {
 			return;
 		}
 
-		if (!AnyoneAway()) {
-			Plugin.Diag($"PartyJobs: no refresh needed ({why}) -- nobody is out of zone.");
-			return;
-		}
+		// ⚠ Silent, for the same reason as the gimmick check: every zone change reported that there
+		// was nothing to do. Seventy-nine of them in one evening, none of them an event.
+		if (!AnyoneAway()) return;
 
 		var proxy = InfoProxyPartyMember.Instance();
 		if (proxy is null)
