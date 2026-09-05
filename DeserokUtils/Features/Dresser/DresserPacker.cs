@@ -810,10 +810,13 @@ internal sealed unsafe class DresserPacker {
 		var items = Plugin.Data.GetExcelSheet<Item>();
 		if (items?.GetRowOrDefault(piece.ItemId) is not { } row) return;
 
-		var listRow = DresserList.RowForIcon(row.Icon);
+		// ⚠⚠ UNAMBIGUOUS, because nothing checks this one afterwards. The outfit path can take the
+		// first matching row — the dialog it opens names the set, so a wrong row is caught before
+		// anything is committed. This fires and the item is stored. See DresserList.
+		var listRow = DresserList.UnambiguousRowForIcon(row.Icon);
 		if (listRow < 0) {
-			DresserLog.Step($"  {piece.Name}: the game is not offering it as glamour-ready");
-			this.skipped.Add($"{piece.Name} (not offered as glamour-ready)");
+			DresserLog.Step($"  {piece.Name}: no single glamour-ready row matches it");
+			this.skipped.Add($"{piece.Name} (could not be identified in the list)");
 			return;
 		}
 

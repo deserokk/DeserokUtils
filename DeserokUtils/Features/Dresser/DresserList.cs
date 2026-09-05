@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 using FFXIVClientStructs.FFXIV.Component.GUI;
 
@@ -50,6 +50,38 @@ internal static unsafe class DresserList {
 
 	/// <summary>A ceiling, so a misread array cannot spin. Far more than any real bag holds.</summary>
 	private const int MaxEntries = 400;
+
+	/// <summary>
+	/// The row holding this icon, but ONLY if exactly one row does. ⚠ -1 when none or several.
+	///
+	/// ⭐⭐⭐ FOR WRITES THAT CANNOT BE CHECKED AFTERWARDS. The outfit path can be careless about
+	/// ambiguity because the dialog it opens announces which set it is for, and a mismatch is caught
+	/// before anything is committed. Phase two has no such second look: it fires [14, row, 0] and the
+	/// item is stored. A wrong row there stores a DIFFERENT item, silently, which is the ghost-outfit
+	/// failure wearing new clothes.
+	///
+	/// ⚠ Two items can share an icon, and that is the whole exposure — the match is on artwork, not
+	/// identity. So where the write is unverifiable, ambiguity is refused rather than resolved by
+	/// taking the first one and hoping.
+	/// </summary>
+	public static int UnambiguousRowForIcon(uint icon) {
+		if (icon == 0) return -1;
+
+		var found = -1;
+
+		foreach (var (row, rowIcon) in Rows()) {
+			if (rowIcon != icon) continue;
+
+			if (found >= 0) {
+				DresserLog.Step($"  icon {icon} is on rows {found} and {row} — refusing to guess");
+				return -1;
+			}
+
+			found = row;
+		}
+
+		return found;
+	}
 
 	/// <summary>Which row of the list holds the item with this icon. ⚠ -1 when it is not there.</summary>
 	public static int RowForIcon(uint icon) {
