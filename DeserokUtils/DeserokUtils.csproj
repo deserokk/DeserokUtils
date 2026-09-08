@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+
+	<ItemGroup>
+		<PackageReference Include="NAudio" Version="2.2.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Features/Fanfare/Data/rarity.txt" LogicalName="Fanfare.rarity.txt" />
+
+		<Content Include="Features/Food/Sounds/*.wav" CopyToOutputDirectory="PreserveNewest"
+		         Link="Sounds\%(Filename)%(Extension)" />
+
+		<Content Include="Features/Earshot/Sounds/*.wav" CopyToOutputDirectory="PreserveNewest"
+		         Link="Sounds\%(Filename)%(Extension)" />
+
+		<Content Include="Features/Fanfare/Sounds/*.wav" CopyToOutputDirectory="PreserveNewest"
+		         Link="Sounds\%(Filename)%(Extension)" />
+	</ItemGroup>
+
+	<PropertyGroup>
+		<Product>DeserokUtils</Product>
+		<AssemblyName>DeserokUtils</AssemblyName>
+		<Version>1.29.3</Version>
+		<Authors>deserokk</Authors>
+		<Description>A bucket of small FFXIV utilities.</Description>
+		<PackageProjectUrl>https://github.com/deserokk/DeserokUtils</PackageProjectUrl>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Nullable>enable</Nullable>
+
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<DocumentationFile>obj\$(Configuration)\$(AssemblyName).xml</DocumentationFile>
+		<NoWarn>$(NoWarn);CS1591</NoWarn>
+	</PropertyGroup>
+
+	<Target Name="DropDocXmlBeforePackaging" AfterTargets="Build" BeforeTargets="DefaultDalamudPackagerRelease">
+		<Delete Files="$(OutputPath)$(AssemblyName).xml" />
+	</Target>
+
+</Project>
