@@ -14,6 +14,8 @@ internal sealed class Notification {
 
 	internal float? PercentOwned { get; init; }
 
+	internal bool TooNew { get; init; }
+
 	internal bool IsRare { get; init; }
 
 	internal ISharedImmediateTexture? Icon { get; init; }
@@ -71,6 +73,7 @@ internal sealed class Notification {
 			Description = row.Description.ExtractText(),
 			Points = row.Points,
 			PercentOwned = percent,
+			TooNew = rarity.TooNew(achievementId),
 			IsRare = isRare,
 			Icon = row.Icon != 0
 				? Plugin.Textures.GetFromGameIcon(new GameIconLookup(row.Icon))

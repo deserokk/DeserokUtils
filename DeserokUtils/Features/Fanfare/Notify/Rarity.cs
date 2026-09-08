@@ -11,6 +11,10 @@ internal sealed class Rarity {
 
 	private readonly Dictionary<uint, float> owned = new();
 
+	private readonly HashSet<uint> tooNew = new();
+
+	private DateTime? newUntil;
+
 	private readonly float[] sorted = [];
 
 	internal int Total => this.owned.Count;
@@ -29,8 +33,20 @@ internal sealed class Rarity {
 			var values = new List<float>();
 
 			while (reader.ReadLine() is { } line) {
-				if (line.Length == 0 || line[0] == '#')
+				if (line.Length == 0)
 					continue;
+
+				if (line[0] == '#') {
+					const string marker = "# NewUntil: ";
+					if (line.StartsWith(marker, StringComparison.Ordinal)
+						&& DateTime.TryParseExact(
+							line.AsSpan(marker.Length, Math.Min(10, line.Length - marker.Length)),
+							"yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None,
+							out var until))
+						this.newUntil = until;
+
+					continue;
+				}
 
 				var split = line.IndexOf(':');
 				if (split <= 0)
@@ -38,17 +54,36 @@ internal sealed class Rarity {
 
 				if (!uint.TryParse(line.AsSpan(0, split), out var id))
 					continue;
-				if (!float.TryParse(line.AsSpan(split + 1), NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
+
+				var rest = line.AsSpan(split + 1);
+				var flag = rest.IndexOf(':');
+				var isNew = false;
+				if (flag >= 0) {
+					isNew = rest[(flag + 1)..].Trim().SequenceEqual("new");
+					rest = rest[..flag];
+				}
+
+				if (!float.TryParse(rest, NumberStyles.Float, CultureInfo.InvariantCulture, out var percent))
 					continue;
 
 				this.owned[id] = percent;
+
+				if (isNew) {
+					this.tooNew.Add(id);
+					continue;
+				}
+
 				values.Add(percent);
 			}
 
 			values.Sort();
 			this.sorted = values.ToArray();
 
-			Plugin.Log.Information($"rarity: loaded {this.owned.Count} achievements.");
+			var flagged = this.newUntil is DateTime d
+				? $", {this.tooNew.Count} too new to rate until {d:yyyy-MM-dd}"
+				: string.Empty;
+
+			Plugin.Log.Information($"rarity: loaded {this.owned.Count} achievements{flagged}.");
 		} catch (Exception ex) {
 
 			Plugin.Log.Error(ex, "rarity: failed to load; continuing without it.");
@@ -56,12 +91,18 @@ internal sealed class Rarity {
 	}
 
 	internal float? PercentOwned(uint achievementId)
-		=> this.owned.TryGetValue(achievementId, out var percent) ? percent : null;
+		=> this.TooNew(achievementId) ? null
+			: this.owned.TryGetValue(achievementId, out var percent) ? percent : null;
+
+	internal bool TooNew(uint achievementId)
+		=> this.newUntil is DateTime until
+			&& DateTime.UtcNow.Date < until
+			&& this.tooNew.Contains(achievementId);
 
 	internal List<uint> IdsAtOrBelow(float threshold) {
 		var ids = new List<uint>();
 		foreach (var (id, percent) in this.owned) {
-			if (percent <= threshold)
+			if (percent <= threshold && !this.TooNew(id))
 				ids.Add(id);
 		}
 

@@ -46,7 +46,7 @@ internal sealed class FanfareFeature: IDisposable {
 	private const int MaxSessionLog = 50;
 
 	private readonly record struct SessionEntry(
-		DateTime When, string Title, float? PercentOwned, bool IsRare, string Reward);
+		DateTime When, string Title, float? PercentOwned, bool TooNew, bool IsRare, string Reward);
 
 	private bool cutsceneOptOut;
 
@@ -224,6 +224,7 @@ internal sealed class FanfareFeature: IDisposable {
 			DateTime.Now,
 			notification.Title,
 			notification.PercentOwned,
+			notification.TooNew,
 			notification.IsRare,
 			notification.HasRewardSlide
 				? $"{notification.RewardLabel}: {notification.RewardName}"
@@ -241,6 +242,7 @@ internal sealed class FanfareFeature: IDisposable {
 		foreach (var entry in this.session) {
 			var rarity = entry.PercentOwned is float percent
 				? $"{percent:0.#}% of tracked players have this"
+				: entry.TooNew ? "new achievement, no reliable tracking yet"
 				: "rarity unknown";
 
 			var rare = entry.IsRare ? " (rare)" : string.Empty;

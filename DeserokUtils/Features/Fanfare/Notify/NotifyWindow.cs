@@ -193,9 +193,14 @@ internal sealed class NotifyWindow: Window {
 
 		notification.DescriptionLine = Flatten(notification.Description);
 
-		notification.RarityLine = Plugin.Config.Fanfare.ShowRarity && notification.PercentOwned is float percent
-			? $"{percent:0.#}% of tracked players have this"
-			: string.Empty;
+		if (!Plugin.Config.Fanfare.ShowRarity)
+			notification.RarityLine = string.Empty;
+		else if (notification.PercentOwned is float percent)
+			notification.RarityLine = $"{percent:0.#}% of tracked players have this";
+		else if (notification.TooNew)
+			notification.RarityLine = "New achievement, no reliable tracking yet";
+		else
+			notification.RarityLine = string.Empty;
 
 		notification.RewardLabelLine = notification.RewardLabel;
 		notification.RewardNameLine = notification.RewardName;
