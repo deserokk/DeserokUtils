@@ -1,5 +1,5 @@
 ﻿# Achievement rarity: percentage of tracked FFXIV Collect users who own each achievement.
-# Source: https://ffxivcollect.com (Raelys / skyborn-industries, MIT). Regenerate: tools/update-rarity.ps1
+# Source: https://ffxivcollect.com (Raelys / skyborn-industries, MIT).
 # Not a percentage of all FFXIV players, the population is self-selected collectors.
 # Generated: 2026-09-08
 # NewUntil: 2026-09-15 (patch 7.56, rows marked :new have no usable data until then)
