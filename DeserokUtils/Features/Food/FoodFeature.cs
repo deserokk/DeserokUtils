@@ -70,6 +70,9 @@ internal sealed class FoodFeature: IDisposable {
 		if (info is not null && info->InSanctuary)
 			return false;
 
+		if (Plugin.ClientState.IsPvP)
+			return false;
+
 		return true;
 	}
 
@@ -244,6 +247,9 @@ internal sealed class FoodFeature: IDisposable {
 
 		var sanctuary = info is not null && info->InSanctuary;
 		Row("not in a town", !sanctuary, sanctuary ? "in a sanctuary" : string.Empty);
+
+		var pvp = Plugin.ClientState.IsPvP;
+		Row("not PvP", !pvp, pvp ? "food is disabled in PvP" : string.Empty);
 
 		Row("unfed", !IsFed(), IsFed() ? "Well Fed is up" : string.Empty);
 

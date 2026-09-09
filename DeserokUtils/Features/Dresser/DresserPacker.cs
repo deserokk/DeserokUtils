@@ -688,10 +688,16 @@ internal sealed unsafe class DresserPacker {
 		if (this.duplicatesPulled > 0)
 			parts.Add($"{Plural(this.duplicatesPulled, "duplicate")} back in your bags");
 
-		this.Status = $"All done — {Plural(actual, "dresser slot")} recovered "
-		            + $"({this.usedAtRunStart} → {after.Used})";
+		if (actual > 0) {
+			this.Status = $"All done — {Plural(actual, "dresser slot")} recovered "
+			            + $"({this.usedAtRunStart} → {after.Used})";
 
-		if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts);
+			if (parts.Count > 0) this.Status += ": " + string.Join(", ", parts);
+		} else {
+			var did = parts.Count > 0 ? string.Join(", ", parts) : "nothing to pack";
+			this.Status = $"All done — {did} "
+			            + $"({this.usedAtRunStart} → {after.Used} slots used)";
+		}
 
 		if (this.skipped.Count > 0)
 			this.Status += $". {this.skipped.Count} could not be packed — see the Dresser tab";
