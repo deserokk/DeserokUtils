@@ -247,8 +247,6 @@ public sealed class Configuration: IPluginConfiguration {
 
 	public bool FoodEnabled { get; set; }
 
-	public bool FoodSayOnLapse { get; set; } = true;
-
 	public string FoodMessage { get; set; } = "No food buff";
 
 	public bool FoodBoopOnDuty { get; set; } = true;
@@ -258,8 +256,6 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool FoodBoopOverworld { get; set; }
 
 	public string FoodSoundPath { get; set; } = string.Empty;
-
-	public bool FoodSayPeriodically { get; set; }
 
 	public int FoodNagMinutes { get; set; } = 5;
 

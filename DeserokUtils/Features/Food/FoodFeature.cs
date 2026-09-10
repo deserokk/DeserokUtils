@@ -24,8 +24,6 @@ internal sealed class FoodFeature: IDisposable {
 	private readonly SoundPlayer sound = new();
 	private readonly SoundLibrary library;
 
-	private bool wasFed;
-
 	private bool wasInDuty;
 
 	private bool dutyPending;
@@ -62,8 +60,13 @@ internal sealed class FoodFeature: IDisposable {
 
 		if (!Plugin.Config.FoodAtMaxLevel) {
 			var state = PlayerState.Instance();
-			if (state is not null && state->MaxLevel > 0 && me.Level >= state->MaxLevel)
-				return false;
+
+			if (state is not null && state->MaxLevel > 0) {
+				var level = TrueLevel(state);
+
+				if (level == 0 || level >= state->MaxLevel)
+					return false;
+			}
 		}
 
 		var info = TerritoryInfo.Instance();
@@ -74,6 +77,21 @@ internal sealed class FoodFeature: IDisposable {
 			return false;
 
 		return true;
+	}
+
+	private static unsafe byte TrueLevel(PlayerState* state) {
+		var me = Plugin.Objects.LocalPlayer;
+		if (me is null)
+			return 0;
+
+		var job = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.ClassJob>()
+		                     .GetRowOrDefault(me.ClassJob.RowId);
+
+		var slot = job?.ExpArrayIndex ?? -1;
+		if (slot < 0 || slot >= 32)
+			return 0;
+
+		return (byte)state->ClassJobLevels[slot];
 	}
 
 	private static bool IsFed() {
@@ -117,11 +135,6 @@ internal sealed class FoodFeature: IDisposable {
 					this.Boop();
 			}
 
-			if (this.wasFed && !fed && this.Relevant() && Plugin.Config.FoodSayOnLapse) {
-				Plugin.Announce(Message());
-				this.lastNag = DateTime.UtcNow;
-			}
-
 			if (inCombat && !this.wasInCombat && !inDuty && !fed && this.Relevant()
 				&& Plugin.Config.FoodBoopOverworld
 				&& DateTime.UtcNow - this.lastNag > TimeSpan.FromMinutes(Plugin.Config.FoodNagMinutes)) {
@@ -130,17 +143,11 @@ internal sealed class FoodFeature: IDisposable {
 				this.Boop();
 			}
 
-			if (!fed && this.Relevant() && Plugin.Config.FoodSayPeriodically
-				&& DateTime.UtcNow - this.lastNag > TimeSpan.FromMinutes(Plugin.Config.FoodNagMinutes)) {
-				this.lastNag = DateTime.UtcNow;
-				Plugin.Announce(Message());
-			}
 		}
 		catch (Exception ex) {
 			Plugin.Log.Error(ex, "Food: checking the buff failed.");
 		}
 		finally {
-			this.wasFed = fed;
 			this.wasInDuty = inDuty;
 			this.wasInCombat = inCombat;
 		}
@@ -241,8 +248,14 @@ internal sealed class FoodFeature: IDisposable {
 		Row("player", me is not null, me?.Name.TextValue ?? "(none)");
 
 		var cap = state is null ? (byte)0 : state->MaxLevel;
-		Row("below cap", Plugin.Config.FoodAtMaxLevel || (me is not null && cap > 0 && me.Level < cap),
-			$"level {me?.Level.ToString() ?? "?"} of {cap}"
+		var real = state is null ? (byte)0 : TrueLevel(state);
+
+		var synced = me is not null && real > 0 && me.Level != real
+			? $", synced to {me.Level}"
+			: string.Empty;
+
+		Row("below cap", Plugin.Config.FoodAtMaxLevel || (cap > 0 && real > 0 && real < cap),
+			$"level {(real > 0 ? real.ToString() : "?")} of {cap}{synced}"
 			+ (Plugin.Config.FoodAtMaxLevel ? ", ignored" : string.Empty));
 
 		var sanctuary = info is not null && info->InSanctuary;
@@ -274,12 +287,6 @@ internal sealed class FoodFeature: IDisposable {
 
 		ImGui.Spacing();
 
-		var lapse = Plugin.Config.FoodSayOnLapse;
-		if (ImGui.Checkbox("Say something when it runs out", ref lapse)) {
-			Plugin.Config.FoodSayOnLapse = lapse;
-			changed = true;
-		}
-
 		var boop = Plugin.Config.FoodBoopOnDuty;
 		if (ImGui.Checkbox("Play a sound when a duty starts without one", ref boop)) {
 			Plugin.Config.FoodBoopOnDuty = boop;
@@ -308,21 +315,13 @@ internal sealed class FoodFeature: IDisposable {
 			changed = true;
 		}
 
-		if (overworld)
-			ImGui.TextDisabled("    For FATE grinding. The sound is limited to the interval below.");
-
-		var periodic = Plugin.Config.FoodSayPeriodically;
-		if (ImGui.Checkbox("Keep reminding me while I have none", ref periodic)) {
-			Plugin.Config.FoodSayPeriodically = periodic;
-			changed = true;
-		}
-
-		if (periodic) {
+		if (overworld) {
+			ImGui.TextDisabled("    For FATE grinding, which the duty trigger cannot see.");
 			ImGui.Indent(16f);
 
 			var minutes = Plugin.Config.FoodNagMinutes;
 			ImGui.SetNextItemWidth(-(ImGui.GetFontSize() * 11f));
-			if (ImGui.SliderInt("Every##food", ref minutes, 1, 30, "%d min")) {
+			if (ImGui.SliderInt("At most every##food", ref minutes, 1, 30, "%d min")) {
 				Plugin.Config.FoodNagMinutes = minutes;
 				changed = true;
 			}
