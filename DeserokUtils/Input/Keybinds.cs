@@ -39,7 +39,7 @@ internal sealed class KeybindWatcher {
 
 	public void Tick() {
 
-		if (TextInputActive)
+		if (TextInputActive || GameTypingActive())
 			return;
 
 		var now = DateTime.UtcNow;
@@ -66,6 +66,15 @@ internal sealed class KeybindWatcher {
 				Plugin.Log.Error($"Keybind {name} ({bind}) threw: {ex}");
 			}
 		}
+	}
+
+	private static unsafe bool GameTypingActive() {
+		var ui = FFXIVClientStructs.FFXIV.Client.System.Framework.Framework.Instance()->GetUIModule();
+		if (ui == null)
+			return false;
+
+		var atk = ui->GetRaptureAtkModule();
+		return atk != null && atk->AtkModule.IsTextInputActive();
 	}
 
 	private static bool Held(Keybind bind) =>
