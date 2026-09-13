@@ -37,9 +37,35 @@ internal sealed class ChatColourFeature: IDisposable {
 
 	private static readonly TimeSpan ReArmEvery = TimeSpan.FromSeconds(30);
 
-	public ChatColourFeature() => Plugin.Chat.ChatMessage += this.OnChatMessage;
+	public ChatColourFeature() {
+		Plugin.Chat.CheckMessageHandled += this.OnChatMessage;
 
-	public void Dispose() => Plugin.Chat.ChatMessage -= this.OnChatMessage;
+		Plugin.RegisterSub("chatsniff", $"log how chat names are built, for {(int)SniffFor.TotalMinutes} minutes",
+			(_, _) => this.ArmSniff());
+	}
+
+	private DateTime sniffUntil = DateTime.MinValue;
+	private int sniffed;
+	private const int SniffCap = 2000;
+	private static readonly TimeSpan SniffFor = TimeSpan.FromMinutes(10);
+
+	private void ArmSniff() {
+		this.sniffUntil = DateTime.UtcNow + SniffFor;
+		this.sniffed = 0;
+		SniffLog.Mark("CHAT SNIFF ARMED");
+		Plugin.Chat.Print($"[DeserokUtils] logging how chat names are built for {(int)SniffFor.TotalMinutes} minutes, to sniff.log.");
+	}
+
+	private void DisarmSniff(string why) {
+		if (this.sniffUntil == DateTime.MinValue)
+			return;
+
+		this.sniffUntil = DateTime.MinValue;
+		SniffLog.Mark($"CHAT SNIFF STOPPED ({why}) - {this.sniffed} line(s)");
+		Plugin.Chat.Print($"[DeserokUtils] chat sniff stopped ({why}), {this.sniffed} line(s) in sniff.log.");
+	}
+
+	public void Dispose() => Plugin.Chat.CheckMessageHandled -= this.OnChatMessage;
 
 	private void KeepLast() {
 		var now = DateTime.UtcNow;
@@ -48,8 +74,8 @@ internal sealed class ChatColourFeature: IDisposable {
 
 		this.lastReArm = now;
 
-		Plugin.Chat.ChatMessage -= this.OnChatMessage;
-		Plugin.Chat.ChatMessage += this.OnChatMessage;
+		Plugin.Chat.CheckMessageHandled -= this.OnChatMessage;
+		Plugin.Chat.CheckMessageHandled += this.OnChatMessage;
 	}
 
 	private void OnChatMessage(IHandleableChatMessage message) {
@@ -58,14 +84,27 @@ internal sealed class ChatColourFeature: IDisposable {
 
 		try {
 
-			if (Plugin.Verbose)
-				Trace(message);
+			var sniffing = DateTime.UtcNow < this.sniffUntil
+				&& message.Sender.Payloads.Any(p => p is PlayerPayload);
+
+			if (!sniffing && this.sniffUntil != DateTime.MinValue && DateTime.UtcNow >= this.sniffUntil)
+				this.DisarmSniff("time up");
+
+			var before = sniffing ? Shape(message.Sender) : null;
 
 			if (Recolour(message.Sender) is { } sender)
 				message.Sender = sender;
 
 			if (Recolour(message.Message) is { } body)
 				message.Message = body;
+
+			if (before is not null) {
+				SniffLog.Write($"chat {message.LogKind}: in  = {before}");
+				SniffLog.Write($"chat {message.LogKind}: out = {Shape(message.Sender)}");
+
+				if (++this.sniffed >= SniffCap)
+					this.DisarmSniff("line cap");
+			}
 
 			this.KeepLast();
 		}
@@ -75,17 +114,14 @@ internal sealed class ChatColourFeature: IDisposable {
 		}
 	}
 
-	private static void Trace(IHandleableChatMessage message) {
-		static string Shape(SeString s) => s.Payloads.Count == 0
-			? "(none)"
-			: string.Join(" ", s.Payloads.Select(p => p switch {
-				PlayerPayload pp => $"Player<{pp.PlayerName}@{pp.World.ValueNullable?.Name.ExtractText() ?? "-"}>",
-				TextPayload t => $"Text<{t.Text}>",
-				_ => p.GetType().Name.Replace("Payload", string.Empty),
-			}));
-
-		SniffLog.Write($"chat {message.LogKind}: sender = {Shape(message.Sender)}");
-	}
+	private static string Shape(SeString s) => s.Payloads.Count == 0
+		? "(none)"
+		: string.Join(" ", s.Payloads.Select(p => p switch {
+			PlayerPayload pp => $"Player<{pp.PlayerName}@{pp.World.ValueNullable?.Name.ExtractText() ?? "-"}>",
+			TextPayload t => $"Text<{t.Text}>",
+			UIForegroundPayload f => $"Fg<{f.ColorKey}>",
+			_ => p.GetType().Name.Replace("Payload", string.Empty),
+		}));
 
 	private static SeString? Recolour(SeString source) {
 		var payloads = new List<Payload>(source.Payloads.Count + 8);
