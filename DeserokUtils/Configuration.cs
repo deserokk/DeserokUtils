@@ -243,6 +243,9 @@ public sealed class Configuration: IPluginConfiguration {
 
 	public bool ChatColourOwnName { get; set; } = false;
 
+	public bool ChatColourOwnCustom { get; set; }
+	public ushort ChatColourOwnKey { get; set; }
+
 	public bool EarshotEnabled { get; set; }
 
 	public bool FoodEnabled { get; set; }
@@ -370,4 +373,16 @@ public sealed class Configuration: IPluginConfiguration {
 	public Features.Fanfare.FanfareSettings Fanfare { get; set; } = new();
 
 	public void Save() => Plugin.PluginInterface.SavePluginConfig(this);
+
+	private bool savePending;
+
+	public void SaveWhenIdle() => this.savePending = true;
+
+	public void FlushPending(bool idle) {
+		if (!this.savePending || !idle)
+			return;
+
+		this.savePending = false;
+		this.Save();
+	}
 }

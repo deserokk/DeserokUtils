@@ -63,7 +63,7 @@ internal sealed class EarshotFeature: IDisposable {
 			if (me.Length > 0 && message.Sender.TextValue.Contains(me, StringComparison.Ordinal))
 				return;
 
-			var triggers = this.Triggers();
+			var triggers = this.Triggers(me);
 			if (triggers.Count == 0)
 				return;
 
@@ -93,9 +93,30 @@ internal sealed class EarshotFeature: IDisposable {
 			UIGlobals.PlayChatSoundEffect((uint)Math.Clamp(Plugin.Config.EarshotSound, 1, 16));
 	}
 
-	private List<string> Triggers() {
+	private List<string> triggerCache = new(0);
+	private string cachedFull = string.Empty;
+	private string cachedCustom = string.Empty;
+	private bool cachedFirst, cachedLast, cachedWhole;
+	private bool triggersBuilt;
+
+	private List<string> Triggers(string full) {
+		var cfg = Plugin.Config;
+		if (this.triggersBuilt
+			&& cfg.EarshotFirstName == this.cachedFirst
+			&& cfg.EarshotLastName == this.cachedLast
+			&& cfg.EarshotFullName == this.cachedWhole
+			&& string.Equals(full, this.cachedFull, StringComparison.Ordinal)
+			&& string.Equals(cfg.EarshotCustom, this.cachedCustom, StringComparison.Ordinal))
+			return this.triggerCache;
+
+		this.triggersBuilt = true;
+		this.cachedFirst = cfg.EarshotFirstName;
+		this.cachedLast = cfg.EarshotLastName;
+		this.cachedWhole = cfg.EarshotFullName;
+		this.cachedFull = full;
+		this.cachedCustom = cfg.EarshotCustom;
+
 		var list = new List<string>(4);
-		var full = Plugin.Objects.LocalPlayer?.Name.TextValue ?? string.Empty;
 		var parts = full.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 		if (Plugin.Config.EarshotFirstName && parts.Length > 0)
@@ -113,6 +134,7 @@ internal sealed class EarshotFeature: IDisposable {
 				list.Add(trimmed);
 		}
 
+		this.triggerCache = list;
 		return list;
 	}
 
@@ -283,17 +305,19 @@ internal sealed class EarshotFeature: IDisposable {
 		if (string.IsNullOrWhiteSpace(path)) {
 			var which = Plugin.Config.EarshotSound;
 			ImGui.SetNextItemWidth(ImGui.GetFontSize() * 6f);
-			if (ImGui.SliderInt("Which##earshot", ref which, 1, 16)) {
+			if (ImGui.SliderInt("Which##earshot", ref which, 1, 16))
 				Plugin.Config.EarshotSound = which;
+
+			if (ImGui.IsItemDeactivatedAfterEdit())
 				changed = true;
-			}
 		} else {
 			var volume = Plugin.Config.EarshotVolume;
 			ImGui.SetNextItemWidth(-(ImGui.GetFontSize() * 11f));
-			if (ImGui.SliderFloat("Volume##earshot", ref volume, 0f, 1f, "%.2f")) {
+			if (ImGui.SliderFloat("Volume##earshot", ref volume, 0f, 1f, "%.2f"))
 				Plugin.Config.EarshotVolume = volume;
+
+			if (ImGui.IsItemDeactivatedAfterEdit())
 				changed = true;
-			}
 
 			ImGui.TextDisabled("Plays outside the game's mixer, so it ignores FFXIV's volume settings.");
 		}

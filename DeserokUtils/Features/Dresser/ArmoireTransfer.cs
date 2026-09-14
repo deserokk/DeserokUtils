@@ -564,14 +564,6 @@ internal sealed unsafe class ArmoireTransfer {
 
 	private static int Room() => Math.Max(0, DresserPacker.FreeBagSlots() - SlotsToLeaveFree);
 
-	private static bool AllLanded(List<(uint ItemId, uint CabinetRow, string Name)> pieces) {
-		foreach (var piece in pieces) {
-			if (!InBags(piece.ItemId)) return false;
-		}
-
-		return true;
-	}
-
 	private static bool Locate(uint itemId, out InventoryType where, out ushort slot) {
 		where = default;
 		slot = 0;

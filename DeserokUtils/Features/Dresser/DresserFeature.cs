@@ -57,6 +57,12 @@ internal sealed class DresserFeature {
 	}
 
 	private void OnDresserRefreshed(AddonEvent type, AddonArgs args) {
+
+		if (!AnyEnabled) {
+			DresserCache.MarkStale();
+			return;
+		}
+
 		var fresh = new DresserScan().Scan();
 
 		if (fresh.Loaded && fresh.Problem is null) {

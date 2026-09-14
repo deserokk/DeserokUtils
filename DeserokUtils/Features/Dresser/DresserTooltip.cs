@@ -62,6 +62,7 @@ internal sealed unsafe class DresserTooltip {
 	}
 
 	private void AfterUpdate(AddonEvent type, AddonArgs args) {
+		CallCounter.Hit("tooltip");
 		if (!Plugin.Config.DresserTooltip) return;
 
 		var addon = (AtkUnitBase*)args.Addon.Address;
@@ -240,7 +241,7 @@ internal sealed unsafe class DresserTooltip {
 				(ItemName(setItemId), Progress(cache, setItemId).Count, SlotCount(setItemId)));
 		}
 
-		if (CabinetByItem().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
+		if (DresserScan.Cabinet().TryGetValue(itemId, out var row) && cache.Armoire.Contains(row))
 			return ("Armoire", null);
 
 		if (Worn(itemId)) return ("Equipped", null);
@@ -320,55 +321,12 @@ internal sealed unsafe class DresserTooltip {
 		return slots;
 	}
 
-	private static Dictionary<uint, List<(uint SetItemId, int Slot)>>? setsByPiece;
-	private static Dictionary<uint, uint>? cabinetByItem;
 	private static Dictionary<uint, int>? slotCounts;
 
 	private static List<(uint SetItemId, int Slot)> Sets(uint itemId)
-		=> SetsByPiece().TryGetValue(itemId, out var sets)
+		=> DresserScan.Membership().TryGetValue(itemId, out var sets)
 			? sets
 			: new List<(uint, int)>();
-
-	private static Dictionary<uint, List<(uint SetItemId, int Slot)>> SetsByPiece() {
-		if (setsByPiece is not null) return setsByPiece;
-
-		var map = new Dictionary<uint, List<(uint, int)>>();
-		var sheet = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
-
-		if (sheet is not null) {
-			foreach (var row in sheet) {
-				var columns = Columns(row);
-				for (var slot = 0; slot < columns.Length; slot++) {
-					var piece = columns[slot];
-					if (piece == 0) continue;
-
-					if (!map.TryGetValue(piece, out var list))
-						map[piece] = list = new List<(uint, int)>();
-
-					list.Add((row.RowId, slot));
-				}
-			}
-		}
-
-		setsByPiece = map;
-		return map;
-	}
-
-	private static Dictionary<uint, uint> CabinetByItem() {
-		if (cabinetByItem is not null) return cabinetByItem;
-
-		var map = new Dictionary<uint, uint>();
-		var sheet = Plugin.Data.GetExcelSheet<Cabinet>();
-
-		if (sheet is not null) {
-			foreach (var row in sheet) {
-				if (row.Item.RowId != 0) map[row.Item.RowId] = row.RowId;
-			}
-		}
-
-		cabinetByItem = map;
-		return map;
-	}
 
 	private static int SlotCount(uint setItemId) {
 		slotCounts ??= new Dictionary<uint, int>();

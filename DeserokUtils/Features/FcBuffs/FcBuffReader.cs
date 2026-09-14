@@ -111,6 +111,8 @@ internal static class FcBuffReader {
 		return int.TryParse(head.Trim(), out int n) ? n : null;
 	}
 
+	private static bool countWasReadable = true;
+
 	public static List<(int Row, int Tier, string Text)> RowsHolding(string family) {
 		var rows = new List<(int, int, string)>();
 		string wanted = NormaliseName(family);
@@ -118,9 +120,13 @@ internal static class FcBuffReader {
 		int? count = InactiveCount();
 		if (count is null) {
 
-			Plugin.Diag("FcBuffs: inactive count unreadable (FC action window shut?) -- reporting no stock.");
+			if (countWasReadable)
+				Plugin.Diag("FcBuffs: inactive count unreadable (FC action window shut?) -- reporting no stock.");
+			countWasReadable = false;
 			return rows;
 		}
+
+		countWasReadable = true;
 
 		for (int row = 0; row < count.Value; row++) {
 			string? text = ReadListEntry(row);
@@ -234,9 +240,11 @@ internal static class FcBuffReader {
 		return found;
 	}
 
+	private static readonly string[] TierSuffixes = { " III", " II", " IV", " I" };
+
 	internal static string NormaliseName(string name) {
 		string s = name.Trim();
-		foreach (string suffix in new[] { " III", " II", " IV", " I" }) {
+		foreach (string suffix in TierSuffixes) {
 			if (s.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
 				return s[..^suffix.Length].Trim().ToLowerInvariant();
 		}

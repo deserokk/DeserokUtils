@@ -111,7 +111,6 @@ internal sealed class FoodFeature: IDisposable {
 		if (!Plugin.Config.FoodEnabled)
 			return;
 
-		var fed = IsFed();
 		var inDuty = Plugin.Condition[ConditionFlag.BoundByDuty];
 		var inCombat = Plugin.Condition[ConditionFlag.InCombat];
 
@@ -131,13 +130,14 @@ internal sealed class FoodFeature: IDisposable {
 
 				this.dutyPending = false;
 
-				if (!fed && this.Relevant() && Plugin.Config.FoodBoopOnDuty)
+				if (Plugin.Config.FoodBoopOnDuty && !IsFed() && this.Relevant())
 					this.Boop();
 			}
 
-			if (inCombat && !this.wasInCombat && !inDuty && !fed && this.Relevant()
+			if (inCombat && !this.wasInCombat && !inDuty
 				&& Plugin.Config.FoodBoopOverworld
-				&& DateTime.UtcNow - this.lastNag > TimeSpan.FromMinutes(Plugin.Config.FoodNagMinutes)) {
+				&& DateTime.UtcNow - this.lastNag > TimeSpan.FromMinutes(Plugin.Config.FoodNagMinutes)
+				&& !IsFed() && this.Relevant()) {
 
 				this.lastNag = DateTime.UtcNow;
 				this.Boop();
@@ -170,10 +170,9 @@ internal sealed class FoodFeature: IDisposable {
 		if (!Plugin.Config.FoodEnabled || !Plugin.Config.FoodShowIcon)
 			return;
 
-		if (!Plugin.Config.FoodIconPreview && (!this.Relevant() || IsFed()))
-			return;
+		var preview = Plugin.Config.FoodIconPreview;
 
-		if (!Plugin.Config.FoodIconPreview
+		if (!preview
 			&& !Plugin.Condition[ConditionFlag.BoundByDuty]
 			&& !Plugin.Config.FoodBoopOverworld)
 			return;
@@ -181,7 +180,10 @@ internal sealed class FoodFeature: IDisposable {
 		if (Plugin.PluginInterface.UiBuilder.CutsceneActive)
 			return;
 
-		if (!Plugin.Config.FoodIconPreview && Plugin.Condition[ConditionFlag.InCombat])
+		if (!preview && Plugin.Condition[ConditionFlag.InCombat])
+			return;
+
+		if (!preview && (!this.Relevant() || IsFed()))
 			return;
 
 		this.icon ??= LoadIcon();

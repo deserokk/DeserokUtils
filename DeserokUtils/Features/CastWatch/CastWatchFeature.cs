@@ -306,37 +306,30 @@ internal sealed class CastWatchFeature: IDisposable {
 		return null;
 	}
 
+	private static System.Collections.Generic.Dictionary<string, uint>? actionsByName;
+
 	private static uint? ResolveActionId(string name) {
-		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>();
-		if (sheet is null)
-			return null;
+		if (actionsByName is null) {
+			var map = new System.Collections.Generic.Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
+			var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>();
+			if (sheet is null)
+				return null;
 
-		foreach (var row in sheet) {
-			if (!row.IsPlayerAction)
-				continue;
-			string rowName = row.Name.ExtractText();
-			if (rowName.Length > 0 && string.Equals(rowName, name, StringComparison.OrdinalIgnoreCase))
-				return row.RowId;
+			foreach (var row in sheet) {
+				if (!row.IsPlayerAction)
+					continue;
+				string rowName = row.Name.ExtractText();
+				if (rowName.Length > 0)
+					map.TryAdd(rowName, row.RowId);
+			}
+
+			actionsByName = map;
 		}
 
-		return null;
+		return actionsByName.TryGetValue(name, out uint id) ? id : null;
 	}
 
-	private static uint? ResolveItemId(string name) {
-		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Item>();
-		if (sheet is null)
-			return null;
-
-		foreach (var row in sheet) {
-			if (row.ItemAction.RowId == 0)
-				continue;
-			string rowName = row.Name.ExtractText();
-			if (rowName.Length > 0 && string.Equals(rowName, name, StringComparison.OrdinalIgnoreCase))
-				return row.RowId;
-		}
-
-		return null;
-	}
+	private static uint? ResolveItemId(string name) => DeserokUtils.Features.ItemUse.ItemLookup.Resolve(name);
 
 	private bool IsCastingWatched(TargetFilter filter, WatchContext? context) {
 		var player = Plugin.Objects.LocalPlayer;

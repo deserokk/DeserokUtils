@@ -149,6 +149,9 @@ internal sealed unsafe class MeldWindowKeeper: IDisposable {
 			this.AcceptIncoming();
 		}
 
+		if (!Plugin.Config.MeldWindowKeepOpen && !Plugin.Config.MeldAutoAccept && this.restoreTicks == 0)
+			return;
+
 		var agent = AgentMateriaAttach.Instance();
 		if (agent == null)
 			return;

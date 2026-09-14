@@ -93,16 +93,15 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 				bool match = this.MatchesWatch(actionType, actionId, out uint adjusted, out uint watchedAdjusted);
 
 				ulong selfId = Plugin.Objects.LocalPlayer?.GameObjectId ?? 0;
-				string who = targetId == selfId ? "SELF"
-					: targetId is 0 or 0xE0000000 ? "none"
-					: $"0x{targetId:X}";
 
-				Plugin.Diag($"UseAction type={actionType} id={actionId}"
-					+ (adjusted != actionId ? $" (adj {adjusted})" : "")
-					+ $" vs watch {this.WatchedId}"
-					+ (watchedAdjusted != this.WatchedId ? $" (adj {watchedAdjusted})" : "")
-					+ $" target={who} returned {result}"
-					+ (match ? $"  <== MATCHES {this.WatchedName}" : ""));
+				if (Plugin.Verbose) {
+					Plugin.Diag($"UseAction type={actionType} id={actionId}"
+						+ (adjusted != actionId ? $" (adj {adjusted})" : "")
+						+ $" vs watch {this.WatchedId}"
+						+ (watchedAdjusted != this.WatchedId ? $" (adj {watchedAdjusted})" : "")
+						+ $" target={WhoLabel(targetId, selfId)} returned {result}"
+						+ (match ? $"  <== MATCHES {this.WatchedName}" : ""));
+				}
 
 				if (match && actionId != this.WatchedId && adjusted != this.WatchedId) {
 					Plugin.Log.Information(
@@ -125,7 +124,8 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 						else {
 
 							this.FilteredOut++;
-							Plugin.Diag($"filtered out: {this.WatchedName} went to {who}, filter is {this.Filter}");
+							if (Plugin.Verbose)
+								Plugin.Diag($"filtered out: {this.WatchedName} went to {WhoLabel(targetId, selfId)}, filter is {this.Filter}");
 						}
 					}
 				}
@@ -137,6 +137,11 @@ internal sealed unsafe class ActionWatcher: IDisposable {
 
 		return result;
 	}
+
+	private static string WhoLabel(ulong targetId, ulong selfId) =>
+		targetId == selfId ? "SELF"
+			: targetId is 0 or 0xE0000000 ? "none"
+			: $"0x{targetId:X}";
 
 	public static uint NormalizeItemId(uint id) => id >= 1_000_000 ? id - 1_000_000 : id;
 

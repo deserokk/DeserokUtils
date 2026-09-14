@@ -42,13 +42,22 @@ internal sealed class FanfareTab {
 		"Rare below", "Rare message", "Sound", "Rare sound", "Volume",
 	];
 
+	private static int labelColumnFrame = -1;
+	private static float labelColumn;
+
 	private static float LabelColumn {
 		get {
+			var frame = ImGui.GetFrameCount();
+			if (frame == labelColumnFrame)
+				return labelColumn;
+
 			var widest = 0f;
 			foreach (var label in Labels)
 				widest = Math.Max(widest, ImGui.CalcTextSize(label).X);
 
-			return widest + ImGui.CalcTextSize(" (?)").X + (ImGui.GetFontSize() * 1.4f);
+			labelColumn = widest + ImGui.CalcTextSize(" (?)").X + (ImGui.GetFontSize() * 1.4f);
+			labelColumnFrame = frame;
+			return labelColumn;
 		}
 	}
 

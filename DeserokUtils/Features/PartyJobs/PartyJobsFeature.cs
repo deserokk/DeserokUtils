@@ -25,6 +25,8 @@ internal sealed class PartyJobsFeature: IDisposable {
 	private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(2);
 
 	private DateTime lastRequest = DateTime.MinValue;
+
+	private DateTime lastPoll = DateTime.MinValue;
 	private string lastNote = "nothing yet";
 	private int drawnLastFrame;
 
@@ -86,8 +88,12 @@ internal sealed class PartyJobsFeature: IDisposable {
 		if (Plugin.PluginInterface.UiBuilder.CutsceneActive)
 			return;
 
-		if (Plugin.Config.PartyJobsPoll && DateTime.UtcNow - this.lastRequest >= PollInterval)
+		if (Plugin.Config.PartyJobsPoll && DateTime.UtcNow - this.lastRequest >= PollInterval
+			&& DateTime.UtcNow - this.lastPoll >= PollInterval) {
+
+			this.lastPoll = DateTime.UtcNow;
 			this.Request("2-minute poll");
+		}
 
 		var unit = Plugin.GameGui.GetAddonByName("_PartyList");
 

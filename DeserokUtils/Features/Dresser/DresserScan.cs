@@ -153,10 +153,10 @@ internal sealed unsafe class DresserScan {
 		return used;
 	}
 
-	private Dictionary<uint, uint>? cabinet;
+	private static Dictionary<uint, uint>? cabinet;
 
-	private Dictionary<uint, uint> Cabinet() {
-		if (this.cabinet is not null) return this.cabinet;
+	internal static Dictionary<uint, uint> Cabinet() {
+		if (cabinet is not null) return cabinet;
 
 		var map = new Dictionary<uint, uint>();
 		var sheet = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.Cabinet>();
@@ -168,14 +168,14 @@ internal sealed unsafe class DresserScan {
 			}
 		}
 
-		this.cabinet = map;
+		cabinet = map;
 		return map;
 	}
 
-	private Dictionary<uint, List<(uint SetItemId, int Slot)>>? membership;
+	private static Dictionary<uint, List<(uint SetItemId, int Slot)>>? membership;
 
-	private Dictionary<uint, List<(uint SetItemId, int Slot)>> Membership() {
-		if (this.membership is not null) return this.membership;
+	internal static Dictionary<uint, List<(uint SetItemId, int Slot)>> Membership() {
+		if (membership is not null) return membership;
 
 		var map = new Dictionary<uint, List<(uint, int)>>();
 		var sheet = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
@@ -200,7 +200,7 @@ internal sealed unsafe class DresserScan {
 			}
 		}
 
-		this.membership = map;
+		membership = map;
 		return map;
 	}
 
@@ -238,9 +238,9 @@ internal sealed unsafe class DresserScan {
 
 		var sets = Plugin.Data.GetExcelSheet<MirageStoreSetItem>();
 		var items = Plugin.Data.GetExcelSheet<Item>();
-		var membership = this.Membership();
+		var membership = Membership();
 		var plateItems = PlateItems();
-		var cabinet = this.Cabinet();
+		var cabinet = Cabinet();
 
 		if (UIState.Instance()->Cabinet.IsCabinetLoaded()) {
 			foreach (var (_, cabinetRow) in cabinet) {

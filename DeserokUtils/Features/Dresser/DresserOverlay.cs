@@ -15,6 +15,14 @@ internal sealed unsafe class DresserOverlay {
 	private readonly DresserFeature feature;
 	private bool showResults;
 
+	private DresserScan.Result? derivedFor;
+	private int slotsRecoverable;
+	private int freeSlotsNeeded;
+	private System.Collections.Generic.List<(string Item, string Dye)> expensiveDyes = new();
+
+	private long freeReadAt = long.MinValue / 2;
+	private int freeBagSlots;
+
 	public DresserOverlay(DresserFeature feature) => this.feature = feature;
 
 	public void Draw() {
@@ -85,6 +93,14 @@ internal sealed unsafe class DresserOverlay {
 
 		var result = this.feature.Last;
 		if (result is null) return;
+
+		if (!ReferenceEquals(result, this.derivedFor)) {
+			this.derivedFor = result;
+			this.slotsRecoverable = result.SlotsRecoverable;
+			this.freeSlotsNeeded = result.FreeSlotsNeeded;
+			this.expensiveDyes = System.Linq.Enumerable.ToList(
+				System.Linq.Enumerable.Distinct(result.ExpensiveDyes));
+		}
 
 		if (result.Problem is { } problem) {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
@@ -197,14 +213,14 @@ internal sealed unsafe class DresserOverlay {
 						System.Linq.Enumerable.Take(result.StoreLoose, 12), x => x.Name)));
 		}
 
-		if (result.SlotsRecoverable > 0) {
+		if (this.slotsRecoverable > 0) {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.62f, 0.86f, 0.68f, 1f));
-			ImGui.Text($"{result.SlotsRecoverable} dresser slot(s) recoverable");
+			ImGui.Text($"{this.slotsRecoverable} dresser slot(s) recoverable");
 			ImGui.PopStyleColor();
 		}
-		else if (result.SlotsRecoverable < 0) {
+		else if (this.slotsRecoverable < 0) {
 
-			ImGui.TextDisabled($"costs {-result.SlotsRecoverable} dresser slot(s) to file this away");
+			ImGui.TextDisabled($"costs {-this.slotsRecoverable} dresser slot(s) to file this away");
 		}
 
 		if (result.OutfitsStarted > 0) {
@@ -234,19 +250,25 @@ internal sealed unsafe class DresserOverlay {
 					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.InUseByPlate, 12)));
 		}
 
-		var free = DresserPacker.FreeBagSlots();
-		var room = free >= result.FreeSlotsNeeded;
+		var now = Environment.TickCount64;
+		if (now - this.freeReadAt >= 500) {
+			this.freeReadAt = now;
+			this.freeBagSlots = DresserPacker.FreeBagSlots();
+		}
+
+		var free = this.freeBagSlots;
+		var room = free >= this.freeSlotsNeeded;
 
 		if (room) {
-			ImGui.TextDisabled($"needs {result.FreeSlotsNeeded} free bag slot(s), you have {free}");
+			ImGui.TextDisabled($"needs {this.freeSlotsNeeded} free bag slot(s), you have {free}");
 		}
 		else {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
-			ImGui.TextUnformatted($"needs {result.FreeSlotsNeeded} free bag slot(s), you have {free}");
+			ImGui.TextUnformatted($"needs {this.freeSlotsNeeded} free bag slot(s), you have {free}");
 			ImGui.PopStyleColor();
 		}
 
-		foreach (var (item, dye) in System.Linq.Enumerable.Distinct(result.ExpensiveDyes)) {
+		foreach (var (item, dye) in this.expensiveDyes) {
 			ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1f, 0.75f, 0.35f, 1f));
 			ImGui.TextUnformatted($"would destroy the {dye} on {item}");
 			ImGui.PopStyleColor();
@@ -305,6 +327,7 @@ internal sealed unsafe class DresserOverlay {
 		if (unit->RootNode is null) return false;
 
 		var scale = unit->Scale;
+
 		var best = float.MinValue;
 		var found = false;
 

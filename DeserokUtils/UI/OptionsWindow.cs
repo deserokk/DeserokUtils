@@ -77,7 +77,10 @@ internal sealed class OptionsWindow: Window {
 		Theme.Push();
 	}
 
-	public override void PostDraw() => Theme.Pop();
+	public override void PostDraw() {
+		Theme.Pop();
+		Plugin.Config.FlushPending(!ImGui.IsAnyItemActive());
+	}
 
 	public override void Draw() {
 		using var _ = this.fonts.Body.Push();
@@ -579,7 +582,7 @@ internal sealed class OptionsWindow: Window {
 		ImGui.SetNextItemWidth(200f * s);
 		if (ImGui.ColorEdit3("Anything else", ref free, ImGuiColorEditFlags.NoInputs)) {
 			Plugin.Config.UiAccentRgb = Theme.ToRgb(new Vector4(free, 1f));
-			Plugin.Config.Save();
+			Plugin.Config.SaveWhenIdle();
 		}
 
 		ImGui.Dummy(new Vector2(0f, 18f * s));

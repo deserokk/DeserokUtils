@@ -18,6 +18,15 @@ internal sealed class FcBuffsFeature: IDisposable {
 	private readonly Dictionary<string, string> stockLabels = new(StringComparer.OrdinalIgnoreCase);
 	private DateTime lastStockRead = DateTime.MinValue;
 
+	private bool stockReadable;
+
+	private List<(FcAction Action, string Norm)>? families;
+
+	private readonly List<string> chosenSnapshot = new();
+	private readonly List<string> chosenNorm = new();
+	private readonly List<FcAction> unchosen = new();
+	private int unchosenFamilyCount = -1;
+
 	public string TabTitle => "FC buffs";
 
 	public string Summary => "Keeps your Free Company's buffs running, and says something before one lapses.";
@@ -323,23 +332,20 @@ internal sealed class FcBuffsFeature: IDisposable {
 		ImGui.TextWrapped("Picked from the game's own company action list, so the names are never typed in.");
 		ImGui.Spacing();
 
-		var families = FcBuffReader.KnownActions()
-			.Where(a => a.Purchasable)
-			.GroupBy(a => FcBuffReader.NormaliseName(a.Name))
-			.Select(g => g.OrderBy(a => FcBuffReader.TierOf(a.Name)).First())
-			.OrderBy(a => a.Name)
-			.ToList();
+		var families = this.Families();
+		this.RefreshChosen(cfg.FcBuffActions, families);
 
 		if (DateTime.UtcNow - this.lastStockRead > TimeSpan.FromMilliseconds(500)) {
 			this.lastStockRead = DateTime.UtcNow;
 			this.stockLabels.Clear();
-			foreach (var a in families) {
+			this.stockReadable = FcBuffReader.InactiveCount() is not null;
+			foreach (var (a, norm) in families) {
 				var rows = FcBuffReader.RowsHolding(a.Name);
 				if (rows.Count == 0)
 					continue;
 				string best = rows.OrderByDescending(r => r.Tier).First().Text;
 
-				this.stockLabels[FcBuffReader.NormaliseName(a.Name)] = $"{rows.Count}x, best: {best}";
+				this.stockLabels[norm] = $"{rows.Count}x, best: {best}";
 			}
 		}
 
@@ -353,18 +359,24 @@ internal sealed class FcBuffsFeature: IDisposable {
 
 			ImGui.SetNextItemWidth(240f);
 			if (ImGui.BeginCombo($"##fcb_pick{i}", chosen)) {
-				foreach (var a in families) {
+				string chosenKey = FcBuffReader.NormaliseName(chosen);
+				foreach (var (a, norm) in families) {
 
-					bool taken = cfg.FcBuffActions
-						.Where((_, n) => n != i)
-						.Any(n => FcBuffReader.NormaliseName(n) == FcBuffReader.NormaliseName(a.Name));
+					bool taken = false;
+					for (int n = 0; n < this.chosenNorm.Count; n++) {
+						if (n != i && this.chosenNorm[n] == norm) {
+							taken = true;
+							break;
+						}
+					}
 
 					if (taken)
 						continue;
 
-					if (ImGui.Selectable(a.Name, FcBuffReader.NormaliseName(a.Name) == FcBuffReader.NormaliseName(chosen))) {
+					if (ImGui.Selectable(a.Name, norm == chosenKey)) {
 						cfg.FcBuffActions[i] = a.Name;
 						cfg.Save();
+						this.RefreshChosen(cfg.FcBuffActions, families);
 					}
 				}
 
@@ -374,7 +386,7 @@ internal sealed class FcBuffsFeature: IDisposable {
 			ImGui.SameLine();
 			if (this.stockLabels.TryGetValue(FcBuffReader.NormaliseName(chosen), out string? stock))
 				ImGui.TextDisabled(stock);
-			else if (FcBuffReader.InactiveCount() is null)
+			else if (!this.stockReadable)
 				ImGui.TextDisabled("open the FC window");
 			else
 				ImGui.TextDisabled("none in stock");
@@ -387,15 +399,13 @@ internal sealed class FcBuffsFeature: IDisposable {
 		if (remove >= 0) {
 			cfg.FcBuffActions.RemoveAt(remove);
 			cfg.Save();
+			this.RefreshChosen(cfg.FcBuffActions, families);
 		}
 
-		var unchosen = families
-			.Where(a => !cfg.FcBuffActions.Any(n => FcBuffReader.NormaliseName(n) == FcBuffReader.NormaliseName(a.Name)))
-			.ToList();
-
-		if (unchosen.Count > 0 && ImGui.Button("+##fcb_add")) {
-			cfg.FcBuffActions.Add(unchosen[0].Name);
+		if (this.unchosen.Count > 0 && ImGui.Button("+##fcb_add")) {
+			cfg.FcBuffActions.Add(this.unchosen[0].Name);
 			cfg.Save();
+			this.RefreshChosen(cfg.FcBuffActions, families);
 		}
 
 		if (cfg.FcBuffActions.Count > FcBuffPolicy.MaxActive) {
@@ -404,6 +414,46 @@ internal sealed class FcBuffsFeature: IDisposable {
 				+ " has run out of stock.");
 		}
 
+	}
+
+	private List<(FcAction Action, string Norm)> Families() {
+		if (this.families is not null)
+			return this.families;
+
+		var known = FcBuffReader.KnownActions();
+		var list = known
+			.Where(a => a.Purchasable)
+			.GroupBy(a => FcBuffReader.NormaliseName(a.Name))
+			.Select(g => g.OrderBy(a => FcBuffReader.TierOf(a.Name)).First())
+			.OrderBy(a => a.Name)
+			.Select(a => (a, FcBuffReader.NormaliseName(a.Name)))
+			.ToList();
+
+		if (known.Count > 0)
+			this.families = list;
+		return list;
+	}
+
+	private void RefreshChosen(List<string> chosen, List<(FcAction Action, string Norm)> families) {
+		bool same = chosen.Count == this.chosenSnapshot.Count && this.unchosenFamilyCount == families.Count;
+		for (int i = 0; same && i < chosen.Count; i++)
+			same = string.Equals(chosen[i], this.chosenSnapshot[i], StringComparison.Ordinal);
+		if (same)
+			return;
+
+		this.chosenSnapshot.Clear();
+		this.chosenSnapshot.AddRange(chosen);
+		this.unchosenFamilyCount = families.Count;
+
+		this.chosenNorm.Clear();
+		foreach (string n in chosen)
+			this.chosenNorm.Add(FcBuffReader.NormaliseName(n));
+
+		this.unchosen.Clear();
+		foreach (var (a, norm) in families) {
+			if (!this.chosenNorm.Contains(norm))
+				this.unchosen.Add(a);
+		}
 	}
 
 	private static void Section(string title) {

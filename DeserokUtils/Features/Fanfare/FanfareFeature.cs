@@ -306,6 +306,26 @@ internal sealed class FanfareFeature: IDisposable {
 		this.Enqueue(notification);
 	}
 
+	private (HashSet<uint> Named, List<uint> WithIcon)? previewIds;
+
+	private (HashSet<uint> Named, List<uint> WithIcon) PreviewIds() {
+		if (this.previewIds is { } cached)
+			return cached;
+
+		var named = new HashSet<uint>();
+		var withIcon = new List<uint>();
+		foreach (var a in Plugin.Data.GetExcelSheet<Achievement>()) {
+			if (string.IsNullOrWhiteSpace(a.Name.ExtractText()))
+				continue;
+			named.Add(a.RowId);
+			if (a.Icon != 0)
+				withIcon.Add(a.RowId);
+		}
+
+		this.previewIds = (named, withIcon);
+		return (named, withIcon);
+	}
+
 	private Notification? PickPreview(string? query) {
 		var sheet = Plugin.Data.GetExcelSheet<Achievement>();
 
@@ -313,8 +333,9 @@ internal sealed class FanfareFeature: IDisposable {
 
 		if (string.Equals(query, "rare", StringComparison.OrdinalIgnoreCase)) {
 
+			var named = this.PreviewIds().Named;
 			var rareIds = this.rarity.IdsAtOrBelow(Plugin.Config.Fanfare.RareThreshold)
-				.Where(id => sheet.TryGetRow(id, out var r) && !string.IsNullOrWhiteSpace(r.Name.ExtractText()))
+				.Where(named.Contains)
 				.ToList();
 
 			if (rareIds.Count == 0) {
@@ -326,11 +347,9 @@ internal sealed class FanfareFeature: IDisposable {
 			match = rare;
 		} else if (string.IsNullOrWhiteSpace(query)) {
 
-			var candidates = sheet
-				.Where(a => a.Icon != 0 && !string.IsNullOrWhiteSpace(a.Name.ExtractText()))
-				.ToList();
-			if (candidates.Count > 0)
-				match = candidates[this.random.Next(candidates.Count)];
+			var candidates = this.PreviewIds().WithIcon;
+			if (candidates.Count > 0 && sheet.TryGetRow(candidates[this.random.Next(candidates.Count)], out var picked))
+				match = picked;
 		} else if (uint.TryParse(query, out var id) && sheet.TryGetRow(id, out var byId)) {
 			match = byId;
 		} else {

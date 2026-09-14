@@ -55,6 +55,7 @@ internal sealed unsafe class MacroIconFeature: IDisposable {
 		uint macroId,
 		uint* outItemId) {
 
+		CallCounter.Hit("macroicon");
 		bool resolved = this.hook!.Original(module, uiModule, outType, outRowId, setId, macroId, outItemId);
 
 		if (resolved)

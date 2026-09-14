@@ -17,7 +17,7 @@ internal sealed class MarkTracker: IDisposable {
 	private const string PopAddon = "ContentsFinderConfirm";
 
 	private readonly List<(string Name, uint World, bool Leader, int Slot)> snapshot = new();
-	private readonly List<(ulong Id, bool Leader, string Tag, string Key)> resolved = new();
+	private readonly List<(ulong Id, int Index, bool Leader, string Tag, string Key)> resolved = new();
 	private readonly Dictionary<uint, ContentGroup> groupCache = new();
 
 	private DateTime lastResolve = DateTime.MinValue;
@@ -199,13 +199,13 @@ internal sealed class MarkTracker: IDisposable {
 
 		if (!enabled) {
 			this.Active = false;
-			this.Idle = this.Group == ContentGroup.None ? "not in tracked content" : $"{this.Group} is switched off";
+			this.Idle = this.Group == ContentGroup.None ? "not in tracked content" : this.SwitchedOffText();
 			return;
 		}
 
 		if (this.snapshot.Count > Plugin.Config.MarksMaxGroupSize) {
 			this.Active = false;
-			this.Idle = $"queued with {this.snapshot.Count} people (over the {Plugin.Config.MarksMaxGroupSize} limit)";
+			this.Idle = this.OverLimitText(this.snapshot.Count, Plugin.Config.MarksMaxGroupSize);
 			return;
 		}
 
@@ -219,9 +219,32 @@ internal sealed class MarkTracker: IDisposable {
 		this.Idle = null;
 	}
 
+	private ContentGroup offTextGroup = ContentGroup.None;
+	private string? offText;
+	private int overTextCount = -1, overTextLimit = -1;
+	private string? overText;
+
+	private string SwitchedOffText() {
+		if (this.offText is null || this.offTextGroup != this.Group) {
+			this.offTextGroup = this.Group;
+			this.offText = $"{this.Group} is switched off";
+		}
+		return this.offText;
+	}
+
+	private string OverLimitText(int count, int limit) {
+		if (this.overText is null || this.overTextCount != count || this.overTextLimit != limit) {
+			this.overTextCount = count;
+			this.overTextLimit = limit;
+			this.overText = $"queued with {count} people (over the {limit} limit)";
+		}
+		return this.overText;
+	}
+
 	public void Tick() {
 		this.Evaluate();
-		if (!this.Active)
+
+		if (!this.Active || !Plugin.Config.MarksEnabled)
 			return;
 
 		if (DateTime.UtcNow - this.lastResolve < ResolveInterval)
@@ -242,7 +265,7 @@ internal sealed class MarkTracker: IDisposable {
 
 					string world = "";
 					try { world = pc.HomeWorld.ValueNullable?.Name.ExtractText() ?? ""; } catch { }
-					this.resolved.Add((pc.GameObjectId, entry.Leader, Tag(entry.Name, entry.Slot),
+					this.resolved.Add((pc.GameObjectId, pc.ObjectIndex, entry.Leader, Tag(entry.Name, entry.Slot),
 						$"{pc.Name.TextValue}@{world}"));
 					break;
 				}
@@ -256,8 +279,11 @@ internal sealed class MarkTracker: IDisposable {
 	}
 
 	public IEnumerable<(Dalamud.Game.ClientState.Objects.Types.IGameObject Object, bool Leader, string Tag, string Key)> Marked() {
-		foreach (var (id, leader, tag, key) in this.resolved) {
-			var obj = Plugin.Objects.SearchById(id);
+		foreach (var (id, index, leader, tag, key) in this.resolved) {
+
+			var obj = index < Plugin.Objects.Length ? Plugin.Objects[index] : null;
+			if (obj is null || obj.GameObjectId != id)
+				obj = Plugin.Objects.SearchById(id);
 			if (obj is not null && obj.IsValid())
 				yield return (obj, leader, tag, key);
 		}

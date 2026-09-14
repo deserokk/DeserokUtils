@@ -60,10 +60,11 @@ internal static class KeybindPicker {
 
 		float seconds = Math.Max(50, bind.RepeatMs) / 1000f;
 		ImGui.SetNextItemWidth(180f);
-		if (ImGui.SliderFloat($"repeat while held##{id}_rep", ref seconds, 0.05f, 3f, "%.2f s")) {
+
+		if (ImGui.SliderFloat($"repeat while held##{id}_rep", ref seconds, 0.05f, 3f, "%.2f s"))
 			bind.RepeatMs = (int)Math.Round(seconds * 1000f);
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			changed = true;
-		}
 
 		return changed;
 	}
