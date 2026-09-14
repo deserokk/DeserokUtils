@@ -334,6 +334,7 @@ public sealed class Plugin: IDalamudPlugin {
 
 		OpenWindow = this.OpenMain;
 		Framework.Update += this.OnFrameworkUpdate;
+		CallCounter.Register();
 
 		Plugin.RegisterSub("dresser", "Report what your glamour dresser could pack away.", (_, arg) => {
 			var a = arg.Trim();
@@ -475,6 +476,8 @@ public sealed class Plugin: IDalamudPlugin {
 
 	public void Dispose() {
 		Framework.Update -= this.OnFrameworkUpdate;
+		CallCounter.Dispose();
+		Config.FlushPending(idle: true);
 		Commands.RemoveHandler("/dsu");
 		Commands.RemoveHandler("/dsufanfare");
 

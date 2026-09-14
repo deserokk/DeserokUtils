@@ -25,6 +25,8 @@ internal sealed class InteractFeature: IDisposable {
 
 	private static readonly TimeSpan Floor = TimeSpan.FromMilliseconds(800);
 
+	private static readonly string WithinFloorMessage = $"press ignored: within {Floor.TotalSeconds:0}s of the last interact";
+
 	private DateTime lastInteract = DateTime.MinValue;
 	private string lastResult = "nothing yet";
 
@@ -78,7 +80,7 @@ internal sealed class InteractFeature: IDisposable {
 			return;
 		}
 		if (DateTime.UtcNow - this.lastInteract < Floor) {
-			Trace($"press ignored: within {Floor.TotalSeconds:0}s of the last interact");
+			Trace(WithinFloorMessage);
 			return;
 		}
 
@@ -134,8 +136,9 @@ internal sealed class InteractFeature: IDisposable {
 				continue;
 			if (!Interactable(candidate, out string why)) {
 
-				Plugin.Diag($"Interact: ignoring \"{candidate.Name}\" kind={candidate.ObjectKind} "
-					+ $"at {distance:0.#}y -- {why}");
+				if (Plugin.Verbose)
+					Plugin.Diag($"Interact: ignoring \"{candidate.Name}\" kind={candidate.ObjectKind} "
+						+ $"at {distance:0.#}y -- {why}");
 				continue;
 			}
 			if (distance < bestDistance) {

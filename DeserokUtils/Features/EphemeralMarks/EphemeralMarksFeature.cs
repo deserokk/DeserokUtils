@@ -290,7 +290,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 				var col = own;
 				if (ImGui.ColorEdit4($"##marksCol{i}", ref col, ImGuiColorEditFlags.NoInputs)) {
 					entry.Colour = col;
-					Plugin.Config.Save();
+					Plugin.Config.SaveWhenIdle();
 				}
 			}
 
@@ -311,7 +311,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		var colour = Plugin.Config.MarksColour;
 		if (ImGui.ColorEdit4("Marker colour##marks", ref colour, ImGuiColorEditFlags.NoInputs)) {
 			Plugin.Config.MarksColour = colour;
-			Plugin.Config.Save();
+			Plugin.Config.SaveWhenIdle();
 		}
 		bool previewToggle = Plugin.Config.MarksPreview;
 		if (ImGui.Checkbox("Show one on me (for positioning)##marks", ref previewToggle)) {
@@ -327,10 +327,11 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 
 		float scale = Plugin.Config.MarksScale;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Size##marks", ref scale, 0.4f, 2.5f, "%.2fx")) {
+		if (ImGui.SliderFloat("Size##marks", ref scale, 0.4f, 2.5f, "%.2fx"))
 			Plugin.Config.MarksScale = scale;
+
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 		ImGui.TextWrapped(
 			"On top of an automatic scale from your resolution, so this is taste rather than a fix for "
 			+ "screen size — 1080p and 1440p already get the same apparent size at 1.00x.");
@@ -338,10 +339,10 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.Spacing();
 		float height = Plugin.Config.MarksHeight;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Anchor height##marks", ref height, 0.0f, 4.0f, "%.2f yalms")) {
+		if (ImGui.SliderFloat("Anchor height##marks", ref height, 0.0f, 4.0f, "%.2f yalms"))
 			Plugin.Config.MarksHeight = height;
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 		ImGui.TextWrapped(
 			"Where on the character the marker anchors, in yalms -- roughly head height. Lalafell and "
 			+ "Roegadyn differ by enough that one number will not suit both.");
@@ -349,10 +350,10 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 		ImGui.Spacing();
 		float lift = Plugin.Config.MarksLift;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Clearance##marks", ref lift, 0f, 120f, "%.0f px")) {
+		if (ImGui.SliderFloat("Clearance##marks", ref lift, 0f, 120f, "%.0f px"))
 			Plugin.Config.MarksLift = lift;
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 		ImGui.TextWrapped(
 			"How far above the anchor it floats, in screen pixels. This is the one that keeps it off "
 			+ "the nameplate at range: a purely world-space offset shrinks with distance, so it "

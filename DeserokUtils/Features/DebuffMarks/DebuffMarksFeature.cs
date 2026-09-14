@@ -18,7 +18,8 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	private static readonly TimeSpan ScanInterval = TimeSpan.FromMilliseconds(100);
 
 	private readonly MarkFont font = new(MarkFace.Icons);
-	private readonly List<(ulong Id, int Entry)> hits = new();
+
+	private readonly List<(ulong Id, int Entry, int Slot)> hits = new();
 	private readonly Dictionary<ulong, Vector2> smoothed = new();
 	private readonly HashSet<ulong> seenThisFrame = new();
 
@@ -63,31 +64,98 @@ internal sealed class DebuffMarksFeature: IDisposable {
 		this.lastScan = DateTime.UtcNow;
 		this.hits.Clear();
 
+		var watches = Plugin.Config.DebuffMarks;
+		if (this.LookupStale(watches))
+			this.RebuildLookup(watches);
+
+		if (this.watchByStatus.Count == 0)
+			return;
+
 		uint self = Plugin.Objects.LocalPlayer?.EntityId ?? 0;
 
 		foreach (var obj in Plugin.Objects) {
 			if (obj is not IBattleChara chara || !chara.IsValid())
 				continue;
 
-			for (int i = 0; i < Plugin.Config.DebuffMarks.Count; i++) {
-				var watch = Plugin.Config.DebuffMarks[i];
-				if (!watch.Enabled)
+			bool any = false;
+			foreach (var status in chara.StatusList) {
+				if (!this.watchByStatus.TryGetValue(status.StatusId, out var entries))
 					continue;
 
-				uint[] ids = this.IdsFor(watch.Status);
-				if (ids.Length == 0)
-					continue;
-
-				foreach (var status in chara.StatusList) {
-					if (Array.IndexOf(ids, status.StatusId) < 0)
+				foreach (int i in entries) {
+					if (this.matched[i])
 						continue;
 
-					if (watch.MineOnly && status.SourceId != self)
+					if (watches[i].MineOnly && status.SourceId != self)
 						continue;
 
-					this.hits.Add((chara.GameObjectId, i));
-					break;
+					this.matched[i] = true;
+					any = true;
 				}
+			}
+
+			if (!any)
+				continue;
+
+			for (int i = 0; i < this.matched.Length; i++) {
+				if (!this.matched[i])
+					continue;
+
+				this.hits.Add((chara.GameObjectId, i, chara.ObjectIndex));
+				this.matched[i] = false;
+			}
+		}
+	}
+
+	private readonly Dictionary<uint, List<int>> watchByStatus = new();
+	private readonly List<(string Status, bool Enabled)> lookupKey = new();
+	private bool[] matched = Array.Empty<bool>();
+
+	private bool lookupPending;
+
+	private long nameEditedAt;
+
+	private bool NameEditing => Environment.TickCount64 - this.nameEditedAt < 250;
+
+	private bool LookupStale(List<DebuffMark> watches) {
+		if (this.lookupPending && !this.NameEditing)
+			return true;
+		if (this.lookupKey.Count != watches.Count)
+			return true;
+
+		for (int i = 0; i < watches.Count; i++) {
+			var (status, enabled) = this.lookupKey[i];
+			if (enabled != watches[i].Enabled || !string.Equals(status, watches[i].Status, StringComparison.Ordinal))
+				return true;
+		}
+		return false;
+	}
+
+	private void RebuildLookup(List<DebuffMark> watches) {
+		this.watchByStatus.Clear();
+		this.lookupKey.Clear();
+		this.lookupPending = false;
+		if (this.matched.Length != watches.Count)
+			this.matched = new bool[watches.Count];
+
+		bool editing = this.NameEditing;
+		for (int i = 0; i < watches.Count; i++) {
+			var watch = watches[i];
+			this.lookupKey.Add((watch.Status, watch.Enabled));
+			if (!watch.Enabled)
+				continue;
+
+			uint[]? ids = editing ? this.PeekIds(watch.Status) : this.IdsFor(watch.Status);
+			if (ids is null) {
+				this.lookupPending = true;
+				continue;
+			}
+
+			foreach (uint id in ids) {
+				if (!this.watchByStatus.TryGetValue(id, out var entries))
+					this.watchByStatus[id] = entries = new List<int>(1);
+				if (entries.Count == 0 || entries[^1] != i)
+					entries.Add(i);
 			}
 		}
 	}
@@ -111,11 +179,13 @@ internal sealed class DebuffMarksFeature: IDisposable {
 		this.lastFrame = DateTime.UtcNow;
 		this.seenThisFrame.Clear();
 
-		foreach (var (id, entry) in this.hits) {
+		foreach (var (id, entry, slot) in this.hits) {
 			if (entry >= Plugin.Config.DebuffMarks.Count)
 				continue;
 
-			var obj = Plugin.Objects.SearchById(id);
+			var obj = slot < Plugin.Objects.Length ? Plugin.Objects[slot] : null;
+			if (obj is null || obj.GameObjectId != id)
+				obj = Plugin.Objects.SearchById(id);
 			if (obj is null || !obj.IsValid())
 				continue;
 
@@ -175,24 +245,27 @@ internal sealed class DebuffMarksFeature: IDisposable {
 
 		float scale = Plugin.Config.DebuffMarksScale;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Size##debuffs", ref scale, 0.4f, 2.5f, "%.2fx")) {
+		if (ImGui.SliderFloat("Size##debuffs", ref scale, 0.4f, 2.5f, "%.2fx"))
 			Plugin.Config.DebuffMarksScale = scale;
+
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 
 		float height = Plugin.Config.DebuffMarksHeight;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Anchor height##debuffs", ref height, 0f, 4f, "%.2f yalms")) {
+		if (ImGui.SliderFloat("Anchor height##debuffs", ref height, 0f, 4f, "%.2f yalms"))
 			Plugin.Config.DebuffMarksHeight = height;
+
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 
 		float lift = Plugin.Config.DebuffMarksLift;
 		ImGui.SetNextItemWidth(160f);
-		if (ImGui.SliderFloat("Clearance##debuffs", ref lift, 0f, 120f, "%.0f px")) {
+		if (ImGui.SliderFloat("Clearance##debuffs", ref lift, 0f, 120f, "%.0f px"))
 			Plugin.Config.DebuffMarksLift = lift;
+
+		if (ImGui.IsItemDeactivatedAfterEdit())
 			Plugin.Config.Save();
-		}
 
 		ImGui.Spacing();
 		ImGui.Separator();
@@ -217,10 +290,16 @@ internal sealed class DebuffMarksFeature: IDisposable {
 				Plugin.Config.Save();
 			}
 
+			bool typing = ImGui.IsItemActive();
+			if (typing)
+				this.nameEditedAt = Environment.TickCount64;
+
 			ImGui.SameLine();
-			uint[] ids = this.IdsFor(entry.Status);
+			uint[]? ids = typing ? this.PeekIds(entry.Status) : this.IdsFor(entry.Status);
 			if (entry.Status.Length == 0)
 				ImGui.TextDisabled("(empty)");
+			else if (ids is null)
+				ImGui.TextDisabled("...");
 			else if (ids.Length == 0)
 				ImGui.TextColored(new Vector4(1f, 0.4f, 0.4f, 1f), "no such status");
 			else
@@ -239,7 +318,7 @@ internal sealed class DebuffMarksFeature: IDisposable {
 			var colour = entry.Colour;
 			if (ImGui.ColorEdit4($"##debuffCol{i}", ref colour, ImGuiColorEditFlags.NoInputs)) {
 				entry.Colour = colour;
-				Plugin.Config.Save();
+				Plugin.Config.SaveWhenIdle();
 			}
 
 			ImGui.SameLine();
@@ -270,12 +349,20 @@ internal sealed class DebuffMarksFeature: IDisposable {
 	public void DrawDiagnostics() {
 		ImGui.TextDisabled($"marked right now: {this.hits.Count}");
 
-		foreach (var (id, entry) in this.hits) {
+		foreach (var (id, entry, _) in this.hits) {
 			var watched = entry >= 0 && entry < Plugin.Config.DebuffMarks.Count
 				? Plugin.Config.DebuffMarks[entry].Status
 				: "?";
 			ImGui.BulletText($"{id:X}  {watched}");
 		}
+	}
+
+	private uint[]? PeekIds(string name) {
+		string wanted = name.Trim();
+		if (wanted.Length == 0)
+			return Array.Empty<uint>();
+
+		return this.resolved.TryGetValue(wanted, out uint[]? cached) ? cached : null;
 	}
 
 	private uint[] IdsFor(string name) {

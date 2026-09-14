@@ -124,6 +124,20 @@ internal sealed class ChatColourFeature: IDisposable {
 		}));
 
 	private static SeString? Recolour(SeString source) {
+
+		if (!Plugin.Config.ChatColourOwnName) {
+			var linked = false;
+			foreach (var p in source.Payloads) {
+				if (p is PlayerPayload) {
+					linked = true;
+					break;
+				}
+			}
+
+			if (!linked)
+				return null;
+		}
+
 		var payloads = new List<Payload>(source.Payloads.Count + 8);
 
 		var pending = new List<Payload>(8);
@@ -150,10 +164,9 @@ internal sealed class ChatColourFeature: IDisposable {
 				if (Plugin.Config.ChatColourOwnName
 					&& payload is TextPayload own
 					&& own.Text is not null
-					&& IsLocalPlayerName(own.Text.Trim())
-					&& ColourFor(own.Text.Trim(), LocalWorld()) is { } mine) {
+					&& IsLocalPlayerName(own.Text.Trim())) {
 
-					payloads.Add(new UIForegroundPayload(mine));
+					payloads.Add(new UIForegroundPayload(OwnColour(own.Text.Trim())));
 					payloads.Add(payload);
 					payloads.Add(new UIForegroundPayload(0));
 					touched = true;
@@ -210,7 +223,7 @@ internal sealed class ChatColourFeature: IDisposable {
 		return touched ? new SeString(payloads) : null;
 	}
 
-	private static ushort? ColourFor(string name, string world) {
+	private static ushort? ColourFor(string name, string world, bool auto = false) {
 		foreach (var over in Plugin.Config.ChatColourOverrides) {
 
 			if (!string.Equals(over.Who.Trim(), name, StringComparison.OrdinalIgnoreCase))
@@ -225,7 +238,7 @@ internal sealed class ChatColourFeature: IDisposable {
 				return over.Colour;
 		}
 
-		if (Plugin.Config.ChatColoursOnlyKnown)
+		if (Plugin.Config.ChatColoursOnlyKnown && !auto)
 			return null;
 
 		unchecked {
@@ -236,6 +249,14 @@ internal sealed class ChatColourFeature: IDisposable {
 			return ChatPalette.KeyFor((int)(hash % (uint)Math.Max(1, ChatPalette.Colours.Count)));
 		}
 	}
+
+	private static ushort OwnColour(string name)
+		=> Plugin.Config.ChatColourOwnCustom && Plugin.Config.ChatColourOwnKey != 0
+			? Plugin.Config.ChatColourOwnKey
+			: AutoOwnColour(name);
+
+	private static ushort AutoOwnColour(string name)
+		=> ColourFor(name, LocalWorld(), auto: true) ?? ChatPalette.KeyFor(0);
 
 	private static HashSet<string>? worldNames;
 
@@ -263,24 +284,57 @@ internal sealed class ChatColourFeature: IDisposable {
 	}
 
 	private static bool IsLocalPlayerName(string text) {
-		var me = Plugin.Objects.LocalPlayer?.Name.TextValue;
-		return !string.IsNullOrEmpty(me) && string.Equals(text, me, StringComparison.Ordinal);
+		RefreshLocal();
+		return localName.Length > 0 && string.Equals(text, localName, StringComparison.Ordinal);
 	}
 
-	private static string LocalWorld()
-		=> Plugin.Objects.LocalPlayer?.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
+	private static string LocalWorld() {
+		RefreshLocal();
+		return localWorld;
+	}
+
+	private static uint localEntity;
+	private static ulong localContent;
+	private static string localName = string.Empty;
+	private static string localWorld = string.Empty;
+
+	private static unsafe void RefreshLocal() {
+		var lp = Plugin.Objects.LocalPlayer;
+		if (lp is null) {
+			localEntity = 0;
+			localContent = 0;
+			localName = string.Empty;
+			localWorld = string.Empty;
+			return;
+		}
+
+		var state = FFXIVClientStructs.FFXIV.Client.Game.UI.PlayerState.Instance();
+		ulong content = state is null ? 0ul : state->ContentId;
+		if (lp.EntityId == localEntity && content == localContent && localName.Length > 0 && localWorld.Length > 0)
+			return;
+
+		localEntity = lp.EntityId;
+		localContent = content;
+		localName = lp.Name.TextValue ?? string.Empty;
+		localWorld = lp.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
+	}
+
+	private static readonly Dictionary<uint, string> WorldNames = new();
 
 	private static string WorldOf(PlayerPayload player) {
-		var named = player.World.ValueNullable?.Name.ExtractText() ?? string.Empty;
+		var id = player.World.RowId;
+		if (!WorldNames.TryGetValue(id, out var named)) {
+			named = player.World.ValueNullable?.Name.ExtractText() ?? string.Empty;
+			WorldNames[id] = named;
+		}
+
 		if (named.Length > 0)
 			return named;
 
-		return Plugin.Objects.LocalPlayer?.HomeWorld.ValueNullable?.Name.ExtractText()
-			?? string.Empty;
+		return LocalWorld();
 	}
 
 	public void DrawTab() {
-		var s = 1f;
 		var overrides = Plugin.Config.ChatColourOverrides;
 
 		var only = Plugin.Config.ChatColoursOnlyKnown;
@@ -292,6 +346,22 @@ internal sealed class ChatColourFeature: IDisposable {
 		var own = Plugin.Config.ChatColourOwnName;
 		if (ImGui.Checkbox("Colour my own name too", ref own)) {
 			Plugin.Config.ChatColourOwnName = own;
+			Plugin.Config.Save();
+		}
+
+		ImGui.SameLine();
+		var custom = Plugin.Config.ChatColourOwnCustom;
+		if (ImGui.Checkbox("##ccowncustom", ref custom)) {
+			Plugin.Config.ChatColourOwnCustom = custom;
+			Plugin.Config.Save();
+		}
+
+		ImGui.SameLine();
+		var me = Plugin.Objects.LocalPlayer?.Name.TextValue ?? string.Empty;
+		var shown = Plugin.Config.ChatColourOwnKey != 0 ? Plugin.Config.ChatColourOwnKey : AutoOwnColour(me);
+		if (Swatch("##ccown", shown, out var mine)) {
+			Plugin.Config.ChatColourOwnKey = mine;
+			Plugin.Config.ChatColourOwnCustom = true;
 			Plugin.Config.Save();
 		}
 
@@ -359,8 +429,6 @@ internal sealed class ChatColourFeature: IDisposable {
 			overrides.Add(new ChatColourOverride { Colour = ChatPalette.KeyFor(overrides.Count) });
 			Plugin.Config.Save();
 		}
-
-		_ = s;
 	}
 
 	private static readonly Dictionary<string, Vector3> WheelState = new();

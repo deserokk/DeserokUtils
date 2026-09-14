@@ -20,10 +20,7 @@ internal sealed unsafe class DresserPacker {
 	internal enum State { Idle, Waiting, Restoring, Storing, Confirming, Loose, Duplicates, Done, Failed }
 
 	private sealed record Job(
-		uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex, int FromDresser,
-		IReadOnlyList<int> Slots) {
-
-		public int ExpectedDelta => (this.ExistingIndex is null ? 1 : 0) - this.FromDresser;
+		uint SetItemId, string Name, List<uint> ItemIds, uint? ExistingIndex, int FromDresser) {
 
 		public int MaxGain => this.ExistingIndex is null ? 1 : 0;
 	}
@@ -93,27 +90,6 @@ internal sealed unsafe class DresserPacker {
 
 	private const int SetSlots = 11;
 
-	private static IReadOnlyList<int> SetSlotIndices(uint setItemId) {
-		var all = new List<int>();
-		for (var i = 0; i < SetSlots; i++) all.Add(i);
-
-		if (Plugin.Data.GetExcelSheet<MirageStoreSetItem>()?.GetRowOrDefault(setItemId)
-			is not { } row) return all;
-
-		var columns = new[] {
-			row.MainHand.RowId, row.OffHand.RowId, row.Head.RowId, row.Body.RowId,
-			row.Hands.RowId, row.Legs.RowId, row.Feet.RowId, row.Earrings.RowId,
-			row.Necklace.RowId, row.Bracelets.RowId, row.Ring.RowId,
-		};
-
-		var used = new List<int>();
-		for (var i = 0; i < columns.Length; i++) {
-			if (columns[i] != 0) used.Add(i);
-		}
-
-		return used.Count == 0 ? all : used;
-	}
-
 	private const int TickSettle = 4;
 
 	public State Current => this.state;
@@ -125,7 +101,6 @@ internal sealed unsafe class DresserPacker {
 	public int OutfitsExtended { get; private set; }
 	public int SlotsFreed { get; private set; }
 
-	private int usedAtStart;
 	private int predicted;
 
 	private int pass;
@@ -188,7 +163,6 @@ internal sealed unsafe class DresserPacker {
 		this.storingLoose = null;
 		if (fresh) this.LooseStored = 0;
 		this.Verified = null;
-		this.usedAtStart = r.Used;
 
 		if (this.pass == 0) {
 			this.pass = 1;
@@ -203,13 +177,13 @@ internal sealed unsafe class DresserPacker {
 		foreach (var a in r.Additions)
 			this.queue.Add(new Job(a.OutfitItemId, a.OutfitName,
 				a.Pieces.Select(p => p.ItemId).ToList(), a.OutfitIndex,
-				a.Pieces.Count(p => p.Index != uint.MaxValue), SetSlotIndices(a.OutfitItemId)));
+				a.Pieces.Count(p => p.Index != uint.MaxValue)));
 
 		if (this.stage == Stage.Outfits)
 		foreach (var o in r.NewOutfits)
 			this.queue.Add(new Job(o.SetItemId, o.SetName,
 				o.Pieces.Select(p => p.ItemId).ToList(), null,
-				o.Pieces.Count(p => p.Index != uint.MaxValue), SetSlotIndices(o.SetItemId)));
+				o.Pieces.Count(p => p.Index != uint.MaxValue)));
 
 		var needed = this.queue.Count == 0 ? 0 : this.queue.Max(j => j.FromDresser);
 		var free = FreeBagSlots();

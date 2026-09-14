@@ -60,7 +60,8 @@ internal static class PillionRider {
 				continue;
 
 			if (!((Character*)candidate.Address)->IsMounted()) {
-				Plugin.Diag($"Interact: \"{candidate.Name}\" is in range but not mounted.");
+				if (Plugin.Verbose)
+					Plugin.Diag($"Interact: \"{candidate.Name}\" is in range but not mounted.");
 				continue;
 			}
 

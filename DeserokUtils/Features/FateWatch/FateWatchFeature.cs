@@ -36,15 +36,21 @@ internal sealed class FateWatchFeature: IDisposable {
 		this.UpdateDtr();
 	}
 
+	private BitmapFontIcon lastIcon;
+	private string? lastText;
+	private string? lastTooltip;
+
 	private void UpdateDtr() {
 		if (!Plugin.Config.DtrEnabled || !Plugin.Config.FateWatchEnabled) {
-			this.dtr.Shown = false;
+			if (this.dtr.Shown)
+				this.dtr.Shown = false;
 			return;
 		}
 
 		var soonest = this.tracker.Soonest();
 		if (soonest is null) {
-			this.dtr.Shown = false;
+			if (this.dtr.Shown)
+				this.dtr.Shown = false;
 			return;
 		}
 
@@ -56,29 +62,39 @@ internal sealed class FateWatchFeature: IDisposable {
 			? $"<1m{(label.Length > 0 ? " " + label : "")}"
 			: $"{Math.Floor(mins):0}m{(label.Length > 0 ? " " + label : "")}";
 
-		this.dtr.Text = new SeStringBuilder().AddIcon(icon).AddText(text).Build();
-		this.dtr.Tooltip = this.BuildTooltip();
-		this.dtr.Shown = true;
+		if (icon != this.lastIcon || text != this.lastText) {
+			this.dtr.Text = new SeStringBuilder().AddIcon(icon).AddText(text).Build();
+			this.lastIcon = icon;
+			this.lastText = text;
+		}
+
+		string tooltip = this.BuildTooltip();
+		if (tooltip != this.lastTooltip) {
+			this.dtr.Tooltip = new SeStringBuilder().AddText(tooltip).Build();
+			this.lastTooltip = tooltip;
+		}
+
+		if (!this.dtr.Shown)
+			this.dtr.Shown = true;
 	}
 
-	private SeString BuildTooltip() {
-		var sb = new SeStringBuilder();
-		sb.AddText("PotWatch");
+	private string BuildTooltip() {
+		var sb = new System.Text.StringBuilder("PotWatch");
 
 		var rotation = FateTracker.CurrentRotation();
 		if (rotation is null) {
-			sb.AddText("\nno rotation for this zone");
-			return sb.Build();
+			sb.Append("\nno rotation for this zone");
+			return sb.ToString();
 		}
 
-		sb.AddText($"\n{rotation.Zone}");
+		sb.Append($"\n{rotation.Zone}");
 		foreach (string n in rotation.Members) {
 			string lbl = FateTracker.LabelFor(n);
-			sb.AddText($"\n{n}{(lbl.Length == 0 ? "" : $" [{lbl}]")}: ");
+			sb.Append($"\n{n}{(lbl.Length == 0 ? "" : $" [{lbl}]")}: ");
 			double? m = this.tracker.MinutesUntilNext(n);
-			sb.AddText(m is null ? "not seen yet" : $"{m:0.#} min");
+			sb.Append(m is null ? "not seen yet" : $"{m:0.#} min");
 		}
-		return sb.Build();
+		return sb.ToString();
 	}
 
 	private static string? FindMember(string typed) =>
