@@ -76,7 +76,24 @@ internal sealed class FoodFeature: IDisposable {
 		if (Plugin.ClientState.IsPvP)
 			return false;
 
+		if (SoloStoryZone(Plugin.ClientState.TerritoryType))
+			return false;
+
 		return true;
+	}
+
+	private uint soloCheckedFor = uint.MaxValue;
+	private bool soloAnswer;
+
+	private bool SoloStoryZone(uint territory) {
+		if (territory != this.soloCheckedFor) {
+			this.soloCheckedFor = territory;
+			var use = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()
+			                     .GetRowOrDefault(territory)?.TerritoryIntendedUse.RowId;
+			this.soloAnswer = use is 7 or 29;
+		}
+
+		return this.soloAnswer;
 	}
 
 	private static unsafe byte TrueLevel(PlayerState* state) {
@@ -265,6 +282,9 @@ internal sealed class FoodFeature: IDisposable {
 
 		var pvp = Plugin.ClientState.IsPvP;
 		Row("not PvP", !pvp, pvp ? "food is disabled in PvP" : string.Empty);
+
+		var solo = this.SoloStoryZone(Plugin.ClientState.TerritoryType);
+		Row("not a solo story fight", !solo, solo ? "solo quest battle" : string.Empty);
 
 		Row("unfed", !IsFed(), IsFed() ? "Well Fed is up" : string.Empty);
 
