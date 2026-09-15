@@ -79,6 +79,31 @@ internal sealed class FoodFeature: IDisposable {
 		if (SoloStoryZone(Plugin.ClientState.TerritoryType))
 			return false;
 
+		if (Unsynced(out _))
+			return false;
+
+		return true;
+	}
+
+	private static unsafe bool Unsynced(out string why) {
+		why = string.Empty;
+		if (!Plugin.Condition[ConditionFlag.BoundByDuty])
+			return false;
+
+		var game = FFXIVClientStructs.FFXIV.Client.Game.GameMain.Instance();
+		var ui = UIState.Instance();
+		if (game is null || ui is null)
+			return false;
+
+		var queue = ui->ContentsFinder.QueueInfo;
+		var duty = game->CurrentContentFinderConditionId;
+		if (duty == 0 || queue.PoppedQueueEntry.Id != duty)
+			return false;
+
+		if (!queue.PoppedContentIsUnrestrictedParty || queue.PoppedContentIsLevelSync)
+			return false;
+
+		why = "unrestricted party, level sync off";
 		return true;
 	}
 
@@ -295,6 +320,9 @@ internal sealed class FoodFeature: IDisposable {
 
 		Row("icon on", Plugin.Config.FoodShowIcon, Plugin.Config.FoodIconPreview ? "preview forcing it" : string.Empty);
 		Row("not in combat", !Plugin.Condition[ConditionFlag.InCombat], string.Empty);
+
+		var unsynced = Unsynced(out var why);
+		Row("not an unsynced run", !unsynced, why);
 	}
 
 	public void DrawTab() {
