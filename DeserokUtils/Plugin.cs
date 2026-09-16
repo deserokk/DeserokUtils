@@ -259,7 +259,16 @@ public sealed class Plugin: IDalamudPlugin {
 				Diagnostics = this.pvpVisibility.DrawDiagnostics,
 				Domains = [Domains.Visual], Icon = FontAwesomeIcon.Eye,
 				Get = () => Config.PvpVisibleEnabled,
-				Set = Save(v => { Config.PvpVisibleEnabled = v; this.pvpVisibility.Apply(); }),
+
+				Set = Save(v => {
+					if (v && !Features.PvpEffects.PvpVisibilityFeature.PenumbraReady) {
+						Chat.PrintError("[DeserokUtils] PvP limit break visibility needs Penumbra, which isn't running.");
+						return;
+					}
+
+					Config.PvpVisibleEnabled = v;
+					this.pvpVisibility.Apply();
+				}),
 			},
 			new TabEntry(marks.TabTitle, marks.Summary, marks.DrawTab) {
 				Domains = [Domains.Visual, Domains.Qol], Icon = FontAwesomeIcon.Star,
