@@ -24,9 +24,57 @@ internal sealed class PvpVisibilityFeature: IDisposable {
 	private string state = "not applied";
 	private int filesApplied;
 
-	public void Dispose() => this.Remove();
+	private static bool penumbraReady;
+	private static DateTime penumbraCheckedAt = DateTime.MinValue;
+
+	private static readonly TimeSpan CheckEvery = TimeSpan.FromSeconds(2);
+
+	internal static bool PenumbraReady {
+		get {
+			var now = DateTime.UtcNow;
+			if (now - penumbraCheckedAt < CheckEvery) return penumbraReady;
+
+			penumbraCheckedAt = now;
+
+			try {
+				new ApiVersion(Plugin.PluginInterface).Invoke();
+				penumbraReady = true;
+			}
+			catch {
+				penumbraReady = false;
+			}
+
+			return penumbraReady;
+		}
+	}
+
+	public PvpVisibilityFeature() => Plugin.Framework.Update += this.OnFramework;
+
+	public void Dispose() {
+		Plugin.Framework.Update -= this.OnFramework;
+		this.Remove();
+	}
+
+	private DateTime nextRetry = DateTime.MinValue;
+
+	private void OnFramework(Dalamud.Plugin.Services.IFramework framework) {
+		if (this.filesApplied > 0 || !Plugin.Config.PvpVisibleEnabled || Plugin.Config.PvpVisibleMoves.Count == 0)
+			return;
+
+		var now = DateTime.UtcNow;
+		if (now < this.nextRetry) return;
+		this.nextRetry = now.AddSeconds(5);
+
+		if (PenumbraReady) this.Apply();
+	}
 
 	internal void Apply() {
+		if (!PenumbraReady) {
+			this.state = "Penumbra is not running";
+			this.filesApplied = 0;
+			return;
+		}
+
 		if (!Plugin.Config.PvpVisibleEnabled || Plugin.Config.PvpVisibleMoves.Count == 0) {
 			this.Remove();
 			return;
@@ -91,6 +139,11 @@ internal sealed class PvpVisibilityFeature: IDisposable {
 	}
 
 	public void DrawTab() {
+		if (!PenumbraReady) {
+			ImGui.TextColored(new Vector4(1f, 0.4f, 0.35f, 1f), "Penumbra isn't running.");
+			ImGui.TextDisabled("This needs Penumbra to serve the edited copies. Install or enable it, and come back.");
+			return;
+		}
 
 		if (!Plugin.Config.PvpVisibleEnabled)
 			ImGui.TextColored(new Vector4(1f, 0.7f, 0.2f, 1f), "Switched off. Ticking one below switches it on.");
@@ -175,6 +228,7 @@ internal sealed class PvpVisibilityFeature: IDisposable {
 			ImGui.TextDisabled($"{label}  {detail}");
 		}
 
+		Row("Penumbra running", PenumbraReady, PenumbraReady ? string.Empty : "this feature needs it");
 		Row("feature on", Plugin.Config.PvpVisibleEnabled, string.Empty);
 		Row("parts picked", Plugin.Config.PvpVisibleMoves.Count > 0, $"{Plugin.Config.PvpVisibleMoves.Count} ticked");
 		Row("handed to Penumbra", this.filesApplied > 0, $"{this.filesApplied} files, {this.state}");
