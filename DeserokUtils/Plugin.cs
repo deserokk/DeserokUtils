@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -60,6 +60,7 @@ public sealed class Plugin: IDalamudPlugin {
 	internal static IAddonLifecycle AddonLifecycle { get; private set; } = null!;
 	internal static ICondition Condition { get; private set; } = null!;
 	internal static IGameGui GameGui { get; private set; } = null!;
+	internal static IGameConfig GameConfig { get; private set; } = null!;
 	internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
 	internal static IKeyState Keys { get; private set; } = null!;
 	internal static ITextureProvider Textures { get; private set; } = null!;
@@ -93,6 +94,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly Features.AchievementData.AchievementPreload achievements;
 	private readonly Features.DebuffMarks.DebuffMarksFeature debuffs;
 	private readonly InteractFeature interact;
+	private readonly Features.PvpEffects.PvpVisibilityFeature pvpVisibility;
 
 	private readonly Input.KeybindWatcher keybinds = new();
 
@@ -114,6 +116,7 @@ public sealed class Plugin: IDalamudPlugin {
 		IAddonLifecycle addonLifecycle,
 		ICondition condition,
 		IGameGui gameGui,
+		IGameConfig gameConfig,
 		IKeyState keys,
 		ITextureProvider textures) {
 
@@ -133,6 +136,7 @@ public sealed class Plugin: IDalamudPlugin {
 		AddonLifecycle = addonLifecycle;
 		Condition = condition;
 		GameGui = gameGui;
+		GameConfig = gameConfig;
 		Keys = keys;
 		Textures = textures;
 		PluginInterface = pluginInterface;
@@ -144,6 +148,10 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(castWatch);
 		this.fateWatch = new FateWatchFeature();
 		this.features.Add(this.fateWatch);
+
+		this.pvpVisibility = new Features.PvpEffects.PvpVisibilityFeature();
+		this.pvpVisibility.Apply();
+		this.features.Add(this.pvpVisibility);
 		this.fcBuffs = new FcBuffsFeature();
 		this.features.Add(this.fcBuffs);
 		var drawSheathe = new DrawSheatheFeature();
@@ -247,6 +255,12 @@ public sealed class Plugin: IDalamudPlugin {
 				Domains = [Domains.Qol], Icon = FontAwesomeIcon.HandPointer,
 				BindName = "interact", Bind = () => Config.InteractKey, BindRepeats = true,
 			},
+			new TabEntry(this.pvpVisibility.TabTitle, this.pvpVisibility.Summary, this.pvpVisibility.DrawTab) {
+				Diagnostics = this.pvpVisibility.DrawDiagnostics,
+				Domains = [Domains.Visual], Icon = FontAwesomeIcon.Eye,
+				Get = () => Config.PvpVisibleEnabled,
+				Set = Save(v => { Config.PvpVisibleEnabled = v; this.pvpVisibility.Apply(); }),
+			},
 			new TabEntry(marks.TabTitle, marks.Summary, marks.DrawTab) {
 				Domains = [Domains.Visual, Domains.Qol], Icon = FontAwesomeIcon.Star,
 				Get = () => Config.MarksEnabled, Set = Save(v => Config.MarksEnabled = v),
@@ -335,6 +349,7 @@ public sealed class Plugin: IDalamudPlugin {
 		OpenWindow = this.OpenMain;
 		Framework.Update += this.OnFrameworkUpdate;
 		CallCounter.Register();
+		Features.PvpEffects.VfxSniffer.Register();
 
 		Plugin.RegisterSub("dresser", "Report what your glamour dresser could pack away.", (_, arg) => {
 			var a = arg.Trim();
@@ -477,6 +492,7 @@ public sealed class Plugin: IDalamudPlugin {
 	public void Dispose() {
 		Framework.Update -= this.OnFrameworkUpdate;
 		CallCounter.Dispose();
+		Features.PvpEffects.VfxSniffer.Dispose();
 		Config.FlushPending(idle: true);
 		Commands.RemoveHandler("/dsu");
 		Commands.RemoveHandler("/dsufanfare");

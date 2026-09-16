@@ -246,6 +246,10 @@ public sealed class Configuration: IPluginConfiguration {
 	public bool ChatColourOwnCustom { get; set; }
 	public ushort ChatColourOwnKey { get; set; }
 
+	public bool PvpVisibleEnabled { get; set; }
+
+	public HashSet<uint> PvpVisibleMoves { get; set; } = [];
+
 	public bool EarshotEnabled { get; set; }
 
 	public bool FoodEnabled { get; set; }

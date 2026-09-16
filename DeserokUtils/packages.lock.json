@@ -14,6 +14,15 @@
         "resolved": "1.2.39",
         "contentHash": "fcFN01tDTIQqDuTwr1jUQK/geofiwjG5DycJQOnC72i1SsLAk1ELe+apBOuZ11UMQG8YKFZG1FgvjZPbqHyatg=="
       },
+      "Microsoft.Extensions.Logging.Abstractions": {
+        "type": "Direct",
+        "requested": "[9.0.0, )",
+        "resolved": "9.0.0",
+        "contentHash": "g0UfujELzlLbHoVG8kPKVBaW470Ewi+jnptGS9KUi6jcb+k2StujtK3m26DFSGGwQ/+bVgZfsWqNzlP6YOejvw==",
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.0"
+        }
+      },
       "NAudio": {
         "type": "Direct",
         "requested": "[2.2.1, )",
@@ -27,6 +36,17 @@
           "NAudio.WinForms": "2.2.1",
           "NAudio.WinMM": "2.2.1"
         }
+      },
+      "Penumbra.Api": {
+        "type": "Direct",
+        "requested": "[5.19.1, )",
+        "resolved": "5.19.1",
+        "contentHash": "QPoOajzNZJblbaKegp5XsFS+1MsU7QiOlH5lljykr5kepVdCQBFh5RB5pR7gXFGy3MzziIKo5hnh1KHqQrfeTg=="
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "+6f2qv2a3dLwd5w6JanPIPs47CxRbnk+ZocMJUhv9NxP88VlOcJYZs9jY+MYSjxvady08bUZn6qgiNh7DadGgg=="
       },
       "NAudio.Asio": {
         "type": "Transitive",
