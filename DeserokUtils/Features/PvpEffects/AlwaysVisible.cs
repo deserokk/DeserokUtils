@@ -56,7 +56,17 @@ internal static class TmbPatch {
 
 			Directory.CreateDirectory(Folder);
 			var disk = DiskPath(animationKey);
-			File.WriteAllBytes(disk, result.Bytes);
+
+			if (File.Exists(disk) && File.ReadAllBytes(disk).AsSpan().SequenceEqual(result.Bytes))
+				return (game, disk);
+
+			try {
+				File.WriteAllBytes(disk, result.Bytes);
+			}
+			catch (IOException) when (File.Exists(disk)) {
+
+				Plugin.Log.Debug($"PvP visibility: {disk} is in use, keeping the copy already there.");
+			}
 
 			return (game, disk);
 		}
