@@ -95,6 +95,7 @@ public sealed class Plugin: IDalamudPlugin {
 	private readonly Features.DebuffMarks.DebuffMarksFeature debuffs;
 	private readonly InteractFeature interact;
 	private readonly Features.PvpEffects.PvpVisibilityFeature pvpVisibility;
+	private readonly Features.Currency.CurrencyRowFeature currencyRow;
 
 	private readonly Input.KeybindWatcher keybinds = new();
 
@@ -148,6 +149,9 @@ public sealed class Plugin: IDalamudPlugin {
 		this.features.Add(castWatch);
 		this.fateWatch = new FateWatchFeature();
 		this.features.Add(this.fateWatch);
+
+		this.currencyRow = new Features.Currency.CurrencyRowFeature();
+		this.features.Add(this.currencyRow);
 
 		this.pvpVisibility = new Features.PvpEffects.PvpVisibilityFeature();
 		this.pvpVisibility.Apply();
@@ -269,6 +273,11 @@ public sealed class Plugin: IDalamudPlugin {
 					Config.PvpVisibleEnabled = v;
 					this.pvpVisibility.Apply();
 				}),
+			},
+			new TabEntry(this.currencyRow.TabTitle, this.currencyRow.Summary, this.currencyRow.DrawTab) {
+				Diagnostics = this.currencyRow.DrawDiagnostics,
+				Domains = [Domains.Visual, Domains.Qol], Icon = FontAwesomeIcon.Coins,
+				Get = () => Config.CurrencyRowEnabled, Set = Save(v => Config.CurrencyRowEnabled = v),
 			},
 			new TabEntry(marks.TabTitle, marks.Summary, marks.DrawTab) {
 				Domains = [Domains.Visual, Domains.Qol], Icon = FontAwesomeIcon.Star,

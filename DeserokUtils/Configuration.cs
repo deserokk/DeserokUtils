@@ -250,6 +250,20 @@ public sealed class Configuration: IPluginConfiguration {
 
 	public HashSet<uint> PvpVisibleMoves { get; set; } = [];
 
+	public bool CurrencyRowEnabled { get; set; }
+
+	public List<Features.Currency.CurrencyEntry> CurrencyTrackedList { get; set; } = [];
+
+	public HashSet<uint> CurrencyHidden { get; set; } = [];
+
+	public float CurrencyRowScale { get; set; } = 1f;
+
+	public float CurrencyRowTextScale { get; set; } = 0.7f;
+
+	public float CurrencyRowOffsetY { get; set; }
+
+	public bool CurrencyRowTooltips { get; set; } = true;
+
 	public bool EarshotEnabled { get; set; }
 
 	public bool FoodEnabled { get; set; }
