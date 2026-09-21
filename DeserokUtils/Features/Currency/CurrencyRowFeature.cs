@@ -27,8 +27,6 @@ internal sealed class CurrencyRowFeature: IDisposable {
 
 	private readonly EphemeralMarks.MarkFont font = new(EphemeralMarks.MarkFace.Axis);
 
-	private uint lastSeenIcon;
-
 	public CurrencyRowFeature() {
 		Plugin.PluginInterface.UiBuilder.Draw += this.Draw;
 
@@ -88,7 +86,7 @@ internal sealed class CurrencyRowFeature: IDisposable {
 				FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.UInt => value.UInt.ToString(),
 				FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.Bool => value.Byte.ToString(),
 				FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.String or
-					FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.String8 or
+					FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.ConstString or
 					FFXIVClientStructs.FFXIV.Component.GUI.AtkValueType.ManagedString
 					=> value.String.ToString(),
 				_ => string.Empty,

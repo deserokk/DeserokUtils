@@ -30,6 +30,8 @@ internal sealed class PartyJobsFeature: IDisposable {
 	private string lastNote = "nothing yet";
 	private int drawnLastFrame;
 
+	private readonly List<string> rowsSeen = new();
+
 	private Vector2 lastSize;
 
 	public PartyJobsFeature() {
@@ -81,6 +83,7 @@ internal sealed class PartyJobsFeature: IDisposable {
 
 	private unsafe void Draw() {
 		this.drawnLastFrame = 0;
+		this.rowsSeen.Clear();
 
 		if (!Plugin.Config.PartyJobsEnabled)
 			return;
@@ -120,7 +123,10 @@ internal sealed class PartyJobsFeature: IDisposable {
 				return;
 
 			string rowText = rows[i].Name->NodeText.ExtractText();
-			if (!TryMatch(jobs, rowText, out byte job) || job == 0)
+			var matched = TryMatch(jobs, rowText, out byte job, out string how);
+			this.rowsSeen.Add($"\"{rowText}\" -> {how}");
+
+			if (!matched || job == 0)
 				continue;
 
 			var node = icon->AtkResNode;
@@ -158,15 +164,62 @@ internal sealed class PartyJobsFeature: IDisposable {
 		return map;
 	}
 
-	private static bool TryMatch(Dictionary<string, byte> jobs, string rowText, out byte job) {
+	private static bool TryMatch(Dictionary<string, byte> jobs, string rowText, out byte job, out string how) {
 		foreach (var pair in jobs) {
 			if (rowText.EndsWith(pair.Key, StringComparison.Ordinal)) {
 				job = pair.Value;
+				how = "exact";
 				return true;
 			}
 		}
-		job = 0;
-		return false;
+
+		var visible = rowText.TrimEnd();
+		if (visible.EndsWith('\u2026')) visible = visible[..^1];
+		else if (visible.EndsWith("...", StringComparison.Ordinal)) visible = visible[..^3];
+		visible = visible.TrimEnd();
+
+		string? best = null;
+		int bestLength = 0;
+		bool tied = false;
+
+		foreach (var pair in jobs) {
+			int overlap = Overlap(visible, pair.Key);
+			if (overlap < MinOverlap) continue;
+
+			if (overlap > bestLength) {
+				best = pair.Key;
+				bestLength = overlap;
+				tied = false;
+			}
+			else if (overlap == bestLength) {
+				tied = true;
+			}
+		}
+
+		if (best is null || tied) {
+			job = 0;
+			how = tied ? "truncated, two members fit, left blank" : "no match";
+			return false;
+		}
+
+		job = jobs[best];
+		how = $"truncated, {bestLength} characters";
+		return true;
+	}
+
+	private const int MinOverlap = 4;
+
+	private static int Overlap(string visible, string name) {
+		for (int k = Math.Min(visible.Length, name.Length); k > 0; k--) {
+			if (!visible.EndsWith(name.AsSpan(0, k), StringComparison.Ordinal))
+				continue;
+
+			int before = visible.Length - k - 1;
+			if (before < 0 || visible[before] == ' ')
+				return k;
+		}
+
+		return 0;
 	}
 
 	public void DrawTab() {
@@ -185,7 +238,8 @@ internal sealed class PartyJobsFeature: IDisposable {
 	public void DrawDiagnostics()
 		=> ImGui.TextDisabled(
 			$"drawing {this.drawnLastFrame} icon(s) at {this.lastSize.X:0}x{this.lastSize.Y:0}px"
-			+ $" | {this.lastNote}");
+			+ $" | {this.lastNote}"
+			+ (this.rowsSeen.Count == 0 ? string.Empty : "\n   " + string.Join("\n   ", this.rowsSeen)));
 
 	public void Dispose() {
 		Plugin.PluginInterface.UiBuilder.Draw -= this.Draw;
