@@ -640,8 +640,11 @@ internal sealed class OptionsWindow: Window {
 
 			ImGui.Dummy(new Vector2(0f, 10f * s));
 
+			DiagLog.Begin();
+
 			foreach (var tool in withTools) {
 				if (ImGui.CollapsingHeader(tool.Title)) {
+					DiagLog.Section(tool.Title);
 					ImGui.Indent(12f * s);
 					tool.Diagnostics!();
 					ImGui.Unindent(12f * s);
@@ -651,6 +654,14 @@ internal sealed class OptionsWindow: Window {
 
 			if (withTools.Count == 0)
 				ImGui.TextDisabled("Nothing here has a debug surface yet.");
+
+			if (!DiagLog.Empty) {
+				if (ImGui.Button("Copy##diagcopy"))
+					ImGui.SetClipboardText(DiagLog.Text);
+
+				ImGui.SameLine(0f, 8f * s);
+				ImGui.TextDisabled("copies the sections you have open");
+			}
 		}
 
 		ImGui.Dummy(new Vector2(0f, 18f * s));

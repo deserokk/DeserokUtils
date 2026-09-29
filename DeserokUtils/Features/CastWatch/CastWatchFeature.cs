@@ -241,6 +241,8 @@ internal sealed class CastWatchFeature: IDisposable {
 		ImGui.TextUnformatted(cmd);
 		ImGui.TableNextColumn();
 		ImGui.TextWrapped(what);
+
+		UI.DiagLog.Line($"{cmd}  {what}");
 	}
 
 	private static (string Remainder, TargetFilter Filter) ParseFilter(string input) {

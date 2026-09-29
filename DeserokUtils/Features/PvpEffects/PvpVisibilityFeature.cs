@@ -226,6 +226,8 @@ internal sealed class PvpVisibilityFeature: IDisposable {
 			ImGui.TextUnformatted(ok ? "PASS" : "no  ");
 			ImGui.SameLine();
 			ImGui.TextDisabled($"{label}  {detail}");
+
+			UI.DiagLog.Row(label, ok, detail);
 		}
 
 		Row("Penumbra running", PenumbraReady, PenumbraReady ? string.Empty : "this feature needs it");
