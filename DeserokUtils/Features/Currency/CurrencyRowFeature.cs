@@ -354,6 +354,8 @@ internal sealed class CurrencyRowFeature: IDisposable {
 			ImGui.TextUnformatted(ok ? "PASS" : "no  ");
 			ImGui.SameLine();
 			ImGui.TextDisabled($"{label}  {detail}");
+
+			UI.DiagLog.Row(label, ok, detail);
 		}
 
 		Row("feature on", Plugin.Config.CurrencyRowEnabled, string.Empty);

@@ -79,6 +79,9 @@ internal sealed class FoodFeature: IDisposable {
 		if (SoloStoryZone(Plugin.ClientState.TerritoryType))
 			return false;
 
+		if (this.QuestInstance(out _))
+			return false;
+
 		if (Unsynced(out _))
 			return false;
 
@@ -107,15 +110,46 @@ internal sealed class FoodFeature: IDisposable {
 		return true;
 	}
 
+	private uint questCheckedFor = uint.MaxValue;
+	private bool questAnswer;
+
+	private unsafe bool QuestInstance(out string why) {
+		why = string.Empty;
+		if (!Plugin.Condition[ConditionFlag.BoundByDuty])
+			return false;
+
+		var game = FFXIVClientStructs.FFXIV.Client.Game.GameMain.Instance();
+		if (game is null)
+			return false;
+
+		var duty = (uint)game->CurrentContentFinderConditionId;
+		if (duty == 0)
+			return false;
+
+		if (duty != this.questCheckedFor) {
+			this.questCheckedFor = duty;
+			var row = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>()
+			                     .GetRowOrDefault(duty);
+			this.questAnswer = row is not null && row.Value.ContentType.RowId == 0;
+		}
+
+		if (this.questAnswer)
+			why = "a quest's own instance";
+
+		return this.questAnswer;
+	}
+
 	private uint soloCheckedFor = uint.MaxValue;
 	private bool soloAnswer;
+
+	private uint soloUse;
 
 	private bool SoloStoryZone(uint territory) {
 		if (territory != this.soloCheckedFor) {
 			this.soloCheckedFor = territory;
-			var use = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()
-			                     .GetRowOrDefault(territory)?.TerritoryIntendedUse.RowId;
-			this.soloAnswer = use is 7 or 29;
+			this.soloUse = Plugin.Data.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>()
+			                          .GetRowOrDefault(territory)?.TerritoryIntendedUse.RowId ?? 0;
+			this.soloAnswer = this.soloUse is 7 or 29;
 		}
 
 		return this.soloAnswer;
@@ -286,6 +320,8 @@ internal sealed class FoodFeature: IDisposable {
 			ImGui.TextUnformatted(ok ? "PASS" : "no  ");
 			ImGui.SameLine();
 			ImGui.TextDisabled($"{label}  {detail}");
+
+			UI.DiagLog.Row(label, ok, detail);
 		}
 
 		Row("feature on", Plugin.Config.FoodEnabled, string.Empty);
@@ -309,7 +345,11 @@ internal sealed class FoodFeature: IDisposable {
 		Row("not PvP", !pvp, pvp ? "food is disabled in PvP" : string.Empty);
 
 		var solo = this.SoloStoryZone(Plugin.ClientState.TerritoryType);
-		Row("not a solo story fight", !solo, solo ? "solo quest battle" : string.Empty);
+		Row("not a solo story fight", !solo,
+			solo ? "solo quest battle" : $"zone {Plugin.ClientState.TerritoryType}, use {this.soloUse}");
+
+		var quest = this.QuestInstance(out var questWhy);
+		Row("not a quest instance", !quest, questWhy);
 
 		Row("unfed", !IsFed(), IsFed() ? "Well Fed is up" : string.Empty);
 

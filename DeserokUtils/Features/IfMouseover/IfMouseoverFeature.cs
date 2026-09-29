@@ -286,6 +286,8 @@ internal sealed unsafe class IfMouseoverFeature: IDisposable {
 		ImGui.TextUnformatted(token);
 		ImGui.TableNextColumn();
 		ImGui.TextWrapped(what);
+
+		UI.DiagLog.Line($"{token}  {what}");
 	}
 
 	private static string Reason(uint status) => Features.ItemUse.ItemUseFeature.Reason(status);
