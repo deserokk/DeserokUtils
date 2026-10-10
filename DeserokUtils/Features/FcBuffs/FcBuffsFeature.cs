@@ -29,7 +29,7 @@ internal sealed class FcBuffsFeature: IDisposable {
 
 	public string TabTitle => "FC buffs";
 
-	public string Summary => "Keeps your Free Company's buffs running, and says something before one lapses.";
+	public string Summary => "Keeps your Free Company's buffs running, and warns you before one runs out.";
 
 	public FcBuffsFeature() {
 		Plugin.RegisterSub("fcbuffs", "Refresh a Free Company buff now.", this.OnCommand);

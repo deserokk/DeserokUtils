@@ -179,7 +179,7 @@ internal sealed unsafe class DresserTooltip {
 
 		if (owned is { } have) {
 			lines.Payloads.Add(new UIForegroundPayload(OwnedColour));
-			lines.Payloads.Add(new TextPayload($"\u2713 You have this appearance — {have.Where}"));
+			lines.Payloads.Add(new TextPayload($"\u2713 You have this appearance: {have.Where}"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 
 			if (have.Set is { } set) Detail(lines, set, OwnedColour);
@@ -189,7 +189,7 @@ internal sealed unsafe class DresserTooltip {
 			lines.Payloads.Add(new UIForegroundPayload(WantedColour));
 
 			lines.Payloads.Add(new TextPayload(
-				need.Completes ? " Not in your dresser — completes a set!" : " You need this for an outfit"));
+				need.Completes ? " Not in your dresser. Completes a set!" : " You need this for an outfit"));
 			lines.Payloads.Add(new UIForegroundPayload(0));
 
 			Detail(lines, need.Set, WantedColour);

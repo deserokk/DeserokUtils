@@ -15,7 +15,7 @@ namespace DeserokUtils.Features.PvpEffects;
 internal sealed class PvpVisibilityFeature: IDisposable {
 	public string TabTitle => "PvP limit break visibility";
 
-	public string Summary => "Keeps chosen limit break effects visible on limited battle effects.";
+	public string Summary => "Keeps the limit breaks you pick visible when battle effects are limited.";
 
 	private const string Tag = "DeserokUtils.PvpVisibility";
 

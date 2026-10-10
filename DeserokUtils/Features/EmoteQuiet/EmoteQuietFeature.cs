@@ -10,7 +10,7 @@ namespace DeserokUtils.Features.EmoteQuiet;
 internal sealed class EmoteQuietFeature: IDisposable {
 	public string TabTitle => "EmoteQuiet";
 
-	public string Summary => "Prevents emote spam while the game's own log messages stay on, for a configurable amount of time.";
+	public string Summary => "Hides emote spam for a set time, leaving the game's own log messages on.";
 
 	private readonly EmoteInterceptor interceptor = new();
 	private readonly IncomingEmoteFilter incoming = new();

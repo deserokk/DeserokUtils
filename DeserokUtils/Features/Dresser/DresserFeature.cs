@@ -15,7 +15,7 @@ internal sealed class DresserFeature {
 
 	public string TabTitle => "Dresser";
 
-	public string Summary => "Find outfits you could pack away, and duplicates you did not know about.";
+	public string Summary => "Finds outfits you could pack away, and duplicates sitting in your inventory.";
 
 	private readonly DresserScan scan = new();
 	private DresserScan.Result? last;
@@ -128,7 +128,7 @@ internal sealed class DresserFeature {
 			ImGui.SetTooltip(
 				"Adds a line to the game's own item tooltips, anywhere they appear:" + Nl
 				+ "a vendor, the market board, your bags, a Need/Greed roll." + Nl + Nl
-				+ "    ✓ You have this appearance — Armoury Chest" + Nl
+				+ "    ✓ You have this appearance: Armoury Chest" + Nl
 				+ "    ! You need this for an outfit" + Nl
 				+ "    x You do not have this appearance" + Nl + Nl
 				+ "The dresser half is remembered from your last scan, because the game" + Nl
@@ -157,8 +157,8 @@ internal sealed class DresserFeature {
 		if (ImGui.IsItemHovered())
 			ImGui.SetTooltip(
 				"The Armoire stores gear for free, where an outfit still costs a slot." + Nl
-				+ "Adds a second button that takes those pieces out of the dresser — and" + Nl
-				+ "takes apart outfits it would accept whole — and puts them in." + Nl + Nl
+				+ "Adds a second button that pulls those pieces back out of the dresser," + Nl
+				+ "breaking up whole outfits where it has to, and stores them." + Nl + Nl
 				+ "Stand near your Armoire and it will open it for you.");
 
 	}

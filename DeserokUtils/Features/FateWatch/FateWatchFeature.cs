@@ -15,7 +15,7 @@ internal sealed class FateWatchFeature: IDisposable {
 
 	public string TabTitle => "PotWatch";
 
-	public string Summary => "Warns you before an Occult Crescent pot FATE spawns. Four FATEs, on a cycle the game shows nowhere.";
+	public string Summary => "Warns you before one of the four Occult Crescent pot FATEs spawns.";
 
 	public FateWatchFeature() {
 		Plugin.RegisterSub("potwatch", "Show cyclic FATE timers, or set a cycle by hand.", this.OnCommand);

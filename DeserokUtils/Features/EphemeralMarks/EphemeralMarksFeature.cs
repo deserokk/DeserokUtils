@@ -334,7 +334,7 @@ internal sealed unsafe class EphemeralMarksFeature: IDisposable {
 			Plugin.Config.Save();
 		ImGui.TextWrapped(
 			"On top of an automatic scale from your resolution, so this is taste rather than a fix for "
-			+ "screen size — 1080p and 1440p already get the same apparent size at 1.00x.");
+			+ "screen size, since 1080p and 1440p already get the same apparent size at 1.00x.");
 
 		ImGui.Spacing();
 		float height = Plugin.Config.MarksHeight;

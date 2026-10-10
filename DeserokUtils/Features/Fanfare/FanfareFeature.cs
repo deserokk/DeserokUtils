@@ -118,7 +118,7 @@ internal sealed class FanfareFeature: IDisposable {
 		ImGui.TextWrapped(
 			"The separate Fanfare plugin is also running, so this copy is holding off to avoid two "
 			+ "popups for one achievement. Disable or uninstall Fanfare and these settings unlock on "
-			+ "their own — your old ones are already here.");
+			+ "their own, and your old ones are already here.");
 		ImGui.Separator();
 
 		ImGui.BeginDisabled();
