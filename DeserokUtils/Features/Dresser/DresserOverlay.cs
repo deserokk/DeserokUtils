@@ -199,7 +199,7 @@ internal sealed unsafe class DresserOverlay {
 
 		if (work == 0) {
 			ImGui.TextDisabled(result.ArmoireEligible.Count > 0
-				? "No outfits to pack — but see the armoire pieces above."
+				? "No outfits to pack, but see the armoire pieces above."
 				: "Nothing left to pack.");
 			return;
 		}
@@ -227,7 +227,7 @@ internal sealed unsafe class DresserOverlay {
 			ImGui.TextDisabled($"{result.OutfitsStarted} outfit(s) would be started from one piece");
 			if (ImGui.IsItemHovered())
 				ImGui.SetTooltip(
-					"No slots recovered now — one in, one out.\n\n"
+					"No slots recovered now, one goes in as one comes out.\n\n"
 					+ "But once an outfit exists, every future piece of that set joins it\n"
 					+ "for a whole free slot instead of sitting loose. Costs a prism each.");
 		}
@@ -246,7 +246,7 @@ internal sealed unsafe class DresserOverlay {
 			ImGui.TextDisabled($"{result.InUseByPlate.Count} piece(s) used by a glamour plate");
 			if (ImGui.IsItemHovered())
 				ImGui.SetTooltip(
-					"Still packable — the game asks to confirm, and that is answered for you:\n\n  "
+					"Still packable. The game asks to confirm, and that is answered for you:\n\n  "
 					+ string.Join("\n  ", System.Linq.Enumerable.Take(result.InUseByPlate, 12)));
 		}
 
@@ -297,12 +297,12 @@ internal sealed unsafe class DresserOverlay {
 			if (!room) ImGui.EndDisabled();
 			if (ImGui.IsItemHovered())
 				ImGui.SetTooltip(
-					"Takes a few minutes. Keep this window open — it stops if you close it.\n\n"
+					"Takes a few minutes. Keep this window open; it stops if you close it.\n\n"
 					+ "Undo any of it by right-clicking an outfit and choosing Restore Item.");
 		}
 		else {
 
-			ImGui.TextDisabled("Packing is off in this build — see the tab for why.");
+			ImGui.TextDisabled("Packing is off in this build. See the tab for why.");
 		}
 
 		foreach (var why in packer.Skipped) {

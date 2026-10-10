@@ -12,7 +12,7 @@ namespace DeserokUtils.Features.MacroIcons;
 internal sealed unsafe class MacroIconFeature: IDisposable {
 	public string TabTitle => "Macro icons";
 
-	public string Summary => "Gives a macro the icon of the item it uses, or of whatever its name says it does.";
+	public string Summary => "Gives a macro the icon of the item it uses, or one matching its name.";
 
 	private delegate bool TryResolveMacroIconDelegate(
 		RaptureMacroModule* module,

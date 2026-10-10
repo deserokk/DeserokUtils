@@ -11,7 +11,7 @@ namespace DeserokUtils.Features.Interact;
 internal sealed class InteractFeature: IDisposable {
 	public string TabTitle => "Interact";
 
-	public string Summary => "A key that operates the thing in front of you and nothing else — never a menu, never a cursor.";
+	public string Summary => "Interacts with whatever is directly in front of you, with no menu or cursor.";
 
 	private readonly InteractSniffer sniffer = new();
 

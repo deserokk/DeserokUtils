@@ -10,7 +10,7 @@ namespace DeserokUtils.Features.ItemUse;
 
 internal sealed unsafe class ItemUseFeature: IDisposable {
 	public string SectionTitle => "Items";
-	public string Summary => "/dsuitem -- use an item on a target from a macro. The game has no command for this at all; combine with /ifmo for mouseover.";
+	public string Summary => "/dsuitem -- use an item on a target from a macro. Combine with /ifmo for mouseover.";
 
 	private const uint FromAnywhere = 0xFFFF;
 

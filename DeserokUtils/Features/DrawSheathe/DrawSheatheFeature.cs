@@ -14,7 +14,7 @@ namespace DeserokUtils.Features.DrawSheathe;
 internal sealed class DrawSheatheFeature: IDisposable {
 	public string TabTitle => "DrawSheathe";
 
-	public string Summary => "One key that draws or sheathes, whichever is currently correct, with the Gold Saucer emotes where they work.";
+	public string Summary => "One key that draws or sheathes your weapon, plus the Gold Saucer emotes where they work.";
 
 	private readonly WeaponStateSniffer sniffer = new();
 

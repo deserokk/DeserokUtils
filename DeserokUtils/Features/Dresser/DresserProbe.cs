@@ -35,7 +35,7 @@ internal static unsafe class DresserProbe {
 				new Dalamud.Game.Text.SeStringHandling.Payloads.UIForegroundPayload((ushort)row));
 			sample.Payloads.Add(
 				new Dalamud.Game.Text.SeStringHandling.Payloads.TextPayload(
-					"✓ You have this — loose in your glamour dresser"));
+					"✓ You have this: loose in your glamour dresser"));
 			sample.Payloads.Add(
 				new Dalamud.Game.Text.SeStringHandling.Payloads.UIForegroundPayload(0));
 

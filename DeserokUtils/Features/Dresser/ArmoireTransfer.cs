@@ -90,7 +90,7 @@ internal sealed unsafe class ArmoireTransfer {
 
 		if (this.queue.Count == 0 && this.dissolve.Count == 0) {
 			this.state = State.Done;
-			this.Status = "Nothing to move — you are wearing the pieces the Armoire would take.";
+			this.Status = "Nothing to move. You are wearing the pieces the Armoire would take.";
 			Plugin.Chat.Print($"Dresser: {this.Status}");
 			return;
 		}
@@ -164,12 +164,12 @@ internal sealed unsafe class ArmoireTransfer {
 
 		if (this.opens >= MaxOpenAttempts) {
 			DresserProbe.Visible("after interacting with the Armoire");
-			this.Fail("Could not open your Armoire — open it once yourself and try again.");
+			this.Fail("Could not open your Armoire. Open it once yourself and try again.");
 			return;
 		}
 
 		if (FindArmoire() is not { } armoire) {
-			this.Fail("No Armoire nearby — stand next to one and try again.");
+			this.Fail("No Armoire nearby. Stand next to one and try again.");
 			return;
 		}
 
@@ -530,11 +530,11 @@ internal sealed unsafe class ArmoireTransfer {
 
 		if (this.Stored > 0 && this.Unpacked > 0) {
 			this.Status = $"Took apart {Plural(this.Unpacked, "outfit")} and moved "
-			            + $"{Plural(this.Stored, "piece")} to your Armoire — "
+			            + $"{Plural(this.Stored, "piece")} to your Armoire, "
 			            + $"{Plural(this.Stored + this.Unpacked, "dresser slot")} freed.";
 		}
 		else if (this.Stored > 0) {
-			this.Status = $"Moved {Plural(this.Stored, "piece")} to your Armoire — "
+			this.Status = $"Moved {Plural(this.Stored, "piece")} to your Armoire, "
 			            + $"{Plural(this.Stored, "dresser slot")} freed.";
 		}
 		else if (this.Unpacked > 0) {
@@ -546,7 +546,7 @@ internal sealed unsafe class ArmoireTransfer {
 		}
 
 		if (this.failed.Count > 0)
-			this.Status += $" {this.failed.Count} could not be moved — see the list.";
+			this.Status += $" {this.failed.Count} could not be moved. See the list.";
 
 		Plugin.Chat.Print($"Dresser: {this.Status}");
 		DresserLog.Step($"=== ARMOIRE DONE: {this.Status} ===");
